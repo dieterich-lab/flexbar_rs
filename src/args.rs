@@ -1,3 +1,4 @@
+use crate::types::*;
 use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -62,7 +63,7 @@ pub struct Args {
 
     /// Type of detection: ANY, LEFT, RIGHT, LTAIL, RTAIL
     #[arg(long = "barcode-trim-end", alias = "bt", default_value = "LTAIL")]
-    pub barcode_trim_end: String,
+    pub barcode_trim_end: TrimEnd,
 
     /// Region size in tail trim-end modes
     #[arg(long = "barcode-tail-length", alias = "bn")]
@@ -103,7 +104,7 @@ pub struct Args {
 
     /// Adapter preset: TruSeq, SmallRNA, Methyl, Ribo, Nextera, NexteraMP
     #[arg(long = "adapter-preset", alias = "aa")]
-    pub adapter_preset: Option<String>,
+    pub adapter_preset: Option<AdapterPreset>,
 
     /// Minimum overlap for removal without pair overlap
     #[arg(long = "adapter-min-overlap", alias = "ao", default_value_t = 3)]
@@ -115,7 +116,7 @@ pub struct Args {
 
     /// Type of removal: ANY, LEFT, RIGHT, LTAIL, RTAIL
     #[arg(long = "adapter-trim-end", alias = "at", default_value = "RIGHT")]
-    pub adapter_trim_end: String,
+    pub adapter_trim_end: TrimEnd,
 
     /// Region size for tail trim-end modes
     #[arg(long = "adapter-tail-length", alias = "an")]
@@ -127,7 +128,7 @@ pub struct Args {
 
     /// Overlap detection of paired reads: ON, SHORT, ONLY
     #[arg(long = "adapter-pair-overlap", alias = "ap")]
-    pub adapter_pair_overlap: Option<String>,
+    pub adapter_pair_overlap: Option<PairOverlap>,
 
     /// Minimum overlap of paired reads for detection
     #[arg(long = "adapter-min-poverlap", alias = "av", default_value_t = 40)]
@@ -135,11 +136,11 @@ pub struct Args {
 
     /// Include reverse complements of adapters: ON, ONLY
     #[arg(long = "adapter-revcomp", alias = "ac")]
-    pub adapter_revcomp: Option<String>,
+    pub adapter_revcomp: Option<RevCompMode>,
 
     /// Use different trim-end for reverse complements of adapters
     #[arg(long = "adapter-revcomp-end", alias = "ad")]
-    pub adapter_revcomp_end: Option<String>,
+    pub adapter_revcomp_end: Option<TrimEnd>,
 
     /// Add reverse complement of detected barcode to adapters
     #[arg(long = "adapter-add-barcode", alias = "ab")]
@@ -147,11 +148,11 @@ pub struct Args {
 
     /// Consider only single read set for adapters: 1, 2
     #[arg(long = "adapter-read-set", alias = "ar")]
-    pub adapter_read_set: Option<String>,
+    pub adapter_read_set: Option<AdapterRemoval>,
 
     /// Modify that trimmed reads are kept: OFF, ONLY
     #[arg(long = "adapter-trimmed-out", alias = "ak")]
-    pub adapter_trimmed_out: Option<String>,
+    pub adapter_trimmed_out: Option<AdapterTrimmed>,
 
     /// Number of adapter removal cycles
     #[arg(long = "adapter-cycles", alias = "ay", default_value_t = 1)]
@@ -193,11 +194,11 @@ pub struct Args {
     // Quality-based trimming
     /// Quality-based trimming mode: TAIL, WIN, BWA
     #[arg(short = 'q', long)]
-    pub qtrim: Option<String>,
+    pub qtrim: Option<QualTrimType>,
 
     /// Quality format: sanger, solexa, i1.3, i1.5, i1.8
     #[arg(long = "qtrim-format", alias = "qf")]
-    pub qtrim_format: Option<String>,
+    pub qtrim_format: Option<QualityType>,
 
     /// Minimum quality as threshold for trimming
     #[arg(long = "qtrim-threshold", alias = "qt", default_value_t = 20)]
@@ -251,7 +252,7 @@ pub struct Args {
 
     /// Direct compression of output files: GZ, BZ2
     #[arg(short = 'z', long)]
-    pub zip_output: Option<String>,
+    pub zip_output: Option<CompressionType>,
 
     /// Write reads to stdout, tagged and interleaved if needed
     #[arg(short = '1', long = "stdout-reads")]
@@ -280,7 +281,7 @@ pub struct Args {
     // Logging and tagging
     /// Print chosen read alignments: ALL, MOD, TAB
     #[arg(short = 'l', long)]
-    pub align_log: Option<String>,
+    pub align_log: Option<LogAlign>,
 
     /// Write statistics to stdout instead of target log file
     #[arg(short = 'o', long = "stdout-log")]
@@ -301,6 +302,10 @@ pub struct Args {
     /// Capture UMIs in reads at barcode or adapter N positions
     #[arg(short = 'd', long = "umi-tags")]
     pub umi_tags: bool,
+
+    /// Print debug information
+    #[arg(long)]
+    pub debug: bool,
 
     /// Path to a parameter file
     #[arg(long = "parameter-file")]
@@ -437,6 +442,7 @@ impl Args {
         if !is_present("removal_tags") { self.removal_tags = file_args.removal_tags; }
         if !is_present("number_tags") { self.number_tags = file_args.number_tags; }
         if !is_present("umi_tags") { self.umi_tags = file_args.umi_tags; }
+        if !is_present("debug") { self.debug = file_args.debug; }
     }
 }
 
