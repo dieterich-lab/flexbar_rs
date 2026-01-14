@@ -1,6 +1,7 @@
 pub mod args;
 pub mod config;
 pub mod types;
+pub mod fasta_q;
 
 fn main() {
     let args = args::Args::get_args();
