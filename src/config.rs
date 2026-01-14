@@ -1,4 +1,4 @@
-use log::debug;
+use log::{debug, info, warn};
 use crate::args::Args;
 use crate::types::*;
 
@@ -9,31 +9,12 @@ pub struct Config {
     pub log_stdout: bool,
     pub use_stdin: bool,
     pub use_rc_trim_end: bool,
-    pub add_barcode_adapter: bool,
-    pub interleaved_input: bool,
-    pub cut_len_begin: usize,
-    pub cut_len_end: usize,
-    pub cut_len_read: usize,
-    pub a_tail_len: usize,
-    pub b_tail_len: usize,
-    pub qtrim_thresh: usize,
-    pub htrim_min_length2: usize,
-    pub htrim_max_length: usize,
-    pub n_bundles: usize,
-    pub a_cycles: usize,
+    pub corrected_qtrim_threshold: usize,
 
-    pub arc_end: TrimEnd,
     pub format: FileFormat,
-    pub qual: QualityType,
-    pub q_trim: QualTrimType,
-    pub log_align: LogAlign,
-    pub cmprs_type: CompressionType,
     pub run_type: RunType,
     pub bar_detect: BarcodeDetect,
-    pub adap_rm: AdapterRemoval,
-    pub rc_mode: RevCompMode,
-    pub po_mode: PairOverlap,
-    pub a_preset: AdapterPreset,
+    pub adapter_removal: AdapterRemoval,
     pub a_trimmed: AdapterTrimmed,
 
     pub args: Args,
@@ -42,103 +23,82 @@ pub struct Config {
 impl Config {
     pub fn new(args: Args) -> Self {
         let is_paired = args.reads2.is_some() || args.interleaved;
-        let interleaved_input = args.interleaved;
-        let (run_type, bar_detect) = Self::determine_run_and_barcode_type(&args, is_paired);
-        
-        let use_stdin = args.reads.as_ref().map_or(false, |p| p.to_string_lossy() == "-");
+        let has_adapters = Self::determine_has_adapters(&args);
         let format = Self::determine_file_format(&args);
-
-        let (adap_rm, use_adapter_file, a_preset) = Self::determine_adapter_settings(&args, is_paired);
-        let (q_trim, qual, qtrim_thresh) = Self::determine_quality_settings(&args, format);
-
-        let cmprs_type = args.zip_output.unwrap_or(CompressionType::Uncompressed);
-        let log_align = args.align_log.unwrap_or(LogAlign::None);
-
-        let po_mode = Self::determine_pair_overlap_mode(&args, is_paired, adap_rm);
-
-        let (rc_mode, arc_end, use_rc_trim_end) = Self::determine_revcomp_settings(&args, args.adapter_trim_end);
-
-        let add_barcode_adapter = args.adapter_add_barcode && is_paired && args.adapter_trim_end == TrimEnd::Right && rc_mode != RevCompMode::On &&
-                                  bar_detect != BarcodeDetect::BarcodeRead && bar_detect != BarcodeDetect::Off && args.barcode_trim_end == TrimEnd::LTail;
-
+        let bar_detect = Self::determine_barcode_detection(&args, is_paired);
         let a_trimmed = args.adapter_trimmed_out.unwrap_or(AdapterTrimmed::On);
 
-        let final_adap_rm = if is_paired && adap_rm != AdapterRemoval::Normal2 {
-            args.adapter_read_set.unwrap_or(adap_rm)
-        } else {
-            adap_rm
-        };
-
-        let mut a_cycles = args.adapter_cycles;
-        if a_preset == AdapterPreset::NexteraMp && a_cycles < 3 {
-            a_cycles = 3;
-        }
-
-        let config = Config {
+        let raw_config = Config {
             args: args.clone(),
             is_paired,
-            use_adapter_file,
+            use_adapter_file: args.adapters.is_some(),
             log_stdout: args.stdout_log && !args.stdout_reads,
-            use_stdin,
-            use_rc_trim_end,
-            add_barcode_adapter,
-            interleaved_input,
-            cut_len_begin: args.pre_trim_left.unwrap_or(0),
-            cut_len_end: args.pre_trim_right.unwrap_or(0),
-            cut_len_read: args.post_trim_length.unwrap_or(0),
-            a_tail_len: args.adapter_tail_length.unwrap_or(0),
-            b_tail_len: args.barcode_tail_length.unwrap_or(0),
-            qtrim_thresh,
-            htrim_min_length2: args.htrim_min_length2.unwrap_or(0),
-            htrim_max_length: args.htrim_max_length.unwrap_or(0),
-            n_bundles: args.bundles.unwrap_or(0),
-            a_cycles,
-            arc_end,
+            use_stdin: Self::determine_use_stdin(&args),
+            use_rc_trim_end: Self::determine_use_rc_trim_end(&args),
+            corrected_qtrim_threshold: Self::determine_qtrim_threshold(&args, format),
             format,
-            qual,
-            q_trim,
-            log_align,
-            cmprs_type,
-            run_type,
+            run_type: Self::determine_run_type(&args, is_paired),
             bar_detect,
-            adap_rm: final_adap_rm,
-            rc_mode,
-            po_mode,
-            a_preset,
+            adapter_removal: Self::determine_adapter_removal(&args, is_paired, has_adapters),
             a_trimmed,
         };
+        let config = Self::sanitize_config(raw_config, has_adapters);
         debug!("{:#?}", config);
         config
     }
 
-    fn determine_run_and_barcode_type(args: &Args, is_paired: bool) -> (RunType, BarcodeDetect) {
-        let mut run_type = if is_paired { RunType::Paired } else { RunType::Single };
-        let mut bar_detect = BarcodeDetect::Off;
+    fn determine_has_adapters(args: &Args) -> bool {
+        args.adapter_preset.is_some() || args.adapters.is_some() || args.adapter_seq.is_some()
+    }
 
-        if args.barcodes.is_some() {
-            bar_detect = if args.barcode_reads.is_some() {
-                BarcodeDetect::BarcodeRead
-            } else if args.barcode_keep {
-                BarcodeDetect::WithinRead
-            } else {
-                BarcodeDetect::WithinReadRemoval
-            };
-
-            run_type = match run_type {
-                RunType::Single => RunType::SingleBarcoded,
-                RunType::Paired => RunType::PairedBarcoded,
-                _ => run_type,
-            };
-
-            if args.barcodes2.is_some() && bar_detect != BarcodeDetect::BarcodeRead && is_paired {
-                bar_detect = match bar_detect {
-                    BarcodeDetect::WithinReadRemoval => BarcodeDetect::WithinReadRemoval2,
-                    BarcodeDetect::WithinRead => BarcodeDetect::WithinRead2,
-                    _ => bar_detect,
-                };
-            }
+    fn determine_run_type(args: &Args, is_paired: bool) -> RunType {
+        match args.barcodes {
+            Some(_) => if is_paired { RunType::PairedBarcoded } else { RunType::SingleBarcoded },
+            None => if is_paired { RunType::Paired } else { RunType::Single },
         }
-        (run_type, bar_detect)
+    }
+
+    fn determine_barcode_detection(args: &Args, is_paired: bool) -> BarcodeDetect {
+        match args.barcodes {
+            Some(_) => {
+                let raw = if args.barcode_reads.is_some() {
+                    BarcodeDetect::BarcodeRead
+                } else if args.barcode_keep {
+                    BarcodeDetect::WithinRead
+                } else {
+                    BarcodeDetect::WithinReadRemoval
+                };
+                if is_paired && args.barcodes2.is_some() {
+                    match raw {
+                        BarcodeDetect::WithinReadRemoval => BarcodeDetect::WithinReadRemoval2,
+                        BarcodeDetect::WithinRead => BarcodeDetect::WithinRead2,
+                        _ => raw,
+                    }
+                } else {
+                    raw
+                }
+            },
+            None => BarcodeDetect::Off,
+        }
+    }
+
+    fn determine_use_stdin(args: &Args) -> bool {
+        match args.reads.as_ref() {
+            Some(p) => p.to_string_lossy() == "-",
+            None => false,
+        }
+    }
+
+    fn determine_use_rc_trim_end(args: &Args) -> bool {
+        match args.adapter_revcomp_end {
+            Some(x) => {
+                match args.adapter_revcomp {
+                    RevCompMode::On => x != args.adapter_trim_end,
+                    _ => false,
+                }
+            },
+            _ => false,
+        }
     }
 
     fn determine_file_format(args: &Args) -> FileFormat {
@@ -153,84 +113,94 @@ impl Config {
         })
     }
 
-    fn determine_adapter_settings(args: &Args, is_paired: bool) -> (AdapterRemoval, bool, AdapterPreset) {
-        let mut adap_rm = AdapterRemoval::Off;
-        let mut use_adapter_file = false;
-        let mut a_preset = AdapterPreset::Off;
-
-        if args.adapters.is_some() {
-            adap_rm = AdapterRemoval::Normal;
-            use_adapter_file = true;
-        } else if args.adapter_seq.is_some() {
-            adap_rm = AdapterRemoval::Normal;
+    fn determine_adapter_removal(args: &Args, is_paired: bool, has_adapters: bool) -> AdapterRemoval {
+        if !has_adapters {
+            return AdapterRemoval::Off;
         }
-
-        if args.adapters2.is_some() && adap_rm == AdapterRemoval::Normal && is_paired {
-            adap_rm = AdapterRemoval::Normal2;
-        }
-
-        if let Some(preset) = args.adapter_preset {
-            a_preset = preset;
-            adap_rm = AdapterRemoval::Normal;
-            if is_paired && matches!(a_preset, AdapterPreset::TruSeq | AdapterPreset::Methyl | AdapterPreset::NexteraMp) {
-                adap_rm = AdapterRemoval::Normal2;
+        let paired_adapter_removal = Self::is_paired_adapter_removal(&args, is_paired);
+        match args.adapter_read_set {
+            AdapterReadset::One => {
+                if paired_adapter_removal {AdapterRemoval::Normal2} else {AdapterRemoval::One}
+            },
+            AdapterReadset::Two => {
+                if paired_adapter_removal {AdapterRemoval::Normal2} else {AdapterRemoval::Two}
+            }
+            AdapterReadset::None => {
+                if paired_adapter_removal {AdapterRemoval::Normal2} else {AdapterRemoval::Normal}
             }
         }
-        (adap_rm, use_adapter_file, a_preset)
     }
 
-    fn determine_quality_settings(args: &Args, format: FileFormat) -> (QualTrimType, QualityType, usize) {
-        let mut q_trim = QualTrimType::Off;
-        let mut qual = QualityType::Sanger;
-        let mut qtrim_thresh = args.qtrim_threshold;
+    fn is_paired_adapter_removal(args: &Args, is_paired: bool) -> bool {
+        if !is_paired { return false; }
+        match args.adapter_preset {
+            Some(AdapterPreset::TruSeq) => return true,
+            Some(AdapterPreset::NexteraMp) => return true,
+            Some(AdapterPreset::Methyl) => return true,
+            Some(_) => return false,
+            _ => ()
+        }
+        if args.adapters2.is_some() && is_paired {
+            return true;
+        }
+        false
+    }
 
-        if let (Some(qt), FileFormat::Fastq) = (args.qtrim, format) {
-            q_trim = qt;
-
-            if let Some(qf) = args.qtrim_format {
-                qual = qf;
-            }
-
-            qtrim_thresh += match qual {
+    fn determine_qtrim_threshold(args: &Args, format: FileFormat) -> usize {
+        if format == FileFormat::Fastq {
+            args.qtrim_threshold + match args.qtrim_format {
                 QualityType::Sanger => 33,
                 QualityType::Solexa => 59,
                 QualityType::Illumina => 64,
-            };
-        }
-        (q_trim, qual, qtrim_thresh)
-    }
-
-    fn determine_pair_overlap_mode(args: &Args, is_paired: bool, adap_rm: AdapterRemoval) -> PairOverlap {
-        if !is_paired {
-            return PairOverlap::Off;
-        }
-        if let Some(po_mode) = args.adapter_pair_overlap {
-            if adap_rm == AdapterRemoval::Off && matches!(po_mode, PairOverlap::On | PairOverlap::Short) {
-                PairOverlap::Off
-            } else {
-                po_mode
             }
         } else {
-            PairOverlap::Off
+            args.qtrim_threshold
         }
     }
 
-    fn determine_revcomp_settings(args: &Args, a_end: TrimEnd) -> (RevCompMode, TrimEnd, bool) {
-        let mut rc_mode = RevCompMode::Off;
-        let mut arc_end = TrimEnd::Right;
-        let mut use_rc_trim_end = false;
+    fn sanitize_config(raw_config: Config, has_adapters: bool) -> Config {
+        let mut config = raw_config.clone();
 
-        if let Some(rc) = args.adapter_revcomp {
-            rc_mode = rc;
-
-            if let (RevCompMode::On, Some(rce)) = (rc_mode, args.adapter_revcomp_end) {
-                arc_end = rce;
-                if arc_end != a_end {
-                    use_rc_trim_end = true;
+        match raw_config.args.adapter_preset {
+            Some(AdapterPreset::NexteraMp) => {
+                if config.args.adapter_cycles < 3 {
+                    info!("Setting adapter_cycles to 3 (minimum for NexteraMP preset).");
+                    config.args.adapter_cycles = 3;
                 }
             }
+            _ => ()
         }
-        (rc_mode, arc_end, use_rc_trim_end)
+
+        if !raw_config.is_paired && raw_config.args.adapter_pair_overlap != PairOverlapMode::Off {
+            warn!("Adapter pair overlap mode is not supported for unpaired reads - disabling");
+            config.args.adapter_pair_overlap = PairOverlapMode::Off;
+        }
+        if !has_adapters && matches!(
+            raw_config.args.adapter_pair_overlap, PairOverlapMode::On | PairOverlapMode::Short
+        ) {
+            warn!("Adapter pair overlap mode is not supported for no adapters - disabling");
+            config.args.adapter_pair_overlap = PairOverlapMode::Off;
+        }
+        if raw_config.args.adapter_add_barcode {
+            if !raw_config.is_paired {
+                warn!("Adapter barcode addition is not supported for unpaired reads - disabling");
+                config.args.adapter_add_barcode = false;
+            }
+            if raw_config.args.adapter_trim_end != TrimEnd::Right {
+                warn!("Adapter barcode addition is only supported for right trim end - disabling");
+                config.args.adapter_add_barcode = false;
+            }
+            if raw_config.args.adapter_revcomp == RevCompMode::On {
+                warn!("Adapter barcode addition is not supported for reverse complement - disabling");
+                config.args.adapter_add_barcode = false;
+            }
+            if raw_config.bar_detect == BarcodeDetect::BarcodeRead
+                || raw_config.bar_detect == BarcodeDetect::Off {
+                warn!("Adapter barcode addition is not supported with this settings - disabling");
+                config.args.adapter_add_barcode = false;
+            }
+        }
+        config
     }
 }
 
@@ -269,14 +239,13 @@ mod tests {
     fn test_config_qtrim_thresh() {
         let args = Args {
             reads: Some(PathBuf::from("reads.fastq")),
-            qtrim: Some(QualTrimType::Tail),
-            qtrim_format: Some(QualityType::Sanger),
+            qtrim: QualTrimType::Tail,
+            qtrim_format: QualityType::Sanger,
             qtrim_threshold: 20,
             ..Args::parse_from(["flexbar"])
         };
         let config = Config::new(args);
-        assert_eq!(config.q_trim, QualTrimType::Tail);
-        assert_eq!(config.qtrim_thresh, 20 + 33);
+        assert_eq!(config.corrected_qtrim_threshold, 20 + 33);
     }
 
     #[test]
@@ -286,8 +255,7 @@ mod tests {
             ..Args::parse_from(["flexbar"])
         };
         let config = Config::new(args);
-        assert_eq!(config.a_preset, AdapterPreset::TruSeq);
-        assert_eq!(config.adap_rm, AdapterRemoval::Normal);
+        assert_eq!(config.adapter_removal, AdapterRemoval::Normal);
     }
 
     #[test]
@@ -298,7 +266,6 @@ mod tests {
             ..Args::parse_from(["flexbar"])
         };
         let config = Config::new(args);
-        assert_eq!(config.a_preset, AdapterPreset::TruSeq);
-        assert_eq!(config.adap_rm, AdapterRemoval::Normal2);
+        assert_eq!(config.adapter_removal, AdapterRemoval::Normal2);
     }
 }

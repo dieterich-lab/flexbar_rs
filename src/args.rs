@@ -12,13 +12,13 @@ pub struct Args {
     #[arg(short = 'n', long, default_value_t = 1)]
     pub threads: usize,
 
-    /// Number of (paired) reads per thread
+    /// Number of (paired) reads per thread, default 256
     #[arg(short = 'N', long, default_value_t = 256)]
     pub bundle: usize,
 
-    /// Process only certain number of bundles for testing
-    #[arg(short = 'M', long)]
-    pub bundles: Option<usize>,
+    /// Process only a certain number of bundles for testing, default 0 (all)
+    #[arg(short = 'M', long = "bundles", default_value_t = 0)]
+    pub bundles: usize,
 
     /// Prefix for output file names or paths
     #[arg(short = 't', long, default_value = "flexbarOut")]
@@ -66,8 +66,8 @@ pub struct Args {
     pub barcode_trim_end: TrimEnd,
 
     /// Region size in tail trim-end modes
-    #[arg(long = "barcode-tail-length", alias = "bn")]
-    pub barcode_tail_length: Option<usize>,
+    #[arg(long = "barcode-tail-length", alias = "bn", default_value_t = 0)]
+    pub barcode_tail_length: usize,
 
     /// Keep barcodes within reads instead of removal
     #[arg(long = "barcode-keep", alias = "bk")]
@@ -94,11 +94,11 @@ pub struct Args {
     #[arg(short = 'a', long)]
     pub adapters: Option<PathBuf>,
 
-    /// File with extra adapters for second read set in paired mode
+    /// File with extra adapters for the second read set in paired mode
     #[arg(long = "adapters2", alias = "a2")]
     pub adapters2: Option<PathBuf>,
 
-    /// Single adapter sequence as alternative to adapters option
+    /// Single adapter sequence as an alternative to adapters option
     #[arg(long = "adapter-seq", alias = "as")]
     pub adapter_seq: Option<String>,
 
@@ -119,24 +119,24 @@ pub struct Args {
     pub adapter_trim_end: TrimEnd,
 
     /// Region size for tail trim-end modes
-    #[arg(long = "adapter-tail-length", alias = "an")]
-    pub adapter_tail_length: Option<usize>,
+    #[arg(long = "adapter-tail-length", alias = "an", default_value_t = 0)]
+    pub adapter_tail_length: usize,
 
     /// Skip restriction to pass read ends in right and left modes
     #[arg(long = "adapter-relaxed", alias = "ax")]
     pub adapter_relaxed: bool,
 
-    /// Overlap detection of paired reads: ON, SHORT, ONLY
-    #[arg(long = "adapter-pair-overlap", alias = "ap")]
-    pub adapter_pair_overlap: Option<PairOverlap>,
+    /// Overlap detection of paired reads: OFF (default), ON, SHORT, ONLY
+    #[arg(long = "adapter-pair-overlap", alias = "ap", default_value = "OFF")]
+    pub adapter_pair_overlap: PairOverlapMode,
 
     /// Minimum overlap of paired reads for detection
     #[arg(long = "adapter-min-poverlap", alias = "av", default_value_t = 40)]
     pub adapter_min_poverlap: usize,
 
     /// Include reverse complements of adapters: ON, ONLY
-    #[arg(long = "adapter-revcomp", alias = "ac")]
-    pub adapter_revcomp: Option<RevCompMode>,
+    #[arg(long = "adapter-revcomp", alias = "ac", default_value = "OFF")]
+    pub adapter_revcomp: RevCompMode,
 
     /// Use different trim-end for reverse complements of adapters
     #[arg(long = "adapter-revcomp-end", alias = "ad")]
@@ -146,9 +146,9 @@ pub struct Args {
     #[arg(long = "adapter-add-barcode", alias = "ab")]
     pub adapter_add_barcode: bool,
 
-    /// Consider only single read set for adapters: 1, 2
-    #[arg(long = "adapter-read-set", alias = "ar")]
-    pub adapter_read_set: Option<AdapterRemoval>,
+    /// Consider only a single read set for adapters: 1, 2
+    #[arg(long = "adapter-read-set", alias = "ar", default_value = "None")]
+    pub adapter_read_set: AdapterReadset,
 
     /// Modify that trimmed reads are kept: OFF, ONLY
     #[arg(long = "adapter-trimmed-out", alias = "ak")]
@@ -175,32 +175,32 @@ pub struct Args {
     #[arg(short = 'u', long = "max-uncalled", default_value_t = 0)]
     pub max_uncalled: usize,
 
-    /// Trim given number of bases on 5' read end before detection
-    #[arg(short = 'x', long = "pre-trim-left")]
-    pub pre_trim_left: Option<usize>,
+    /// Trim given number of bases on 5' read end before detection, default 0
+    #[arg(short = 'x', long = "pre-trim-left", default_value_t = 0)]
+    pub pre_trim_left: usize,
 
-    /// Trim specified number of bases on 3' end prior to detection
-    #[arg(short = 'y', long = "pre-trim-right")]
-    pub pre_trim_right: Option<usize>,
+    /// Trim a specified number of bases on 3' end prior to detection, default 0
+    #[arg(short = 'y', long = "pre-trim-right", default_value_t = 0)]
+    pub pre_trim_right: usize,
 
-    /// Trim to specified read length from 3' end after removal
-    #[arg(short = 'k', long = "post-trim-length")]
-    pub post_trim_length: Option<usize>,
+    /// Trim to specified read length from 3' end after removal, default 0
+    #[arg(short = 'k', long = "post-trim-length", default_value_t = 0)]
+    pub post_trim_length: usize,
 
-    /// Minimum read length to remain after removal
+    /// Minimum read length to remain after removal, default 18
     #[arg(short = 'm', long = "min-read-length", default_value_t = 18)]
     pub min_read_length: usize,
 
     // Quality-based trimming
-    /// Quality-based trimming mode: TAIL, WIN, BWA
-    #[arg(short = 'q', long)]
-    pub qtrim: Option<QualTrimType>,
+    /// Quality-based trimming mode: OFF (default), TAIL, WIN, BWA
+    #[arg(short = 'q', long, default_value = "OFF")]
+    pub qtrim: QualTrimType,
 
-    /// Quality format: sanger, solexa, i1.3, i1.5, i1.8
-    #[arg(long = "qtrim-format", alias = "qf")]
-    pub qtrim_format: Option<QualityType>,
+    /// Quality format: sanger (default), solexa, i1.3, i1.5, i1.8
+    #[arg(long = "qtrim-format", alias = "qf", default_value = "sanger")]
+    pub qtrim_format: QualityType,
 
-    /// Minimum quality as threshold for trimming
+    /// Minimum quality as threshold for trimming, default 20
     #[arg(long = "qtrim-threshold", alias = "qt", default_value_t = 20)]
     pub qtrim_threshold: usize,
 
@@ -225,13 +225,13 @@ pub struct Args {
     #[arg(long = "htrim-min-length", alias = "hi", default_value_t = 3)]
     pub htrim_min_length: usize,
 
-    /// Minimum length for homopolymers specified after first one
-    #[arg(long = "htrim-min-length2", alias = "h2")]
-    pub htrim_min_length2: Option<usize>,
+    /// Minimum length for homopolymers specified after the first one, default 0
+    #[arg(long = "htrim-min-length2", alias = "h2",  default_value_t = 0)]
+    pub htrim_min_length2: usize,
 
-    /// Maximum length of homopolymers on left and right read end
-    #[arg(long = "htrim-max-length", alias = "hx")]
-    pub htrim_max_length: Option<usize>,
+    /// Maximum length of homopolymers on the left and right read end, default 0
+    #[arg(long = "htrim-max-length", alias = "hx",  default_value_t = 0)]
+    pub htrim_max_length: usize,
 
     /// Apply maximum length of homopolymers only for first one
     #[arg(long = "htrim-max-first", alias = "hf")]
@@ -255,7 +255,7 @@ pub struct Args {
     pub zip_output: Option<CompressionType>,
 
     /// Write reads to stdout, tagged and interleaved if needed
-    #[arg(short = '1', long = "stdout-reads")]
+    #[arg(long = "stdout-reads")]
     pub stdout_reads: bool,
 
     /// Output file for reads instead of target prefix usage
@@ -307,7 +307,7 @@ pub struct Args {
     #[arg(long)]
     pub debug: bool,
 
-    /// Path to a parameter file
+    /// Path to a parameter file in TOML format
     #[arg(long = "parameter-file")]
     pub parameter_file: Option<PathBuf>,
 }
@@ -331,6 +331,7 @@ impl Args {
             let file_args = Self::load_parameter_file(file);
             args.merge_from_file(file_args);
         }
+        Self::validate_args(&args);
 
         args
     }
@@ -443,6 +444,30 @@ impl Args {
         if !is_present("number_tags") { self.number_tags = file_args.number_tags; }
         if !is_present("umi_tags") { self.umi_tags = file_args.umi_tags; }
         if !is_present("debug") { self.debug = file_args.debug; }
+    }
+
+    fn validate_args(&self) {
+        let count_adapters_specified =
+            if self.adapters.is_some() { 1 } else { 0 }
+            + if self.adapter_seq.is_some() { 1 } else { 0 }
+            + if self.adapter_preset.is_some() { 1 } else { 0 };
+        if count_adapters_specified > 1 {
+            panic!("Only one of --adapters, --adapter-seq or --adapter-preset can be specified.");
+        }
+
+        if self.adapter_cycles < 1 {
+            panic!("--adapter-cycles must be greater than 0.");
+        }
+
+        let is_paired = self.reads2.is_some() || self.interleaved;
+        match self.adapter_preset {
+            Some(AdapterPreset::NexteraMp) => {
+                if !is_paired {
+                    panic!("--adapter-preset NexteraMp requires paired reads.");
+                }
+            }
+            _ => {}
+        }
     }
 }
 

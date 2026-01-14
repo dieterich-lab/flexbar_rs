@@ -136,13 +136,35 @@ pub enum AdapterRemoval {
     Two,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub enum AdapterReadset {
+    One,
+    Two,
+    None
+}
+
 impl FromStr for AdapterRemoval {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s {
             "1" => Ok(AdapterRemoval::One),
             "2" => Ok(AdapterRemoval::Two),
-            _ => Ok(AdapterRemoval::Off),
+            "Off" => Ok(AdapterRemoval::Off),
+            "Normal" => Ok(AdapterRemoval::Normal),
+            "Normal2" => Ok(AdapterRemoval::Normal2),
+            _ => Err(format!("Unknown adapter removal mode: {}", s)),
+        }
+    }
+}
+
+impl FromStr for AdapterReadset {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "1" => Ok(AdapterReadset::One),
+            "2" => Ok(AdapterReadset::Two),
+            "None" => Ok(AdapterReadset::None),
+            _ => Err(format!("Unknown adapter read set: {}", s)),
         }
     }
 }
@@ -166,21 +188,21 @@ impl FromStr for RevCompMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum PairOverlap {
+pub enum PairOverlapMode {
     Off,
     On,
     Short,
     Only,
 }
 
-impl FromStr for PairOverlap {
+impl FromStr for PairOverlapMode {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
-            "ON" => Ok(PairOverlap::On),
-            "SHORT" => Ok(PairOverlap::Short),
-            "ONLY" => Ok(PairOverlap::Only),
-            _ => Ok(PairOverlap::Off),
+            "ON" => Ok(PairOverlapMode::On),
+            "SHORT" => Ok(PairOverlapMode::Short),
+            "ONLY" => Ok(PairOverlapMode::Only),
+            _ => Ok(PairOverlapMode::Off),
         }
     }
 }
