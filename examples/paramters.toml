@@ -1,0 +1,25 @@
+# Instead of giving every single parameter on the command
+# line, a set of default parameters may be given in a
+# parameter file. The file has the TOML format. In general,
+# minus charcaters in parameter namesneed to be replaced by
+# '_', parameter name and value must be separated with '=',
+# and string values must be written in double-quotes.
+# Instead of running
+#
+# flexbar_rs --threads 12 --barcode-reads "bar_reads.fq" --barcode-keep
+#
+# you may run
+#
+# flexbar_rs --parameter-file parameters.toml
+#
+# where parameters.toml has lines like:
+#
+threads = 12
+barcode_reads = "bar_reads.fq"
+# Switches are represented as boolean varaibles
+barcode_keep = true
+
+# If the CLI paramters conflict with a parameter file, the CLI wins.
+# Presently there is no way to unset flags in the CLI, which have been
+# set in the parameter file.
+
