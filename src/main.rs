@@ -2,12 +2,19 @@ pub mod args;
 pub mod config;
 pub mod types;
 pub mod fasta_q;
+pub mod utils;
+mod readers;
+mod writers;
+mod workers;
+mod workflow;
 
 fn main() {
     let args = args::Args::get_args();
     setup_logging(&args);
-    let _ = config::Config::new(args);
-    // rayon::ThreadPoolBuilder::new().num_threads(config.args.threads).build_global().unwrap();
+    let threads = args.threads;
+    let config = config::Config::new(args);
+    rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
+    workflow::do_it(config);
 }
 
 fn setup_logging(args: &args::Args) {

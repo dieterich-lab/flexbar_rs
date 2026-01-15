@@ -238,9 +238,10 @@ pub struct Args {
     #[arg(short = 'f', long)]
     pub fasta_output: bool,
 
-    /// Direct compression of output files: GZ, BZ2
-    #[arg(short = 'z', long)]
-    pub zip_output: Option<CompressionType>,
+    /// Direct compression of output files: Uncompressed, GZ, BZ2, ZSTD, KEEP (default,
+    /// use same compression as input)
+    #[arg(short = 'z', long, default_value = "KEEP")]
+    pub output_compression: Option<CompressionType>,
 
     /// Write reads to stdout, tagged and interleaved if needed
     #[arg(long = "stdout-reads")]
@@ -413,7 +414,7 @@ impl Args {
 
         // Output selection
         if !is_present("fasta_output") { self.fasta_output = file_args.fasta_output; }
-        if !is_present("zip_output") { self.zip_output = file_args.zip_output; }
+        if !is_present("output_compression") { self.output_compression = file_args.output_compression; }
         if !is_present("stdout_reads") { self.stdout_reads = file_args.stdout_reads; }
         if !is_present("output_reads") { self.output_reads = file_args.output_reads; }
         if !is_present("output_reads2") { self.output_reads2 = file_args.output_reads2; }

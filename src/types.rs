@@ -96,6 +96,8 @@ pub enum CompressionType {
     Uncompressed,
     Gz,
     Bz2,
+    Zstd,
+    Keep,
 }
 
 impl FromStr for CompressionType {
@@ -104,6 +106,8 @@ impl FromStr for CompressionType {
         match s.to_uppercase().as_str() {
             "GZ" => Ok(CompressionType::Gz),
             "BZ2" => Ok(CompressionType::Bz2),
+            "ZSTD" => Ok(CompressionType::Zstd),
+            "KEEP" => Ok(CompressionType::Keep),
             _ => Ok(CompressionType::Uncompressed),
         }
     }

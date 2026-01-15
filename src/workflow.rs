@@ -1,0 +1,79 @@
+use rayon::prelude::*;
+use crate::config::Config;
+use crate::readers::fasta::SingleReaderFasta;
+use crate::readers::fastq::SingleReaderFastq;
+use crate::readers::SequenceReader;
+use crate::writers::fasta::SingleWriterFasta;
+use crate::writers::fastq::SingleWriterFastq;
+use crate::types::{FileFormat, CompressionType};
+use crate::workers::single::SingleWorker;
+use std::path::Path;
+
+use std::sync::mpsc::sync_channel;
+use std::thread;
+
+pub fn do_it(config: Config) {
+    let reads_path = config.args.reads.as_ref().expect("No input reads provided");
+    let output_prefix = config.args.output_reads.as_ref()
+        .map(|p| p.to_string_lossy().into_owned())
+        .unwrap_or_else(|| config.args.target.clone());
+
+    match config.format {
+        FileFormat::Fasta => process_fasta(&config, reads_path, &output_prefix),
+        FileFormat::Fastq => process_fastq(&config, reads_path, &output_prefix),
+    }
+}
+
+fn process_fasta(config: &Config, reads_path: &Path, output_prefix: &str) {
+    let reader = SingleReaderFasta::from_path(reads_path).expect("Failed to create FASTA reader");
+    let compression = match config.args.output_compression {
+        Some(CompressionType::Keep) | None => reader.compression(),
+        Some(c) => c,
+    };
+    let mut writer = SingleWriterFasta::new(output_prefix, compression).expect("Failed to create FASTA writer");
+    let worker = SingleWorker::new();
+
+    let (tx, rx) = sync_channel(100);
+
+    thread::scope(|s| {
+        s.spawn(move || {
+            reader
+                .par_bridge()
+                .filter_map(|record| worker.process(record))
+                .for_each_with(tx, |tx, record| {
+                    tx.send(record).expect("Failed to send record to writer");
+                });
+        });
+
+        for record in rx {
+            writer.write(&record).expect("Failed to write FASTA record");
+        }
+    });
+}
+
+fn process_fastq(config: &Config, reads_path: &Path, output_prefix: &str) {
+    let reader = SingleReaderFastq::from_path(reads_path).expect("Failed to create FASTQ reader");
+    let compression = match config.args.output_compression {
+        Some(CompressionType::Keep) | None => reader.compression(),
+        Some(c) => c,
+    };
+    let mut writer = SingleWriterFastq::new(output_prefix, compression).expect("Failed to create FASTQ writer");
+    let worker = SingleWorker::new();
+
+    let (tx, rx) = sync_channel(100);
+
+    thread::scope(|s| {
+        s.spawn(move || {
+            reader
+                .par_bridge()
+                .filter_map(|record| worker.process(record))
+                .for_each_with(tx, |tx, record| {
+                    tx.send(record).expect("Failed to send record to writer");
+                });
+        });
+
+        for record in rx {
+            writer.write(&record).expect("Failed to write FASTQ record");
+        }
+    });
+}
