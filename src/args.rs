@@ -12,14 +12,6 @@ pub struct Args {
     #[arg(short = 'n', long, default_value_t = 1)]
     pub threads: usize,
 
-    /// Number of (paired) reads per thread, default 256
-    #[arg(short = 'N', long, default_value_t = 256)]
-    pub bundle: usize,
-
-    /// Process only a certain number of bundles for testing, default 0 (all)
-    #[arg(short = 'M', long = "bundles", default_value_t = 0)]
-    pub bundles: usize,
-
     /// Prefix for output file names or paths
     #[arg(short = 't', long, default_value = "flexbarOut")]
     pub target: String,
@@ -31,10 +23,6 @@ pub struct Args {
     /// Second input file of paired reads
     #[arg(short = 'p', long)]
     pub reads2: Option<PathBuf>,
-
-    /// Interleaved format for first input set with paired reads
-    #[arg(short = 'i', long)]
-    pub interleaved: bool,
 
     /// Accept iupac symbols in reads and convert to N if not ATCG
     #[arg(short = 'I', long)]
@@ -358,12 +346,9 @@ impl Args {
         // clap's `get_matches()` knows what was actually on the command line.
 
         if !is_present("threads") { self.threads = file_args.threads; }
-        if !is_present("bundle") { self.bundle = file_args.bundle; }
-        if !is_present("bundles") { self.bundles = file_args.bundles; }
         if !is_present("target") { self.target = file_args.target; }
         if !is_present("reads") { self.reads = file_args.reads; }
         if !is_present("reads2") { self.reads2 = file_args.reads2; }
-        if !is_present("interleaved") { self.interleaved = file_args.interleaved; }
         if !is_present("iupac") { self.iupac = file_args.iupac; }
 
         // Barcode detection
@@ -459,7 +444,7 @@ impl Args {
             panic!("--adapter-cycles must be greater than 0.");
         }
 
-        let is_paired = self.reads2.is_some() || self.interleaved;
+        let is_paired = self.reads2.is_some();
         match self.adapter_preset {
             Some(AdapterPreset::NexteraMp) => {
                 if !is_paired {
@@ -487,7 +472,6 @@ mod tests {
         let file_args = Args {
             threads: 8,                       // Should NOT overwrite CLI
             target: "file_target".to_string(), // Should NOT overwrite CLI
-            bundle: 512,                      // SHOULD overwrite (not in CLI)
             ..Args::parse_from(["flexbar"])   // defaults for others
         };
 
@@ -495,19 +479,17 @@ mod tests {
 
         assert_eq!(cli_args.threads, 4);
         assert_eq!(cli_args.target, "cli_target");
-        assert_eq!(cli_args.bundle, 512);
     }
 
     #[test]
     fn test_load_parameter_file() {
         use std::io::Cursor;
-        let content = "threads = 10\ntarget = 'toml_target'\nbundle = 1024";
+        let content = "threads = 10\ntarget = 'toml_target'\n";
         let reader = Cursor::new(content);
         
         let loaded_args = Args::load_parameter_file(reader);
         
         assert_eq!(loaded_args.threads, 10);
         assert_eq!(loaded_args.target, "toml_target");
-        assert_eq!(loaded_args.bundle, 1024);
     }
 }

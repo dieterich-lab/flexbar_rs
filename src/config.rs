@@ -4,7 +4,6 @@ use crate::types::*;
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub is_paired: bool,
     pub use_adapter_file: bool,
     pub log_stdout: bool,
     pub use_stdin: bool,
@@ -22,24 +21,22 @@ pub struct Config {
 
 impl Config {
     pub fn new(args: Args) -> Self {
-        let is_paired = args.reads2.is_some() || args.interleaved;
         let has_adapters = Self::determine_has_adapters(&args);
         let format = Self::determine_file_format(&args);
-        let bar_detect = Self::determine_barcode_detection(&args, is_paired);
+        let bar_detect = Self::determine_barcode_detection(&args);
         let a_trimmed = args.adapter_trimmed_out.unwrap_or(AdapterTrimmed::On);
 
         let raw_config = Config {
             args: args.clone(),
-            is_paired,
             use_adapter_file: args.adapters.is_some(),
             log_stdout: args.stdout_log && !args.stdout_reads,
             use_stdin: Self::determine_use_stdin(&args),
             use_rc_trim_end: Self::determine_use_rc_trim_end(&args),
             corrected_qtrim_threshold: Self::determine_qtrim_threshold(&args, format),
             format,
-            run_type: Self::determine_run_type(&args, is_paired),
+            run_type: Self::determine_run_type(&args),
             bar_detect,
-            adapter_removal: Self::determine_adapter_removal(&args, is_paired, has_adapters),
+            adapter_removal: Self::determine_adapter_removal(&args, has_adapters),
             a_trimmed,
         };
         let config = Self::sanitize_config(raw_config, has_adapters);
@@ -51,14 +48,15 @@ impl Config {
         args.adapter_preset.is_some() || args.adapters.is_some() || args.adapter_seq.is_some()
     }
 
-    fn determine_run_type(args: &Args, is_paired: bool) -> RunType {
+    fn determine_run_type(args: &Args) -> RunType {
         match args.barcodes {
-            Some(_) => if is_paired { RunType::PairedBarcoded } else { RunType::SingleBarcoded },
-            None => if is_paired { RunType::Paired } else { RunType::Single },
+            Some(_) => if args.reads2.is_some() { RunType::PairedBarcoded } 
+                        else { RunType::SingleBarcoded },
+            None => if args.reads2.is_some() { RunType::Paired } else { RunType::Single },
         }
     }
 
-    fn determine_barcode_detection(args: &Args, is_paired: bool) -> BarcodeDetect {
+    fn determine_barcode_detection(args: &Args) -> BarcodeDetect {
         match args.barcodes {
             Some(_) => {
                 let raw = if args.barcode_reads.is_some() {
@@ -68,7 +66,7 @@ impl Config {
                 } else {
                     BarcodeDetect::WithinReadRemoval
                 };
-                if is_paired && args.barcodes2.is_some() {
+                if args.reads2.is_some() && args.barcodes2.is_some() {
                     match raw {
                         BarcodeDetect::WithinReadRemoval => BarcodeDetect::WithinReadRemoval2,
                         BarcodeDetect::WithinRead => BarcodeDetect::WithinRead2,
@@ -113,11 +111,11 @@ impl Config {
         })
     }
 
-    fn determine_adapter_removal(args: &Args, is_paired: bool, has_adapters: bool) -> AdapterRemoval {
+    fn determine_adapter_removal(args: &Args, has_adapters: bool) -> AdapterRemoval {
         if !has_adapters {
             return AdapterRemoval::Off;
         }
-        let paired_adapter_removal = Self::is_paired_adapter_removal(&args, is_paired);
+        let paired_adapter_removal = Self::is_paired_adapter_removal(&args);
         match args.adapter_read_set {
             AdapterReadset::One => {
                 if paired_adapter_removal {AdapterRemoval::Normal2} else {AdapterRemoval::One}
@@ -131,8 +129,8 @@ impl Config {
         }
     }
 
-    fn is_paired_adapter_removal(args: &Args, is_paired: bool) -> bool {
-        if !is_paired { return false; }
+    fn is_paired_adapter_removal(args: &Args) -> bool {
+        if args.reads2.is_none() { return false; }
         match args.adapter_preset {
             Some(AdapterPreset::TruSeq) => return true,
             Some(AdapterPreset::NexteraMp) => return true,
@@ -140,7 +138,7 @@ impl Config {
             Some(_) => return false,
             _ => ()
         }
-        if args.adapters2.is_some() && is_paired {
+        if args.adapters2.is_some() && args.reads2.is_some() {
             return true;
         }
         false
@@ -160,6 +158,7 @@ impl Config {
 
     fn sanitize_config(raw_config: Config, has_adapters: bool) -> Config {
         let mut config = raw_config.clone();
+        let is_paired = raw_config.args.reads2.is_some();
 
         match raw_config.args.adapter_preset {
             Some(AdapterPreset::NexteraMp) => {
@@ -171,7 +170,7 @@ impl Config {
             _ => ()
         }
 
-        if !raw_config.is_paired && raw_config.args.adapter_pair_overlap != PairOverlapMode::Off {
+        if !is_paired && raw_config.args.adapter_pair_overlap != PairOverlapMode::Off {
             warn!("Adapter pair overlap mode is not supported for unpaired reads - disabling");
             config.args.adapter_pair_overlap = PairOverlapMode::Off;
         }
@@ -182,7 +181,7 @@ impl Config {
             config.args.adapter_pair_overlap = PairOverlapMode::Off;
         }
         if raw_config.args.adapter_add_barcode {
-            if !raw_config.is_paired {
+            if !is_paired {
                 warn!("Adapter barcode addition is not supported for unpaired reads - disabling");
                 config.args.adapter_add_barcode = false;
             }
@@ -219,7 +218,6 @@ mod tests {
         };
         let config = Config::new(args);
         assert_eq!(config.args.threads, 4);
-        assert_eq!(config.is_paired, false);
         assert_eq!(config.run_type, RunType::Single);
     }
 
@@ -231,7 +229,6 @@ mod tests {
             ..Args::parse_from(["flexbar"])
         };
         let config = Config::new(args);
-        assert!(config.is_paired);
         assert_eq!(config.run_type, RunType::Paired);
     }
 

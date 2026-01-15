@@ -7,6 +7,7 @@ fn main() {
     let args = args::Args::get_args();
     setup_logging(&args);
     let _ = config::Config::new(args);
+    // rayon::ThreadPoolBuilder::new().num_threads(config.args.threads).build_global().unwrap();
 }
 
 fn setup_logging(args: &args::Args) {
