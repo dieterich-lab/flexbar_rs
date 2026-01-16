@@ -1,7 +1,7 @@
 pub mod args;
 pub mod config;
+pub mod context;
 pub mod types;
-pub mod fasta_q;
 pub mod utils;
 mod readers;
 mod writers;

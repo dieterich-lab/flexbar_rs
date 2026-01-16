@@ -4,9 +4,7 @@ use crate::types::*;
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub use_adapter_file: bool,
     pub log_stdout: bool,
-    pub use_stdin: bool,
     pub use_rc_trim_end: bool,
     pub corrected_qtrim_threshold: usize,
 
@@ -28,9 +26,7 @@ impl Config {
 
         let raw_config = Config {
             args: args.clone(),
-            use_adapter_file: args.adapters.is_some(),
             log_stdout: args.stdout_log && !args.stdout_reads,
-            use_stdin: Self::determine_use_stdin(&args),
             use_rc_trim_end: Self::determine_use_rc_trim_end(&args),
             corrected_qtrim_threshold: Self::determine_qtrim_threshold(&args, format),
             format,
@@ -77,13 +73,6 @@ impl Config {
                 }
             },
             None => BarcodeDetect::Off,
-        }
-    }
-
-    fn determine_use_stdin(args: &Args) -> bool {
-        match args.reads.as_ref() {
-            Some(p) => p.to_string_lossy() == "-",
-            None => false,
         }
     }
 

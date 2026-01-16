@@ -122,7 +122,7 @@ pub struct Args {
     #[arg(long = "adapter-min-poverlap", alias = "av", default_value_t = 40)]
     pub adapter_min_poverlap: usize,
 
-    /// Include reverse complements of adapters: ON, ONLY
+    /// Include reverse complements of adapters: OFF (default) ON, ONLY
     #[arg(long = "adapter-revcomp", alias = "ac", default_value = "OFF")]
     pub adapter_revcomp: RevCompMode,
 
