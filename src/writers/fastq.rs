@@ -5,7 +5,7 @@ use crate::writers::generic::{GenericWriter, GenericWriterBackend};
 type FastqBackend<'a> = fastq::Writer<Box<dyn io::Write + Send + 'a>>;
 
 impl<'a> GenericWriterBackend<'a, fastq::Record> for FastqBackend<'a> {
-    fn create(writer: Box<dyn io::Write + Send + 'a>) -> Self {
+    fn new(writer: Box<dyn io::Write + Send + 'a>) -> Self {
         fastq::Writer::new(writer)
     }
 
@@ -25,6 +25,7 @@ pub type SingleWriterFastq<'a> = GenericWriter<'a, fastq::Record, FastqBackend<'
 mod tests {
     use super::*;
     use bio::io::fastq::Record;
+    use crate::writers::Writer;
 
     #[test]
     fn test_fastq_writer_cursor() {

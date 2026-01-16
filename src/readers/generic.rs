@@ -4,9 +4,8 @@ use crate::types::CompressionType;
 
 pub trait GenericReaderBackend<R: BufRead + Send, Rec> {
     type Error: std::fmt::Display;
-    fn create(reader: R) -> Self;
-    fn read_record(&mut self, record: &mut Rec) -> Result<(), Self::Error>;
-    fn is_empty(record: &Rec) -> bool;
+    fn new(reader: R) -> Self;
+    fn read_record(&mut self) -> Result<Option<Rec>, Self::Error>;
     fn get_id(record: &Rec) -> &str;
 }
 
@@ -18,10 +17,10 @@ pub struct GenericReader<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>
     _phantom: std::marker::PhantomData<(R, Rec)>,
 }
 
-impl<R: BufRead + Send, Rec: Default, B: GenericReaderBackend<R, Rec>> GenericReader<R, Rec, B> {
+impl<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> GenericReader<R, Rec, B> {
     pub fn new(reader: R, source: String, compression: CompressionType) -> Self {
         Self {
-            backend: B::create(reader),
+            backend: B::new(reader),
             source,
             compression,
             last_id: String::new(),
@@ -31,27 +30,23 @@ impl<R: BufRead + Send, Rec: Default, B: GenericReaderBackend<R, Rec>> GenericRe
 
     fn truncate_id(id: &str) -> String {
         if id.len() > 64 {
-            id[..64].to_string()
+            id[..64].to_string() + "..."
         } else {
             id.to_string()
         }
     }
 }
 
-impl<R: BufRead + Send, Rec: Default, B: GenericReaderBackend<R, Rec>> Iterator for GenericReader<R, Rec, B> {
+impl<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> Iterator for GenericReader<R, Rec, B> {
     type Item = Rec;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let mut record = Rec::default();
-        match self.backend.read_record(&mut record) {
-            Ok(()) => {
-                if B::is_empty(&record) {
-                    None
-                } else {
-                    self.last_id = Self::truncate_id(B::get_id(&record));
-                    Some(record)
-                }
+        match self.backend.read_record() {
+            Ok(Some(record)) => {
+                self.last_id = Self::truncate_id(B::get_id(&record));
+                Some(record)
             }
+            Ok(None) => None,
             Err(e) => {
                 let context = if self.last_id.is_empty() {
                     " (no records processed yet)".to_string()
@@ -64,7 +59,7 @@ impl<R: BufRead + Send, Rec: Default, B: GenericReaderBackend<R, Rec>> Iterator 
     }
 }
 
-impl<R: BufRead + Send, Rec: Default, B: GenericReaderBackend<R, Rec>> SequenceReader for GenericReader<R, Rec, B> {
+impl<R: BufRead + Send, B: GenericReaderBackend<R, bio::io::fastq::Record>> SequenceReader for GenericReader<R, bio::io::fastq::Record, B> {
     fn source(&self) -> &str {
         &self.source
     }
@@ -84,17 +79,15 @@ mod tests {
     }
     impl GenericReaderBackend<BufReader<&[u8]>, String> for TestBackend {
         type Error = io::Error;
-        fn create(_reader: BufReader<&[u8]>) -> Self { TestBackend { count: 0 } }
-        fn read_record(&mut self, record: &mut String) -> Result<(), Self::Error> {
+        fn new(_reader: BufReader<&[u8]>) -> Self { TestBackend { count: 0 } }
+        fn read_record(&mut self) -> Result<Option<String>, Self::Error> {
             self.count += 1;
             if self.count == 1 {
-                *record = "rec1".to_string();
-                Ok(())
+                Ok(Some("rec1".to_string()))
             } else {
                 Err(io::Error::new(io::ErrorKind::Other, "test error"))
             }
         }
-        fn is_empty(record: &String) -> bool { record.is_empty() }
         fn get_id(record: &String) -> &str { record }
     }
 
@@ -110,22 +103,20 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Error reading from test_source: test error (last successful record ID: 0123456789012345678901234567890123456789012345678901234567890123)")]
+    #[should_panic(expected = "Error reading from test_source: test error (last successful record ID: 0123456789012345678901234567890123456789012345678901234567890123...)")]
     fn test_generic_reader_panic_with_truncated_id() {
         struct LongIdBackend { count: usize }
         impl GenericReaderBackend<BufReader<&[u8]>, String> for LongIdBackend {
             type Error = io::Error;
-            fn create(_reader: BufReader<&[u8]>) -> Self { LongIdBackend { count: 0 } }
-            fn read_record(&mut self, record: &mut String) -> Result<(), Self::Error> {
+            fn new(_reader: BufReader<&[u8]>) -> Self { LongIdBackend { count: 0 } }
+            fn read_record(&mut self) -> Result<Option<String>, Self::Error> {
                 self.count += 1;
                 if self.count == 1 {
-                    *record = "0123456789".repeat(10); // 100 chars
-                    Ok(())
+                    Ok(Some("0123456789".repeat(10))) // 100 chars
                 } else {
                     Err(io::Error::new(io::ErrorKind::Other, "test error"))
                 }
             }
-            fn is_empty(record: &String) -> bool { record.is_empty() }
             fn get_id(record: &String) -> &str { record }
         }
 

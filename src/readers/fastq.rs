@@ -12,18 +12,20 @@ pub struct FastqBackend<R: BufRead + Send> {
 
 impl<R: BufRead + Send> GenericReaderBackend<R, Record> for FastqBackend<R> {
     type Error = bio::io::fastq::Error;
-    fn create(reader: R) -> Self {
+    fn new(reader: R) -> Self {
         Self {
             reader: fastq::Reader::from_bufread(reader),
         }
     }
 
-    fn read_record(&mut self, record: &mut Record) -> Result<(), Self::Error> {
-        self.reader.read(record)
-    }
-
-    fn is_empty(record: &Record) -> bool {
-        record.is_empty()
+    fn read_record(&mut self) -> Result<Option<Record>, Self::Error> {
+        let mut record = Record::new();
+        self.reader.read(&mut record)?;
+        if record.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(record))
+        }
     }
 
     fn get_id(record: &Record) -> &str {

@@ -2,9 +2,10 @@ use std::io;
 use std::io::Write;
 use crate::types::CompressionType;
 use crate::utils::{get_writer, get_writer_path};
+use crate::writers::Writer;
 
 pub trait GenericWriterBackend<'a, R> {
-    fn create(writer: Box<dyn Write + Send + 'a>) -> Self;
+    fn new(writer: Box<dyn Write + Send + 'a>) -> Self;
     fn write_record(&mut self, record: &R) -> io::Result<()>;
     fn get_extension() -> &'static str;
 }
@@ -24,12 +25,14 @@ impl<'a, R, B: GenericWriterBackend<'a, R>> GenericWriter<'a, R, B> {
 
     pub fn from_writer(writer: Box<dyn Write + Send + 'a>) -> Self {
         Self {
-            backend: B::create(writer),
+            backend: B::new(writer),
             _phantom: std::marker::PhantomData,
         }
     }
+}
 
-    pub fn write(&mut self, record: &R) -> io::Result<()>
+impl<'a, R, B: GenericWriterBackend<'a, R>> Writer<R> for GenericWriter<'a, R, B> {
+    fn write(&mut self, record: &R) -> io::Result<()>
     {
         self.backend.write_record(record)
     }
