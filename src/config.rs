@@ -90,6 +90,9 @@ impl Config {
 
     fn determine_file_format(args: &Args) -> FileFormat {
         args.reads.as_ref().map_or(FileFormat::Fasta, |path| {
+            if path.to_string_lossy() == "-" {
+                return FileFormat::Fastq;
+            }
             let ext = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase());
             if let Some(e) = ext {
                 if e == "fasta" || e == "fa" {

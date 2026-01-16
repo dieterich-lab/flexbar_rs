@@ -1,7 +1,7 @@
 use std::io;
 use std::io::Write;
 use crate::types::CompressionType;
-use crate::utils::{get_writer, get_writer_path};
+use crate::utils::{get_writer_from_path, get_writer_path};
 use crate::writers::Writer;
 
 pub trait GenericWriterBackend<'a, R> {
@@ -19,7 +19,7 @@ pub struct GenericWriter<'a, R, B: GenericWriterBackend<'a, R>> {
 impl<'a, R, B: GenericWriterBackend<'a, R>> GenericWriter<'a, R, B> {
     pub fn new(prefix: &str, compression: CompressionType) -> io::Result<Self> {
         let path = get_writer_path(prefix, compression, B::get_extension());
-        let writer = get_writer(&path, compression)?;
+        let writer = get_writer_from_path(path.as_deref(), compression)?;
         Ok(Self::from_writer(writer))
     }
 

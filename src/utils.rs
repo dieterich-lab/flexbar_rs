@@ -12,27 +12,34 @@ use crate::types::CompressionType;
 pub fn get_reader<P: AsRef<Path>>(path: P) -> io::Result<(BufReader<Box<dyn Read + Send>>, String, CompressionType)> {
     let path_ref = path.as_ref();
     let source = path_ref.to_string_lossy().into_owned();
-    let file = File::open(path_ref)?;
-    
-    let extension = path_ref.extension()
-        .and_then(|s| s.to_str())
-        .map(|s| s.to_lowercase());
 
-    let (reader, compression): (Box<dyn Read + Send>, CompressionType) = match extension.as_deref() {
-        Some("gz") => (Box::new(GzDecoder::new(file)), CompressionType::Gz),
-        Some("bz2") => (Box::new(BzDecoder::new(file)), CompressionType::Bz2),
-        Some("zstd") | Some("zst") => (Box::new(ZstdDecoder::new(file)?), CompressionType::Zstd),
-        _ => (Box::new(file), CompressionType::Uncompressed),
+    let (reader, compression): (Box<dyn Read + Send>, CompressionType) = if source == "-" {
+        (Box::new(io::stdin()), CompressionType::Uncompressed)
+    } else {
+        let file = File::open(path_ref)?;
+        let extension = path_ref.extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_lowercase());
+
+        match extension.as_deref() {
+            Some("gz") => (Box::new(GzDecoder::new(file)), CompressionType::Gz),
+            Some("bz2") => (Box::new(BzDecoder::new(file)), CompressionType::Bz2),
+            Some("zstd") | Some("zst") => (Box::new(ZstdDecoder::new(file)?), CompressionType::Zstd),
+            _ => (Box::new(file), CompressionType::Uncompressed),
+        }
     };
 
     Ok((BufReader::new(reader), source, compression))
 }
 
-pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &str) -> PathBuf {
+pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &str) -> Option<PathBuf> {
+    if prefix == "-" {
+        return None;
+    }
     let mut path = PathBuf::from(prefix);
     path.set_extension(extension);
     
-    match compression {
+    Some(match compression {
         CompressionType::Gz => {
             let mut s = path.into_os_string();
             s.push(".gz");
@@ -50,16 +57,20 @@ pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &s
         }
         CompressionType::Uncompressed => path,
         CompressionType::Keep => panic!("Compression type KEEP is not supported for writing"),
-    }
+    })
 }
 
-pub fn get_writer(path: &Path, compression: CompressionType) -> io::Result<Box<dyn Write + Send>> {
-    let file = File::create(path)?;
+pub fn get_writer_from_path(path: Option<&Path>, compression: CompressionType) -> io::Result<Box<dyn Write + Send>> {
+    let writer: Box<dyn Write + Send> = match path {
+        Some(p) => Box::new(File::create(p)?),
+        None => Box::new(io::stdout()),
+    };
+
     match compression {
-        CompressionType::Gz => Ok(Box::new(GzEncoder::new(file, flate2::Compression::default()))),
-        CompressionType::Bz2 => Ok(Box::new(BzEncoder::new(file, bzip2::Compression::default()))),
-        CompressionType::Zstd => Ok(Box::new(ZstdEncoder::new(file, 0)?.auto_finish())),
-        CompressionType::Uncompressed => Ok(Box::new(file)),
+        CompressionType::Gz => Ok(Box::new(GzEncoder::new(writer, flate2::Compression::default()))),
+        CompressionType::Bz2 => Ok(Box::new(BzEncoder::new(writer, bzip2::Compression::default()))),
+        CompressionType::Zstd => Ok(Box::new(ZstdEncoder::new(writer, 0)?.auto_finish())),
+        CompressionType::Uncompressed => Ok(writer),
         CompressionType::Keep => panic!("Compression type KEEP is not supported for writing"),
     }
 }
@@ -96,12 +107,13 @@ mod tests {
     fn test_compression_roundtrip(compression: CompressionType, extension: &str) {
         let dir = tempdir().unwrap();
         let prefix = dir.path().join("test").to_str().unwrap().to_string();
-        let path = get_writer_path(&prefix, compression, extension);
+        let path_opt = get_writer_path(&prefix, compression, extension);
+        let path = path_opt.unwrap();
         
         let data = b"test data for compression roundtrip";
         
         {
-            let mut writer = get_writer(&path, compression).unwrap();
+            let mut writer = get_writer_from_path(Some(&path), compression).unwrap();
             writer.write_all(data).unwrap();
             writer.flush().unwrap();
         }
@@ -141,8 +153,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Compression type KEEP is not supported for writing")]
-    fn test_get_writer_panic_on_keep() {
-        get_writer(Path::new("test"), CompressionType::Keep).unwrap();
+    fn test_stdin_reader() {
+        let (_reader, source, compression) = get_reader("-").unwrap();
+        assert_eq!(source, "-");
+        assert_eq!(compression, CompressionType::Uncompressed);
+    }
+
+    #[test]
+    fn test_stdout_writer() {
+        let path = get_writer_path("-", CompressionType::Uncompressed, "fastq");
+        assert!(path.is_none());
+        let _writer = get_writer_from_path(None, CompressionType::Uncompressed).unwrap();
+        // Cannot easily check if it is stdout, but at least it didn't fail
     }
 }

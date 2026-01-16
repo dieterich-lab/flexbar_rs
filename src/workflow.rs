@@ -37,7 +37,13 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
         Some(c) => c,
     };
 
-    let mut writer: Box<dyn Writer<bio::io::fastq::Record>> = if config.args.fasta_output {
+    let mut writer: Box<dyn Writer<bio::io::fastq::Record>> = if config.args.stdout_reads {
+        if config.args.fasta_output {
+            Box::new(SingleWriterFasta::new("-", compression).expect("Failed to create FASTA writer"))
+        } else {
+            Box::new(SingleWriterFastq::new("-", compression).expect("Failed to create FASTQ writer"))
+        }
+    } else if config.args.fasta_output {
         Box::new(SingleWriterFasta::new(output_prefix, compression).expect("Failed to create FASTA writer"))
     } else {
         Box::new(SingleWriterFastq::new(output_prefix, compression).expect("Failed to create FASTQ writer"))
