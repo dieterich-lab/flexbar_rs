@@ -1,16 +1,167 @@
 use crate::context::Context;
+use crate::args::Args;
+use crate::types::TrimEnd;
+use bio::alignment::pairwise::*;
+use bio::alignment::Alignment;
+use bio::io::fastq::Record;
 
 pub struct SingleWorker<'a> {
+    args: &'a Args,
     context: &'a Context,
+    scoring: Scoring<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>,
+    max_adapter_len: usize,
 }
 
 impl<'a> SingleWorker<'a> {
-    pub fn new(context: &'a Context) -> Self {
-        Self { context }
+    fn get_scoring(&self) -> Scoring<&dyn Fn(u8, u8) -> i32> {
+        Scoring {
+            match_fn: &*self.scoring.match_fn,
+            match_scores: self.scoring.match_scores,
+            gap_open: self.scoring.gap_open,
+            gap_extend: self.scoring.gap_extend,
+            xclip_prefix: self.scoring.xclip_prefix,
+            xclip_suffix: self.scoring.xclip_suffix,
+            yclip_prefix: self.scoring.yclip_prefix,
+            yclip_suffix: self.scoring.yclip_suffix,
+        }
     }
 
-    pub fn process<T>(&self, input: T) -> Option<T> {
-        // Here we will eventually use self.context for adapter removal
-        Some(input)
+    pub fn new(args: &'a Args, context: &'a Context) -> Self {
+        let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix) = match args.adapter_trim_end {
+            TrimEnd::Any => (0, 0, 0, 0),
+            TrimEnd::Left => (0, MIN_SCORE, MIN_SCORE, 0),
+            TrimEnd::Right => (MIN_SCORE, 0, 0, MIN_SCORE),
+            TrimEnd::LTail => (0, MIN_SCORE, 0, 0),
+            TrimEnd::RTail => (MIN_SCORE, 0, 0, 0),
+        };
+
+        let match_v = args.adapter_match;
+        let mismatch_v = args.adapter_mismatch;
+        let match_fn = Box::new(move |a: u8, b: u8| if a == b { match_v } else { mismatch_v }) as Box<dyn Fn(u8, u8) -> i32 + Send + Sync>;
+
+        let scoring = Scoring {
+            match_fn,
+            match_scores: None,
+            gap_open: args.adapter_gap,
+            gap_extend: args.adapter_gap,
+            xclip_prefix,
+            xclip_suffix,
+            yclip_prefix,
+            yclip_suffix,
+        };
+
+        let max_adapter_len = context.adapters.iter().map(|a| a.len()).max().unwrap_or(0);
+
+        Self {
+            args,
+            context,
+            scoring,
+            max_adapter_len,
+        }
+    }
+
+    pub fn process(&self, mut record: Record) -> Option<Record> {
+        if self.context.adapters.is_empty() {
+            return Some(record);
+        }
+
+        let mut aligner = Aligner::with_capacity_and_scoring(
+            record.seq().len(),
+            self.max_adapter_len,
+            self.get_scoring(),
+        );
+
+        let mut best_alignment: Option<Alignment> = None;
+
+        for adapter in &self.context.adapters {
+            let alignment = aligner.semiglobal(adapter.as_bytes(), record.seq());
+            
+            // Debug alignment
+            // println!("Score: {}, xstart: {}, xend: {}, ystart: {}, yend: {}", alignment.score, alignment.xstart, alignment.xend, alignment.ystart, alignment.yend);
+
+            // Check if alignment meets criteria
+            let overlap = alignment.yend - alignment.ystart;
+            let adapter_overlap = alignment.xend - alignment.xstart;
+            
+            if overlap >= self.args.adapter_min_overlap && adapter_overlap >= self.args.adapter_min_overlap {
+                let matches = alignment.score / self.args.adapter_match;
+                let errors = overlap as i32 - matches;
+                let error_rate = errors as f32 / overlap as f32;
+
+                if error_rate <= self.args.adapter_error_rate {
+                    if best_alignment.as_ref().map_or(true, |best| alignment.score > best.score) {
+                        best_alignment = Some(alignment);
+                    }
+                }
+            }
+        }
+
+        if let Some(alignment) = best_alignment {
+            let mut new_seq = record.seq().to_vec();
+            let mut new_qual = record.qual().to_vec();
+
+            match self.args.adapter_trim_end {
+                TrimEnd::Right | TrimEnd::RTail => {
+                    new_seq.truncate(alignment.ystart);
+                    new_qual.truncate(alignment.ystart);
+                }
+                TrimEnd::Left | TrimEnd::LTail => {
+                    new_seq = new_seq[alignment.yend..].to_vec();
+                    new_qual = new_qual[alignment.yend..].to_vec();
+                }
+                TrimEnd::Any => {
+                    if alignment.ystart < record.seq().len() - alignment.yend {
+                         new_seq = new_seq[alignment.yend..].to_vec();
+                         new_qual = new_qual[alignment.yend..].to_vec();
+                    } else {
+                         new_seq.truncate(alignment.ystart);
+                         new_qual.truncate(alignment.ystart);
+                    }
+                }
+            }
+            
+            record = Record::with_attrs(record.id(), record.desc(), &new_seq, &new_qual);
+        }
+
+        Some(record)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::context::Context;
+    use crate::args::Args;
+    use bio::io::fastq::Record;
+    use clap::Parser;
+
+    #[test]
+    fn test_process_right() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5"]);
+        let mut context = Context::new();
+        context.adapters.push("AGATCGGAAGAG".to_string());
+        
+        let worker = SingleWorker::new(&args, &context);
+        
+        let record = Record::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
+        let processed = worker.process(record).unwrap();
+        
+        assert_eq!(processed.seq(), b"ACTGT");
+        assert_eq!(processed.qual(), b"IIIII");
+    }
+
+    #[test]
+    fn test_process_left() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "LEFT", "--adapter-min-overlap", "5"]);
+        let mut context = Context::new();
+        context.adapters.push("AGATCGGAAGAG".to_string());
+        
+        let worker = SingleWorker::new(&args, &context);
+        
+        let record = Record::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
+        let processed = worker.process(record).unwrap();
+        
+        assert_eq!(processed.seq(), b"ACTGT");
+        assert_eq!(processed.qual(), b"IIIII");
     }
 }

@@ -49,7 +49,7 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
         Box::new(SingleWriterFastq::new(output_prefix, compression).expect("Failed to create FASTQ writer"))
     };
     
-    let worker = SingleWorker::new(context);
+    let worker = SingleWorker::new(&config.args, context);
 
     let (tx, rx) = sync_channel(100);
 
