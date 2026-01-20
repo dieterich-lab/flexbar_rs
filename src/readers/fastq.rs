@@ -4,7 +4,6 @@ use bio::io::fastq;
 use bio::io::fastq::{FastqRead, Record};
 use crate::readers::generic::{GenericReader, GenericReaderBackend};
 use crate::utils::get_reader;
-use crate::types::CompressionType;
 
 pub struct FastqBackend<R: BufRead + Send> {
     reader: fastq::Reader<R>,
@@ -46,6 +45,7 @@ impl SingleReaderFastq<io::BufReader<Box<dyn io::Read + Send>>> {
 mod tests {
     use super::*;
     use std::io::Cursor;
+    use crate::types::CompressionType;
 
     #[test]
     fn test_fastq_reader() {

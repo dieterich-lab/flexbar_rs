@@ -1,4 +1,4 @@
-use std::io::{self, BufRead};
+use std::io::{BufRead};
 use crate::readers::SequenceReader;
 use crate::types::CompressionType;
 
@@ -60,10 +60,6 @@ impl<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> Iterator for Gener
 }
 
 impl<R: BufRead + Send, B: GenericReaderBackend<R, bio::io::fastq::Record>> SequenceReader for GenericReader<R, bio::io::fastq::Record, B> {
-    fn source(&self) -> &str {
-        &self.source
-    }
-
     fn compression(&self) -> CompressionType {
         self.compression
     }
@@ -71,6 +67,7 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R, bio::io::fastq::Record>> Sequ
 
 #[cfg(test)]
 mod tests {
+    use std::io;
     use super::*;
     use std::io::BufReader;
 

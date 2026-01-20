@@ -1,33 +1,24 @@
 use crate::context::Context;
-use crate::args::Args;
+use crate::config::Config;
 use crate::types::TrimEnd;
 use bio::alignment::pairwise::*;
 use bio::alignment::Alignment;
 use bio::io::fastq::Record;
 
 pub struct SingleWorker<'a> {
-    args: &'a Args,
+    config: &'a Config,
     context: &'a Context,
-    scoring: Scoring<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>,
+    xclip_prefix: i32,
+    xclip_suffix: i32,
+    yclip_prefix: i32,
+    yclip_suffix: i32,
     max_adapter_len: usize,
 }
 
 impl<'a> SingleWorker<'a> {
-    fn get_scoring(&self) -> Scoring<&dyn Fn(u8, u8) -> i32> {
-        Scoring {
-            match_fn: &*self.scoring.match_fn,
-            match_scores: self.scoring.match_scores,
-            gap_open: self.scoring.gap_open,
-            gap_extend: self.scoring.gap_extend,
-            xclip_prefix: self.scoring.xclip_prefix,
-            xclip_suffix: self.scoring.xclip_suffix,
-            yclip_prefix: self.scoring.yclip_prefix,
-            yclip_suffix: self.scoring.yclip_suffix,
-        }
-    }
-
-    pub fn new(args: &'a Args, context: &'a Context) -> Self {
-        let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix) = match args.adapter_trim_end {
+    pub fn new(config: &'a Config, context: &'a Context) -> Self {
+        let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix)
+            = match config.args.adapter_trim_end {
             TrimEnd::Any => (0, 0, 0, 0),
             TrimEnd::Left => (0, MIN_SCORE, MIN_SCORE, 0),
             TrimEnd::Right => (MIN_SCORE, 0, 0, MIN_SCORE),
@@ -35,28 +26,29 @@ impl<'a> SingleWorker<'a> {
             TrimEnd::RTail => (MIN_SCORE, 0, 0, 0),
         };
 
-        let match_v = args.adapter_match;
-        let mismatch_v = args.adapter_mismatch;
-        let match_fn = Box::new(move |a: u8, b: u8| if a == b { match_v } else { mismatch_v }) as Box<dyn Fn(u8, u8) -> i32 + Send + Sync>;
+        let max_adapter_len = context.adapters.iter().map(|a| a.len()).max().unwrap_or(0);
 
-        let scoring = Scoring {
-            match_fn,
-            match_scores: None,
-            gap_open: args.adapter_gap,
-            gap_extend: args.adapter_gap,
+        Self {
+            config,
+            context,
             xclip_prefix,
             xclip_suffix,
             yclip_prefix,
             yclip_suffix,
-        };
-
-        let max_adapter_len = context.adapters.iter().map(|a| a.len()).max().unwrap_or(0);
-
-        Self {
-            args,
-            context,
-            scoring,
             max_adapter_len,
+        }
+    }
+
+    fn get_scoring(&self) -> Scoring<fn(u8, u8) -> i32> {
+        Scoring {
+            match_fn: |a, b| if a == b { 1 } else { -1 },
+            match_scores: None,
+            gap_open: self.config.args.adapter_gap,
+            gap_extend: self.config.args.adapter_gap,
+            xclip_prefix: self.xclip_prefix,
+            xclip_suffix: self.xclip_suffix,
+            yclip_prefix: self.yclip_prefix,
+            yclip_suffix: self.yclip_suffix,
         }
     }
 
@@ -75,20 +67,15 @@ impl<'a> SingleWorker<'a> {
 
         for adapter in &self.context.adapters {
             let alignment = aligner.semiglobal(adapter.as_bytes(), record.seq());
-            
-            // Debug alignment
-            // println!("Score: {}, xstart: {}, xend: {}, ystart: {}, yend: {}", alignment.score, alignment.xstart, alignment.xend, alignment.ystart, alignment.yend);
-
-            // Check if alignment meets criteria
             let overlap = alignment.yend - alignment.ystart;
             let adapter_overlap = alignment.xend - alignment.xstart;
             
-            if overlap >= self.args.adapter_min_overlap && adapter_overlap >= self.args.adapter_min_overlap {
-                let matches = alignment.score / self.args.adapter_match;
+            if overlap >= self.config.args.adapter_min_overlap && adapter_overlap >= self.config.args.adapter_min_overlap {
+                let matches = (alignment.score + overlap as i32) / 2;
                 let errors = overlap as i32 - matches;
                 let error_rate = errors as f32 / overlap as f32;
 
-                if error_rate <= self.args.adapter_error_rate {
+                if error_rate <= self.config.args.adapter_error_rate {
                     if best_alignment.as_ref().map_or(true, |best| alignment.score > best.score) {
                         best_alignment = Some(alignment);
                     }
@@ -100,7 +87,7 @@ impl<'a> SingleWorker<'a> {
             let mut new_seq = record.seq().to_vec();
             let mut new_qual = record.qual().to_vec();
 
-            match self.args.adapter_trim_end {
+            match self.config.args.adapter_trim_end {
                 TrimEnd::Right | TrimEnd::RTail => {
                     new_seq.truncate(alignment.ystart);
                     new_qual.truncate(alignment.ystart);
@@ -132,16 +119,18 @@ mod tests {
     use super::*;
     use crate::context::Context;
     use crate::args::Args;
+    use crate::config::Config;
     use bio::io::fastq::Record;
     use clap::Parser;
 
     #[test]
     fn test_process_right() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5"]);
+        let config = Config::new(args);
         let mut context = Context::new();
         context.adapters.push("AGATCGGAAGAG".to_string());
         
-        let worker = SingleWorker::new(&args, &context);
+        let worker = SingleWorker::new(&config, &context);
         
         let record = Record::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
         let processed = worker.process(record).unwrap();
@@ -153,10 +142,11 @@ mod tests {
     #[test]
     fn test_process_left() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "LEFT", "--adapter-min-overlap", "5"]);
+        let config = Config::new(args);
         let mut context = Context::new();
         context.adapters.push("AGATCGGAAGAG".to_string());
         
-        let worker = SingleWorker::new(&args, &context);
+        let worker = SingleWorker::new(&config, &context);
         
         let record = Record::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
         let processed = worker.process(record).unwrap();

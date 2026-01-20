@@ -17,6 +17,8 @@ pub struct Args {
     pub target: String,
 
     /// Fasta/q file or stdin (-) with reads that may contain barcodes
+    /// Files compressed with Gzip (.gz), bzip2 (.bz2), or zstd (.zst) are supported
+    /// and will be piped through a suitable decompression tool automatically.
     #[arg(short = 'r', long)]
     pub reads: Option<PathBuf>,
 
