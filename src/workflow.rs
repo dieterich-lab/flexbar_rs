@@ -34,6 +34,9 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
     let worker = SingleWorker::new(config, context);
     let mut writer = get_single_writer(config, output_prefix, compression);
 
+    // reader.par_iert()
+    //     .map(|record| worker.process(&record))
+    //     .map(|record, worker_stats| writer.write(&record).expect("Failed to write record"); writer_stats)
     let (tx, rx) = sync_channel(100);
     let (stats_tx, stats_rx) = std::sync::mpsc::channel();
 
@@ -43,7 +46,7 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
             let (worker_stats, reader_stats) = reader
                 .par_bridge()
                 .map(|record| {
-                    let result = worker.process(record.clone());
+                    let result = worker.process(&record);
                     (record, result)
                 })
                 .fold(|| (WorkerStatistics::default(), crate::statistics::ReaderStatistics::default()), |(mut w_acc, r_acc), (_record, result)| {
@@ -93,7 +96,7 @@ fn get_compression(reader: &Box<dyn SequenceReader + Send>, config: &Config) -> 
     }
 }
 
-fn get_single_writer(config: &Config, output_prefix: &str, compression: CompressionType) -> Box<dyn Writer<bio::io::fastq::Record>> {
+fn get_single_writer(config: &Config, output_prefix: &str, compression: CompressionType) -> Box<dyn Writer> {
     if config.args.stdout_reads {
         if config.args.fasta_output {
             Box::new(SingleWriterFasta::new("-", compression).expect("Failed to create FASTA writer"))

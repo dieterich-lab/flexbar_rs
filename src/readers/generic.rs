@@ -1,24 +1,23 @@
 use std::io::{BufRead};
 use crate::readers::SequenceReader;
-use crate::types::CompressionType;
+use crate::types::{CompressionType, RecordDto};
 
-pub trait GenericReaderBackend<R: BufRead + Send, Rec> {
+pub trait GenericReaderBackend<R: BufRead + Send> {
     type Error: std::fmt::Display;
     fn new(reader: R) -> Self;
-    fn read_record(&mut self) -> Result<Option<Rec>, Self::Error>;
-    fn get_id(record: &Rec) -> &str;
+    fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error>;
 }
 
-pub struct GenericReader<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> {
+pub struct GenericReader<R: BufRead + Send, B: GenericReaderBackend<R>> {
     backend: B,
     source: String,
     compression: CompressionType,
     last_id: String,
     statistics: crate::statistics::ReaderStatistics,
-    _phantom: std::marker::PhantomData<(R, Rec)>,
+    _phantom: std::marker::PhantomData<(R, RecordDto)>,
 }
 
-impl<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> GenericReader<R, Rec, B> {
+impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
     pub fn new(reader: R, source: String, compression: CompressionType) -> Self {
         Self {
             backend: B::new(reader),
@@ -39,13 +38,13 @@ impl<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> GenericReader<R, R
     }
 }
 
-impl<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> Iterator for GenericReader<R, Rec, B> {
-    type Item = Rec;
+impl<R: BufRead + Send, B: GenericReaderBackend<R>> Iterator for GenericReader<R, B> {
+    type Item = RecordDto;
 
-    fn next(&mut self) -> Option<Self::Item> {
+    fn next(&mut self) -> Option<RecordDto> {
         match self.backend.read_record() {
             Ok(Some(record)) => {
-                self.last_id = Self::truncate_id(B::get_id(&record));
+                self.last_id = Self::truncate_id(record.id());
                 self.statistics.total_records_read += 1;
                 Some(record)
             }
@@ -62,7 +61,7 @@ impl<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> Iterator for Gener
     }
 }
 
-impl<R: BufRead + Send, B: GenericReaderBackend<R, bio::io::fastq::Record>> SequenceReader for GenericReader<R, bio::io::fastq::Record, B> {
+impl<R: BufRead + Send, B: GenericReaderBackend<R>> SequenceReader for GenericReader<R, B> {
     fn compression(&self) -> CompressionType {
         self.compression
     }
@@ -81,18 +80,17 @@ mod tests {
     struct TestBackend {
         count: usize,
     }
-    impl GenericReaderBackend<BufReader<&[u8]>, String> for TestBackend {
+    impl GenericReaderBackend<BufReader<&[u8]>> for TestBackend {
         type Error = io::Error;
         fn new(_reader: BufReader<&[u8]>) -> Self { TestBackend { count: 0 } }
-        fn read_record(&mut self) -> Result<Option<String>, Self::Error> {
+        fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
             self.count += 1;
             if self.count == 1 {
-                Ok(Some("rec1".to_string()))
+                Ok(Some(RecordDto::with_attrs("rec1", None, b"ACGT", b"IIII")))
             } else {
                 Err(io::Error::new(io::ErrorKind::Other, "test error"))
             }
         }
-        fn get_id(record: &String) -> &str { record }
     }
 
     #[test]
@@ -100,7 +98,7 @@ mod tests {
     fn test_generic_reader_panic_with_id() {
         let data = b"dummy";
         let reader = BufReader::new(&data[..]);
-        let mut gen_reader: GenericReader<_, String, TestBackend> = GenericReader::new(reader, "test_source".to_string(), CompressionType::Uncompressed);
+        let mut gen_reader: GenericReader<_, TestBackend> = GenericReader::new(reader, "test_source".to_string(), CompressionType::Uncompressed);
         
         gen_reader.next(); // first call returns "rec1"
         gen_reader.next(); // second call panics
@@ -110,23 +108,22 @@ mod tests {
     #[should_panic(expected = "Error reading from test_source: test error (last successful record ID: 0123456789012345678901234567890123456789012345678901234567890123...)")]
     fn test_generic_reader_panic_with_truncated_id() {
         struct LongIdBackend { count: usize }
-        impl GenericReaderBackend<BufReader<&[u8]>, String> for LongIdBackend {
+        impl GenericReaderBackend<BufReader<&[u8]>> for LongIdBackend {
             type Error = io::Error;
             fn new(_reader: BufReader<&[u8]>) -> Self { LongIdBackend { count: 0 } }
-            fn read_record(&mut self) -> Result<Option<String>, Self::Error> {
+            fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
                 self.count += 1;
                 if self.count == 1 {
-                    Ok(Some("0123456789".repeat(10))) // 100 chars
+                    Ok(Some(RecordDto::with_attrs(&"0123456789".repeat(10), None, b"A", b"I"))) // 100 chars
                 } else {
                     Err(io::Error::new(io::ErrorKind::Other, "test error"))
                 }
             }
-            fn get_id(record: &String) -> &str { record }
         }
 
         let data = b"dummy";
         let reader = BufReader::new(&data[..]);
-        let mut gen_reader: GenericReader<_, String, LongIdBackend> = GenericReader::new(reader, "test_source".to_string(), CompressionType::Uncompressed);
+        let mut gen_reader: GenericReader<_, LongIdBackend> = GenericReader::new(reader, "test_source".to_string(), CompressionType::Uncompressed);
         
         gen_reader.next();
         gen_reader.next();

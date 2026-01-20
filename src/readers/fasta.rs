@@ -2,7 +2,7 @@ use std::io::{self, BufRead};
 use std::path::Path;
 use bio::io::fasta;
 use bio::io::fasta::FastaRead;
-use bio::io::fastq;
+use crate::types::RecordDto;
 use crate::readers::generic::{GenericReader, GenericReaderBackend};
 use crate::utils::get_reader;
 
@@ -11,7 +11,7 @@ pub struct FastaBackend<R: BufRead + Send> {
     fasta_record: fasta::Record,
 }
 
-impl<R: BufRead + Send> GenericReaderBackend<R, fastq::Record> for FastaBackend<R> {
+impl<R: BufRead + Send> GenericReaderBackend<R> for FastaBackend<R> {
     type Error = io::Error;
     fn new(reader: R) -> Self {
         Self {
@@ -20,12 +20,12 @@ impl<R: BufRead + Send> GenericReaderBackend<R, fastq::Record> for FastaBackend<
         }
     }
 
-    fn read_record(&mut self) -> Result<Option<fastq::Record>, Self::Error> {
+    fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
         self.reader.read(&mut self.fasta_record)?;
         if self.fasta_record.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(fastq::Record::with_attrs(
+            Ok(Some(RecordDto::with_attrs(
                 self.fasta_record.id(),
                 self.fasta_record.desc(),
                 self.fasta_record.seq(),
@@ -33,13 +33,9 @@ impl<R: BufRead + Send> GenericReaderBackend<R, fastq::Record> for FastaBackend<
             )))
         }
     }
-
-    fn get_id(record: &fastq::Record) -> &str {
-        record.id()
-    }
 }
 
-pub type SingleReaderFasta<R> = GenericReader<R, fastq::Record, FastaBackend<R>>;
+pub type SingleReaderFasta<R> = GenericReader<R, FastaBackend<R>>;
 
 impl SingleReaderFasta<io::BufReader<Box<dyn io::Read + Send>>> {
     pub fn from_path<P: AsRef<Path>>(path: P) -> io::Result<Self> {

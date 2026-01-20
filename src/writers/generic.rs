@@ -1,23 +1,23 @@
 use std::io;
 use std::io::Write;
-use crate::types::CompressionType;
+use crate::types::{CompressionType, RecordDto};
 use crate::utils::{get_writer_from_path, get_writer_path};
 use crate::writers::Writer;
 
-pub trait GenericWriterBackend<'a, R> {
+pub trait GenericWriterBackend<'a> {
     fn new(writer: Box<dyn Write + Send + 'a>) -> Self;
-    fn write_record(&mut self, record: &R) -> io::Result<()>;
+    fn write_record(&mut self, record: &RecordDto) -> io::Result<()>;
     fn get_extension() -> &'static str;
 }
 
 
-pub struct GenericWriter<'a, R, B: GenericWriterBackend<'a, R>> {
+pub struct GenericWriter<'a, B: GenericWriterBackend<'a>> {
     backend: B,
     statistics: crate::statistics::WriterStatistics,
-    _phantom: std::marker::PhantomData<&'a (R, B)>,
+    _phantom: std::marker::PhantomData<&'a (RecordDto, B)>,
 }
 
-impl<'a, R, B: GenericWriterBackend<'a, R>> GenericWriter<'a, R, B> {
+impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
     pub fn new(prefix: &str, compression: CompressionType) -> io::Result<Self> {
         let path = get_writer_path(prefix, compression, B::get_extension());
         let writer = get_writer_from_path(path.as_deref(), compression)?;
@@ -33,8 +33,8 @@ impl<'a, R, B: GenericWriterBackend<'a, R>> GenericWriter<'a, R, B> {
     }
 }
 
-impl<'a, R, B: GenericWriterBackend<'a, R>> Writer<R> for GenericWriter<'a, R, B> {
-    fn write(&mut self, record: &R) -> io::Result<()>
+impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
+    fn write(&mut self, record: &RecordDto) -> io::Result<()>
     {
         self.backend.write_record(record)?;
         self.statistics.total_records_written += 1;

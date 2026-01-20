@@ -1,16 +1,16 @@
 use std::io;
 use bio::io::fasta;
-use bio::io::fastq;
+use crate::types::RecordDto;
 use crate::writers::generic::{GenericWriter, GenericWriterBackend};
 
 type FastaBackend<'a> = fasta::Writer<Box<dyn io::Write + Send + 'a>>;
 
-impl<'a> GenericWriterBackend<'a, fastq::Record> for FastaBackend<'a> {
+impl<'a> GenericWriterBackend<'a> for FastaBackend<'a> {
     fn new(writer: Box<dyn io::Write + Send + 'a>) -> Self {
         fasta::Writer::new(writer)
     }
 
-    fn write_record(&mut self, record: &fastq::Record) -> io::Result<()> {
+    fn write_record(&mut self, record: &RecordDto) -> io::Result<()> {
         let fasta_record = fasta::Record::with_attrs(
             record.id(),
             record.desc(),
@@ -24,12 +24,12 @@ impl<'a> GenericWriterBackend<'a, fastq::Record> for FastaBackend<'a> {
     }
 }
 
-pub type SingleWriterFasta<'a> = GenericWriter<'a, fastq::Record, FastaBackend<'a>>;
+pub type SingleWriterFasta<'a> = GenericWriter<'a, FastaBackend<'a>>;
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use bio::io::fastq::Record;
+    use crate::types::RecordDto;
     use crate::writers::Writer;
 
     #[test]
@@ -37,7 +37,7 @@ mod tests {
         let mut buffer = Vec::new();
         {
             let mut writer = SingleWriterFasta::from_writer(Box::new(&mut buffer));
-            let record = Record::with_attrs("id1", Some("desc1"), b"ACGT", b"!!!!");
+            let record = RecordDto::with_attrs("id1", Some("desc1"), b"ACGT", b"!!!!");
             writer.write(&record).expect("Failed to write record");
         }
         

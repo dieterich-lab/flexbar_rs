@@ -1,9 +1,8 @@
 use crate::context::Context;
 use crate::config::Config;
-use crate::types::TrimEnd;
+use crate::types::{TrimEnd, RecordDto};
 use bio::alignment::pairwise::*;
 use bio::alignment::Alignment;
-use bio::io::fastq::Record;
 
 pub struct SingleWorker<'a> {
     config: &'a Config,
@@ -52,19 +51,19 @@ impl<'a> SingleWorker<'a> {
         }
     }
 
-    pub fn process(&self, mut record: Record) -> Option<(Record, crate::statistics::WorkerStatistics)> {
+    pub fn process(&self, record: &RecordDto) -> Option<(RecordDto, crate::statistics::WorkerStatistics)> {
         let mut worker_stats = crate::statistics::WorkerStatistics::default();
 
-        if self.filter_uncalled(&record, &mut worker_stats) {
-            return Some((record, worker_stats));
+        if self.filter_uncalled(record, &mut worker_stats) {
+            return Some((record.clone(), worker_stats));
         }
 
-        self.remove_adapters(&mut record, &mut worker_stats);
+        let processed_record = self.remove_adapters(record, &mut worker_stats);
 
-        Some((record, worker_stats))
+        Some((processed_record, worker_stats))
     }
 
-    fn filter_uncalled(&self, record: &Record, stats: &mut crate::statistics::WorkerStatistics) -> bool {
+    fn filter_uncalled(&self, record: &RecordDto, stats: &mut crate::statistics::WorkerStatistics) -> bool {
         let uncalled_count = record.seq().iter().filter(|&&b| b == b'N' || b == b'n').count();
         if uncalled_count > self.config.args.max_uncalled {
             stats.total_discarded_uncalled = 1;
@@ -73,9 +72,9 @@ impl<'a> SingleWorker<'a> {
         false
     }
 
-    fn remove_adapters(&self, record: &mut Record, stats: &mut crate::statistics::WorkerStatistics) {
+    fn remove_adapters(&self, record: &RecordDto, stats: &mut crate::statistics::WorkerStatistics) -> RecordDto {
         if self.context.adapters.is_empty() {
-            return;
+            return record.clone();
         }
 
         let mut aligner = Aligner::with_capacity_and_scoring(
@@ -128,8 +127,10 @@ impl<'a> SingleWorker<'a> {
                 }
             }
             
-            *record = Record::with_attrs(record.id(), record.desc(), &new_seq, &new_qual);
             stats.total_adapters_removed += 1;
+            RecordDto::with_attrs(record.id(), record.desc(), &new_seq, &new_qual)
+        } else {
+            record.clone()
         }
     }
 }
@@ -140,7 +141,7 @@ mod tests {
     use crate::context::Context;
     use crate::args::Args;
     use crate::config::Config;
-    use bio::io::fastq::Record;
+    use crate::types::RecordDto;
     use clap::Parser;
 
     #[test]
@@ -152,8 +153,8 @@ mod tests {
         
         let worker = SingleWorker::new(&config, &context);
         
-        let record = Record::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let (processed, _worker_stats) = worker.process(record).unwrap();
+        let record = RecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
+        let (processed, _worker_stats) = worker.process(&record).unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -168,8 +169,8 @@ mod tests {
         
         let worker = SingleWorker::new(&config, &context);
         
-        let record = Record::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
-        let (processed, _worker_stats) = worker.process(record).unwrap();
+        let record = RecordDto::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
+        let (processed, _worker_stats) = worker.process(&record).unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -183,13 +184,13 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
 
         // 2 'N's - should keep
-        let record = Record::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
-        let (_processed, worker_stats) = worker.process(record).unwrap();
+        let record = RecordDto::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
+        let (_processed, worker_stats) = worker.process(&record).unwrap();
         assert_eq!(worker_stats.total_discarded_uncalled, 0);
 
         // 3 'N's - should discard
-        let record = Record::with_attrs("read2", None, b"ACNNGN", b"IIIIII");
-        let (_processed, worker_stats) = worker.process(record).unwrap();
+        let record = RecordDto::with_attrs("read2", None, b"ACNNGN", b"IIIIII");
+        let (_processed, worker_stats) = worker.process(&record).unwrap();
         assert_eq!(worker_stats.total_discarded_uncalled, 1);
     }
 }
