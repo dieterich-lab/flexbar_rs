@@ -59,24 +59,25 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
     let writer_stats = thread::scope(|s| {
         s.spawn(move || {
             let reader_stats_val = reader.statistics();
-            let worker_stats = reader
+            let (worker_stats, reader_stats) = reader
                 .par_bridge()
                 .map(|record| {
                     let result = worker.process(record.clone());
                     (record, result)
                 })
-                .fold(WorkerStatistics::default, |mut acc, (record, result)| {
-                    if let Some((processed, stats)) = result {
-                        acc.total_adapters_removed += stats.total_adapters_removed;
-                        tx.send(processed).expect("Failed to send record to writer");
-                    } else {
-                        tx.send(record).expect("Failed to send record to writer");
+                .fold(|| (WorkerStatistics::default(), crate::statistics::ReaderStatistics::default()), |(mut w_acc, r_acc), (_record, result)| {
+                    if let Some((processed, w_stats)) = result {
+                        w_acc += w_stats;
+                        
+                        if !w_stats.is_discarded() {
+                            tx.send(processed).expect("Failed to send record to writer");
+                        }
                     }
-                    acc
+                    (w_acc, r_acc)
                 })
-                .reduce(WorkerStatistics::default, |a, b| a + b);
+                .reduce(|| (WorkerStatistics::default(), crate::statistics::ReaderStatistics::default()), |(w1, r1), (w2, r2)| (w1 + w2, r1 + r2));
 
-            stats_tx.send((reader_stats_val, worker_stats)).ok();
+            stats_tx.send((reader_stats_val + reader_stats, worker_stats)).ok();
         });
 
         for record in rx {

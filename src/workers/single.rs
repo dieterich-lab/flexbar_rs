@@ -53,9 +53,29 @@ impl<'a> SingleWorker<'a> {
     }
 
     pub fn process(&self, mut record: Record) -> Option<(Record, crate::statistics::WorkerStatistics)> {
-        let mut stats = crate::statistics::WorkerStatistics::default();
+        let mut worker_stats = crate::statistics::WorkerStatistics::default();
+
+        if self.filter_uncalled(&record, &mut worker_stats) {
+            return Some((record, worker_stats));
+        }
+
+        self.remove_adapters(&mut record, &mut worker_stats);
+
+        Some((record, worker_stats))
+    }
+
+    fn filter_uncalled(&self, record: &Record, stats: &mut crate::statistics::WorkerStatistics) -> bool {
+        let uncalled_count = record.seq().iter().filter(|&&b| b == b'N' || b == b'n').count();
+        if uncalled_count > self.config.args.max_uncalled {
+            stats.total_discarded_uncalled = 1;
+            return true;
+        }
+        false
+    }
+
+    fn remove_adapters(&self, record: &mut Record, stats: &mut crate::statistics::WorkerStatistics) {
         if self.context.adapters.is_empty() {
-            return Some((record, stats));
+            return;
         }
 
         let mut aligner = Aligner::with_capacity_and_scoring(
@@ -108,11 +128,9 @@ impl<'a> SingleWorker<'a> {
                 }
             }
             
-            record = Record::with_attrs(record.id(), record.desc(), &new_seq, &new_qual);
+            *record = Record::with_attrs(record.id(), record.desc(), &new_seq, &new_qual);
             stats.total_adapters_removed += 1;
         }
-
-        Some((record, stats))
     }
 }
 
@@ -135,7 +153,7 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = Record::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let (processed, _stats) = worker.process(record).unwrap();
+        let (processed, _worker_stats) = worker.process(record).unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -151,9 +169,27 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = Record::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
-        let (processed, _stats) = worker.process(record).unwrap();
+        let (processed, _worker_stats) = worker.process(record).unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
+    }
+
+    #[test]
+    fn test_max_uncalled() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--max-uncalled", "2"]);
+        let config = Config::new(args);
+        let context = Context::new();
+        let worker = SingleWorker::new(&config, &context);
+
+        // 2 'N's - should keep
+        let record = Record::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
+        let (_processed, worker_stats) = worker.process(record).unwrap();
+        assert_eq!(worker_stats.total_discarded_uncalled, 0);
+
+        // 3 'N's - should discard
+        let record = Record::with_attrs("read2", None, b"ACNNGN", b"IIIIII");
+        let (_processed, worker_stats) = worker.process(record).unwrap();
+        assert_eq!(worker_stats.total_discarded_uncalled, 1);
     }
 }

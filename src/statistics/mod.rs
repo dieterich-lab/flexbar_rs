@@ -29,8 +29,9 @@ impl Add for Statistics {
 impl Statistics {
     pub fn print(&self) {
         eprintln!("Flexbar statistics:");
-        eprintln!("  Total records read:     {}", self.reader.total_records_read);
-        eprintln!("  Total adapters removed: {}", self.worker.total_adapters_removed);
-        eprintln!("  Total records written:  {}", self.writer.total_records_written);
+        eprintln!("  Total records read:           {}", self.reader.total_records_read);
+        eprintln!("  Total discarded (uncalled):   {}", self.worker.total_discarded_uncalled);
+        eprintln!("  Total adapters removed:       {}", self.worker.total_adapters_removed);
+        eprintln!("  Total records written:        {}", self.writer.total_records_written);
     }
 }
