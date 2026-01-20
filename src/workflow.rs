@@ -29,29 +29,10 @@ pub fn do_it(config: Config) {
 }
 
 fn process_single(config: &Config, context: &Context, reads_path: &Path, output_prefix: &str) -> Statistics {
-    let reader: Box<dyn SequenceReader + Send> = match config.format {
-        FileFormat::Fasta => Box::new(SingleReaderFasta::from_path(reads_path).expect("Failed to create FASTA reader")),
-        FileFormat::Fastq => Box::new(SingleReaderFastq::from_path(reads_path).expect("Failed to create FASTQ reader")),
-    };
-
-    let compression = match config.args.output_compression {
-        Some(CompressionType::Keep) | None => reader.compression(),
-        Some(c) => c,
-    };
-
-    let mut writer: Box<dyn Writer<bio::io::fastq::Record>> = if config.args.stdout_reads {
-        if config.args.fasta_output {
-            Box::new(SingleWriterFasta::new("-", compression).expect("Failed to create FASTA writer"))
-        } else {
-            Box::new(SingleWriterFastq::new("-", compression).expect("Failed to create FASTQ writer"))
-        }
-    } else if config.args.fasta_output {
-        Box::new(SingleWriterFasta::new(output_prefix, compression).expect("Failed to create FASTA writer"))
-    } else {
-        Box::new(SingleWriterFastq::new(output_prefix, compression).expect("Failed to create FASTQ writer"))
-    };
-    
+    let reader = get_single_reader(reads_path, config.format);
+    let compression = get_compression(&reader, config);
     let worker = SingleWorker::new(config, context);
+    let mut writer = get_single_writer(config, output_prefix, compression);
 
     let (tx, rx) = sync_channel(100);
     let (stats_tx, stats_rx) = std::sync::mpsc::channel();
@@ -92,5 +73,36 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
         reader: reader_stats,
         worker: worker_stats,
         writer: writer_stats,
+    }
+}
+
+fn get_single_reader(reads_path: &Path, format: FileFormat) -> Box<dyn SequenceReader + Send> {
+    match format {
+        FileFormat::Fasta => Box::new(SingleReaderFasta::from_path(reads_path)
+            .expect("Failed to create FASTA reader")),
+        FileFormat::Fastq => Box::new(SingleReaderFastq::from_path(reads_path)
+            .expect("Failed to create FASTQ reader")),
+    }
+}
+
+fn get_compression(reader: &Box<dyn SequenceReader + Send>, config: &Config) -> CompressionType {
+    match config.args.output_compression {
+        Some(CompressionType::Keep) => reader.compression(),
+        Some(c) => c,
+        None => CompressionType::Uncompressed,
+    }
+}
+
+fn get_single_writer(config: &Config, output_prefix: &str, compression: CompressionType) -> Box<dyn Writer<bio::io::fastq::Record>> {
+    if config.args.stdout_reads {
+        if config.args.fasta_output {
+            Box::new(SingleWriterFasta::new("-", compression).expect("Failed to create FASTA writer"))
+        } else {
+            Box::new(SingleWriterFastq::new("-", compression).expect("Failed to create FASTQ writer"))
+        }
+    } else if config.args.fasta_output {
+        Box::new(SingleWriterFasta::new(output_prefix, compression).expect("Failed to create FASTA writer"))
+    } else {
+        Box::new(SingleWriterFastq::new(output_prefix, compression).expect("Failed to create FASTQ writer"))
     }
 }
