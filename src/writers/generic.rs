@@ -13,6 +13,7 @@ pub trait GenericWriterBackend<'a, R> {
 
 pub struct GenericWriter<'a, R, B: GenericWriterBackend<'a, R>> {
     backend: B,
+    statistics: crate::statistics::WriterStatistics,
     _phantom: std::marker::PhantomData<&'a (R, B)>,
 }
 
@@ -26,6 +27,7 @@ impl<'a, R, B: GenericWriterBackend<'a, R>> GenericWriter<'a, R, B> {
     pub fn from_writer(writer: Box<dyn Write + Send + 'a>) -> Self {
         Self {
             backend: B::new(writer),
+            statistics: crate::statistics::WriterStatistics::default(),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -34,6 +36,12 @@ impl<'a, R, B: GenericWriterBackend<'a, R>> GenericWriter<'a, R, B> {
 impl<'a, R, B: GenericWriterBackend<'a, R>> Writer<R> for GenericWriter<'a, R, B> {
     fn write(&mut self, record: &R) -> io::Result<()>
     {
-        self.backend.write_record(record)
+        self.backend.write_record(record)?;
+        self.statistics.total_records_written += 1;
+        Ok(())
+    }
+
+    fn statistics(&self) -> crate::statistics::WriterStatistics {
+        self.statistics
     }
 }

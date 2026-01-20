@@ -14,6 +14,7 @@ pub struct GenericReader<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>
     source: String,
     compression: CompressionType,
     last_id: String,
+    statistics: crate::statistics::ReaderStatistics,
     _phantom: std::marker::PhantomData<(R, Rec)>,
 }
 
@@ -24,6 +25,7 @@ impl<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> GenericReader<R, R
             source,
             compression,
             last_id: String::new(),
+            statistics: crate::statistics::ReaderStatistics::default(),
             _phantom: std::marker::PhantomData,
         }
     }
@@ -44,6 +46,7 @@ impl<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> Iterator for Gener
         match self.backend.read_record() {
             Ok(Some(record)) => {
                 self.last_id = Self::truncate_id(B::get_id(&record));
+                self.statistics.total_records_read += 1;
                 Some(record)
             }
             Ok(None) => None,
@@ -62,6 +65,10 @@ impl<R: BufRead + Send, Rec, B: GenericReaderBackend<R, Rec>> Iterator for Gener
 impl<R: BufRead + Send, B: GenericReaderBackend<R, bio::io::fastq::Record>> SequenceReader for GenericReader<R, bio::io::fastq::Record, B> {
     fn compression(&self) -> CompressionType {
         self.compression
+    }
+
+    fn statistics(&self) -> crate::statistics::ReaderStatistics {
+        self.statistics
     }
 }
 

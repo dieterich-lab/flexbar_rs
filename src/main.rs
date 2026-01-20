@@ -3,6 +3,7 @@ pub mod config;
 pub mod context;
 pub mod types;
 pub mod utils;
+pub mod statistics;
 mod readers;
 mod writers;
 mod workers;
@@ -18,10 +19,18 @@ fn main() {
 }
 
 fn setup_logging(args: &args::Args) {
+    let mut builder = env_logger::Builder::new();
+    builder.target(env_logger::Target::Stderr);
+    
     if args.debug {
-        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("debug")).init();
+        builder.filter_level(log::LevelFilter::Debug);
     } else {
-        env_logger::init();
+        builder.filter_level(log::LevelFilter::Info);
     }
-
+    
+    if let Ok(rust_log) = std::env::var("RUST_LOG") {
+        builder.parse_filters(&rust_log);
+    }
+    
+    builder.init();
 }

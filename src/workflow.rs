@@ -10,6 +10,7 @@ use crate::types::{FileFormat, CompressionType};
 use crate::workers::single::SingleWorker;
 use std::path::Path;
 use crate::writers::Writer;
+use crate::statistics::{Statistics, WorkerStatistics};
 
 use std::sync::mpsc::sync_channel;
 use std::thread;
@@ -23,10 +24,11 @@ pub fn do_it(config: Config) {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| config.args.target.clone());
 
-    process_single(&config, &context, reads_path, &output_prefix);
+    let stats = process_single(&config, &context, reads_path, &output_prefix);
+    stats.print();
 }
 
-fn process_single(config: &Config, context: &Context, reads_path: &Path, output_prefix: &str) {
+fn process_single(config: &Config, context: &Context, reads_path: &Path, output_prefix: &str) -> Statistics {
     let reader: Box<dyn SequenceReader + Send> = match config.format {
         FileFormat::Fasta => Box::new(SingleReaderFasta::from_path(reads_path).expect("Failed to create FASTA reader")),
         FileFormat::Fastq => Box::new(SingleReaderFastq::from_path(reads_path).expect("Failed to create FASTQ reader")),
@@ -52,19 +54,42 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
     let worker = SingleWorker::new(config, context);
 
     let (tx, rx) = sync_channel(100);
+    let (stats_tx, stats_rx) = std::sync::mpsc::channel();
 
-    thread::scope(|s| {
+    let writer_stats = thread::scope(|s| {
         s.spawn(move || {
-            reader
+            let reader_stats_val = reader.statistics();
+            let worker_stats = reader
                 .par_bridge()
-                .filter_map(|record| worker.process(record))
-                .for_each_with(tx, |tx, record| {
-                    tx.send(record).expect("Failed to send record to writer");
-                });
+                .map(|record| {
+                    let result = worker.process(record.clone());
+                    (record, result)
+                })
+                .fold(WorkerStatistics::default, |mut acc, (record, result)| {
+                    if let Some((processed, stats)) = result {
+                        acc.total_adapters_removed += stats.total_adapters_removed;
+                        tx.send(processed).expect("Failed to send record to writer");
+                    } else {
+                        tx.send(record).expect("Failed to send record to writer");
+                    }
+                    acc
+                })
+                .reduce(WorkerStatistics::default, |a, b| a + b);
+
+            stats_tx.send((reader_stats_val, worker_stats)).ok();
         });
 
         for record in rx {
             writer.write(&record).expect("Failed to write record");
         }
+        writer.statistics()
     });
+
+    let (reader_stats, worker_stats) = stats_rx.recv().expect("Failed to receive statistics from worker thread");
+    
+    Statistics {
+        reader: reader_stats,
+        worker: worker_stats,
+        writer: writer_stats,
+    }
 }

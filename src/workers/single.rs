@@ -52,9 +52,10 @@ impl<'a> SingleWorker<'a> {
         }
     }
 
-    pub fn process(&self, mut record: Record) -> Option<Record> {
+    pub fn process(&self, mut record: Record) -> Option<(Record, crate::statistics::WorkerStatistics)> {
+        let mut stats = crate::statistics::WorkerStatistics::default();
         if self.context.adapters.is_empty() {
-            return Some(record);
+            return Some((record, stats));
         }
 
         let mut aligner = Aligner::with_capacity_and_scoring(
@@ -108,9 +109,10 @@ impl<'a> SingleWorker<'a> {
             }
             
             record = Record::with_attrs(record.id(), record.desc(), &new_seq, &new_qual);
+            stats.total_adapters_removed += 1;
         }
 
-        Some(record)
+        Some((record, stats))
     }
 }
 
@@ -133,7 +135,7 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = Record::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let processed = worker.process(record).unwrap();
+        let (processed, _stats) = worker.process(record).unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -149,7 +151,7 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = Record::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
-        let processed = worker.process(record).unwrap();
+        let (processed, _stats) = worker.process(record).unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
