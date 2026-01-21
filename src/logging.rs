@@ -4,6 +4,10 @@ use chrono::Local;
 use std::process::exit;
 use crate::args::Args;
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static LOG_TO_STDERR: AtomicBool = AtomicBool::new(false);
+
 pub fn setup_logging(args: &Args) {
     let log_level = if args.debug {
         LevelFilter::Debug
@@ -12,6 +16,7 @@ pub fn setup_logging(args: &Args) {
     };
 
     if args.stderr_log {
+        LOG_TO_STDERR.store(true, Ordering::SeqCst);
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(log_level.to_string()))
             .format(|buf, record| {
                 writeln!(buf, "[{}] {}", Local::now().format("%Y-%m-%d %H:%M:%S"), record.args())
@@ -65,5 +70,8 @@ pub fn get_log_path(args: &Args) -> std::path::PathBuf {
 
 pub fn log_fatal(msg: &str) -> ! {
     error!("{}", msg);
+    if !LOG_TO_STDERR.load(Ordering::SeqCst) {
+        eprintln!("[{}] {}", Local::now().format("%Y-%m-%d %H:%M:%S"), msg);
+    }
     exit(1);
 }
