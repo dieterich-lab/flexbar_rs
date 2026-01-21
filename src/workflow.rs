@@ -11,6 +11,7 @@ use crate::workers::single::SingleWorker;
 use std::path::Path;
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
+use crate::logging::log_fatal;
 use log::info;
 
 pub fn do_it(config: Config) {
@@ -38,7 +39,9 @@ pub fn do_it(config: Config) {
         }
     }
 
-    let reads_path = config.args.reads.as_ref().expect("No input reads provided");
+    let reads_path = config.args.reads.as_ref().unwrap_or_else(|| {
+        log_fatal("No input reads provided");
+    });
     let output_prefix = config.args.output_reads.as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| config.args.target.clone());
@@ -90,9 +93,9 @@ fn process_batch(
 fn get_single_reader(reads_path: &Path, format: FileFormat) -> Box<dyn SequenceReader + Send> {
     match format {
         FileFormat::Fasta => Box::new(SingleReaderFasta::from_path(reads_path)
-            .expect("Failed to create FASTA reader")),
+            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA reader: {}", e)))),
         FileFormat::Fastq => Box::new(SingleReaderFastq::from_path(reads_path)
-            .expect("Failed to create FASTQ reader")),
+            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ reader: {}", e)))),
     }
 }
 
@@ -110,8 +113,10 @@ fn get_single_writer(config: &Config, output_prefix: &str, compression: Compress
         false => output_prefix,
     };
     if config.args.fasta_output {
-        Box::new(SingleWriterFasta::new(p, compression).expect("Failed to create FASTA writer"))
+        Box::new(SingleWriterFasta::new(p, compression)
+            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA writer: {}", e))))
     } else {
-        Box::new(SingleWriterFastq::new(p, compression).expect("Failed to create FASTQ writer"))
+        Box::new(SingleWriterFastq::new(p, compression)
+            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ writer: {}", e))))
     }
 }

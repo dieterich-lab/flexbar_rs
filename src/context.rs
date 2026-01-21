@@ -6,6 +6,8 @@ use log::debug;
 use std::fs::File;
 use std::io::BufReader;
 
+use crate::logging::log_fatal;
+
 pub struct Context {
     pub adapters: Vec<String>,
     pub adapters2: Vec<String>,
@@ -104,7 +106,7 @@ impl Context {
 
     fn load_adapters_from_file(&mut self, path: &std::path::Path, is_adapter2: bool) {
         let file = File::open(path).unwrap_or_else(|e| {
-            panic!("Failed to open adapter file {}: {}", path.display(), e);
+            log_fatal(&format!("Failed to open adapter file {}: {}", path.display(), e))
         });
         let reader = fasta::Reader::new(BufReader::new(file));
         let mut last_successful: Option<(String, String)> = None;
@@ -114,12 +116,12 @@ impl Context {
                 Ok(record) => {
                     let seq = String::from_utf8(record.seq().to_vec()).unwrap_or_else(|e| {
                         let context = self.format_last_successful(&last_successful);
-                        panic!(
+                        log_fatal(&format!(
                             "Failed to parse sequence in {} as UTF-8: {}{}",
                             path.display(),
                             e,
                             context
-                        );
+                        ))
                     });
                     if is_adapter2 {
                         self.adapters2.push(seq.clone());
@@ -130,12 +132,12 @@ impl Context {
                 }
                 Err(e) => {
                     let context = self.format_last_successful(&last_successful);
-                    panic!(
+                    log_fatal(&format!(
                         "Error reading FASTA record from {}: {}{}",
                         path.display(),
                         e,
                         context
-                    );
+                    ))
                 }
             }
         }
@@ -143,7 +145,7 @@ impl Context {
 
     fn load_barcodes_from_file(&mut self, path: &std::path::Path, is_barcode2: bool) {
         let file = File::open(path).unwrap_or_else(|e| {
-            panic!("Failed to open barcode file {}: {}", path.display(), e);
+            log_fatal(&format!("Failed to open barcode file {}: {}", path.display(), e))
         });
         let reader = fasta::Reader::new(BufReader::new(file));
         let mut last_successful: Option<(String, String)> = None;
@@ -153,12 +155,12 @@ impl Context {
                 Ok(record) => {
                     let seq = String::from_utf8(record.seq().to_vec()).unwrap_or_else(|e| {
                         let context = self.format_last_successful(&last_successful);
-                        panic!(
+                        log_fatal(&format!(
                             "Failed to parse sequence in {} as UTF-8: {}{}",
                             path.display(),
                             e,
                             context
-                        );
+                        ))
                     });
                     let id = record.id().to_string();
                     if is_barcode2 {
@@ -170,12 +172,12 @@ impl Context {
                 }
                 Err(e) => {
                     let context = self.format_last_successful(&last_successful);
-                    panic!(
+                    log_fatal(&format!(
                         "Error reading FASTA record from {}: {}{}",
                         path.display(),
                         e,
                         context
-                    );
+                    ))
                 }
             }
         }

@@ -3,6 +3,7 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
+use crate::logging::log_fatal;
 
 #[derive(Parser, Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
@@ -330,7 +331,9 @@ impl Args {
         let mut args = Self::new();
 
         if let Some(ref param_file) = args.parameter_file {
-            let file = fs::File::open(param_file).expect("Could not open parameter file");
+            let file = fs::File::open(param_file).unwrap_or_else(|e| {
+                log_fatal(&format!("Could not open parameter file: {}", e));
+            });
             let file_args = Self::load_parameter_file(file);
             args.merge_from_file(file_args);
         }
@@ -341,8 +344,12 @@ impl Args {
 
     pub fn load_parameter_file<R: std::io::Read>(mut reader: R) -> Self {
         let mut content = String::new();
-        reader.read_to_string(&mut content).expect("Could not read from parameter source");
-        toml::from_str(&content).expect("Could not parse parameter file as TOML")
+        reader.read_to_string(&mut content).unwrap_or_else(|e| {
+            log_fatal(&format!("Could not read from parameter source: {}", e));
+        });
+        toml::from_str(&content).unwrap_or_else(|e| {
+            log_fatal(&format!("Could not parse parameter file as TOML: {}", e));
+        })
     }
 
     fn merge_from_file(&mut self, file_args: Self) {
@@ -454,18 +461,18 @@ impl Args {
             + if self.adapter_seq.is_some() { 1 } else { 0 }
             + if self.adapter_preset.is_some() { 1 } else { 0 };
         if count_adapters_specified > 1 {
-            panic!("Only one of --adapters, --adapter-seq or --adapter-preset can be specified.");
+            log_fatal("Only one of --adapters, --adapter-seq or --adapter-preset can be specified.");
         }
 
         if self.adapter_cycles < 1 {
-            panic!("--adapter-cycles must be greater than 0.");
+            log_fatal("--adapter-cycles must be greater than 0.");
         }
 
         let is_paired = self.reads2.is_some();
         match self.adapter_preset {
             Some(AdapterPreset::NexteraMp) => {
                 if !is_paired {
-                    panic!("--adapter-preset NexteraMp requires paired reads.");
+                    log_fatal("--adapter-preset NexteraMp requires paired reads.");
                 }
             }
             _ => {}
