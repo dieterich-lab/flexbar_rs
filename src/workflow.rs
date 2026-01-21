@@ -87,7 +87,7 @@ fn process_batch(
             }
         }
         if !to_write.is_empty() {
-            writer.write_batch(&to_write).expect("Failed to write batch");
+            writer.write_batch(&to_write, None).expect("Failed to write batch");
         }
     }
 

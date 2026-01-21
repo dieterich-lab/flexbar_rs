@@ -38,7 +38,7 @@ mod tests {
         {
             let mut writer = SingleWriterFasta::from_writer(Box::new(&mut buffer));
             let record = RecordDto::with_attrs("id1", Some("desc1"), b"ACGT", b"!!!!");
-            writer.write(&record).expect("Failed to write record");
+            writer.write(&record, None).expect("Failed to write record");
         }
         
         let result = String::from_utf8(buffer).expect("Not valid UTF-8");

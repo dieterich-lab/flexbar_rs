@@ -32,11 +32,17 @@ pub fn get_reader<P: AsRef<Path>>(path: P) -> io::Result<(BufReader<Box<dyn Read
     Ok((BufReader::new(reader), source, compression))
 }
 
-pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &str) -> Option<PathBuf> {
+pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &str, tag: Option<&str>) -> Option<PathBuf> {
     if prefix == "-" {
         return None;
     }
     let mut path = PathBuf::from(prefix);
+    if let Some(t) = tag {
+        let mut filename = path.file_name().unwrap_or_default().to_os_string();
+        filename.push("_");
+        filename.push(t);
+        path.set_file_name(filename);
+    }
     path.set_extension(extension);
     
     Some(match compression {
@@ -104,10 +110,29 @@ mod tests {
         std::fs::remove_file(path).unwrap();
     }
 
+    #[test]
+    fn test_get_writer_path_with_tag() {
+        let prefix = "output/test";
+        let compression = CompressionType::Uncompressed;
+        let extension = "fastq";
+        let tag = Some("tag1");
+        let path = get_writer_path(prefix, compression, extension, tag).unwrap();
+        assert_eq!(path, PathBuf::from("output/test_tag1.fastq"));
+    }
+
+    #[test]
+    fn test_get_writer_path_without_tag() {
+        let prefix = "output/test";
+        let compression = CompressionType::Uncompressed;
+        let extension = "fastq";
+        let path = get_writer_path(prefix, compression, extension, None).unwrap();
+        assert_eq!(path, PathBuf::from("output/test.fastq"));
+    }
+
     fn test_compression_roundtrip(compression: CompressionType, extension: &str) {
         let dir = tempdir().unwrap();
         let prefix = dir.path().join("test").to_str().unwrap().to_string();
-        let path_opt = get_writer_path(&prefix, compression, extension);
+        let path_opt = get_writer_path(&prefix, compression, extension, None);
         let path = path_opt.unwrap();
         
         let data = b"test data for compression roundtrip";
@@ -149,7 +174,7 @@ mod tests {
     #[test]
     #[should_panic(expected = "Compression type KEEP is not supported for writing")]
     fn test_get_writer_path_panic_on_keep() {
-        get_writer_path("test", CompressionType::Keep, "txt");
+        get_writer_path("test", CompressionType::Keep, "txt", None);
     }
 
     #[test]
@@ -161,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_stdout_writer() {
-        let path = get_writer_path("-", CompressionType::Uncompressed, "fastq");
+        let path = get_writer_path("-", CompressionType::Uncompressed, "fastq", None);
         assert!(path.is_none());
         let _writer = get_writer_from_path(None, CompressionType::Uncompressed).unwrap();
         // Cannot easily check if it is stdout, but at least it didn't fail

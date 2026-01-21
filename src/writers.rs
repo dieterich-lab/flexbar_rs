@@ -5,7 +5,7 @@ pub mod fastq;
 pub mod generic;
 
 pub trait Writer: Send {
-    fn write(&mut self, record: &RecordDto) -> std::io::Result<()>;
-    fn write_batch(&mut self, records: &[RecordDto]) -> std::io::Result<()>;
+    fn write(&mut self, record: &RecordDto, tag: Option<&str>) -> std::io::Result<()>;
+    fn write_batch(&mut self, records: &[RecordDto], tag: Option<&str>) -> std::io::Result<()>;
     fn statistics(&self) -> crate::statistics::WriterStatistics;
 }
