@@ -28,7 +28,7 @@ impl Config {
 
         let raw_config = Config {
             args: args.clone(),
-            log_stdout: args.stdout_log && !args.stdout_reads,
+            log_stdout: args.stderr_log && !args.stdout_reads,
             use_rc_trim_end: Self::determine_use_rc_trim_end(&args),
             corrected_qtrim_threshold: Self::determine_qtrim_threshold(&args, format),
             format,

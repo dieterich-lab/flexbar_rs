@@ -11,10 +11,32 @@ use crate::workers::single::SingleWorker;
 use std::path::Path;
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
+use log::info;
 
 pub fn do_it(config: Config) {
     let mut context = Context::new();
     context.load(&config);
+
+    if !context.adapters.is_empty() {
+        for (i, adapter) in context.adapters.iter().enumerate() {
+            info!("Adapter 1-{}: {}", i + 1, adapter);
+        }
+    }
+    if !context.adapters2.is_empty() {
+        for (i, adapter) in context.adapters2.iter().enumerate() {
+            info!("Adapter 2-{}: {}", i + 1, adapter);
+        }
+    }
+    if !context.barcodes.is_empty() {
+        for (i, (id, barcode)) in context.barcodes.iter().enumerate() {
+            info!("Barcode 1-{}: {} {}", i + 1, id, barcode);
+        }
+    }
+    if !context.barcodes2.is_empty() {
+        for (i, (id, barcode)) in context.barcodes2.iter().enumerate() {
+            info!("Barcode 2-{}: {} {}", i + 1, id, barcode);
+        }
+    }
 
     let reads_path = config.args.reads.as_ref().expect("No input reads provided");
     let output_prefix = config.args.output_reads.as_ref()
@@ -49,16 +71,19 @@ fn process_batch(
     let mut worker_stats = WorkerStatistics::default();
 
     for batch_in in get_batch_iter(reader.as_mut(), batch_size) {
-        let batch_out: Vec<Option<(RecordDto, WorkerStatistics)>> = batch_in
+        let batch_out: Vec<(Option<RecordDto>, WorkerStatistics)> = batch_in
             .into_par_iter()
             .map(|rec| worker.process(&rec))
             .collect();
 
         let mut to_write = Vec::with_capacity(batch_out.len());
         for result in batch_out {
-            if let Some((processed, stats)) = result {
-                worker_stats += stats;
-               to_write.push(processed);
+            match result {
+                (Some(rec), stats) => {
+                    worker_stats += stats;
+                    to_write.push(rec);
+                }
+                (None, stats) => worker_stats += stats,
             }
         }
         if !to_write.is_empty() {

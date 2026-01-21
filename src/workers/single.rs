@@ -17,13 +17,13 @@ impl<'a> SingleWorker<'a> {
         }
     }
 
-    pub fn process(&self, record: &RecordDto) -> Option<(RecordDto, crate::statistics::WorkerStatistics)> {
+    pub fn process(&self, record: &RecordDto) -> (Option<RecordDto>, crate::statistics::WorkerStatistics) {
         let mut worker_stats = crate::statistics::WorkerStatistics::default();
         if self.uncalled_filter.filter(record, &mut worker_stats) {
-            return Some((record.clone(), worker_stats));
+            return (None, worker_stats);
         }
         let processed_record = self.adapter_remover.remove_adapters(record, &mut worker_stats);
-        Some((processed_record, worker_stats))
+        (Some(processed_record), worker_stats)
     }
 }
 
@@ -46,7 +46,8 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let (processed, _worker_stats) = worker.process(&record).unwrap();
+        let (processed_opt, _worker_stats) = worker.process(&record);
+        let processed = processed_opt.unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -62,7 +63,8 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
-        let (processed, _worker_stats) = worker.process(&record).unwrap();
+        let (processed_opt, _worker_stats) = worker.process(&record);
+        let processed = processed_opt.unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -77,12 +79,12 @@ mod tests {
 
         // 2 'N's - should keep
         let record = RecordDto::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
-        let (_processed, worker_stats) = worker.process(&record).unwrap();
+        let (_processed, worker_stats) = worker.process(&record);
         assert_eq!(worker_stats.total_discarded_uncalled, 0);
 
         // 3 'N's - should discard
         let record = RecordDto::with_attrs("read2", None, b"ACNNGN", b"IIIIII");
-        let (_processed, worker_stats) = worker.process(&record).unwrap();
+        let (_processed, worker_stats) = worker.process(&record);
         assert_eq!(worker_stats.total_discarded_uncalled, 1);
     }
 }

@@ -26,12 +26,14 @@ impl Add for Statistics {
     }
 }
 
+use log::info;
+
 impl Statistics {
     pub fn print(&self) {
-        eprintln!("Flexbar statistics:");
-        eprintln!("  Total records read:           {}", self.reader.total_records_read);
-        eprintln!("  Total discarded (uncalled):   {}", self.worker.total_discarded_uncalled);
-        eprintln!("  Total adapters removed:       {}", self.worker.total_adapters_removed);
-        eprintln!("  Total records written:        {}", self.writer.total_records_written);
+        info!("Flexbar statistics:");
+        info!("  Total records read:           {}", self.reader.total_records_read);
+        info!("  Total discarded (uncalled):   {}", self.worker.total_discarded_uncalled);
+        info!("  Total adapters removed:       {}", self.worker.total_adapters_removed);
+        info!("  Total records written:        {}", self.writer.total_records_written);
     }
 }

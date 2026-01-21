@@ -282,9 +282,9 @@ pub struct Args {
     #[arg(short = 'l', long)]
     pub align_log: Option<LogAlign>,
 
-    /// Write statistics to stdout instead of target log file
-    #[arg(short = 'o', long = "stdout-log")]
-    pub stdout_log: bool,
+    /// Write statistics to stderr instead of target log file
+    #[arg(short = 'o', long = "stderr-log")]
+    pub stderr_log: bool,
 
     /// Output file for logging instead of target prefix usage
     #[arg(short = 'O', long = "output-log")]
@@ -435,7 +435,7 @@ impl Args {
 
         // Logging and tagging
         if !is_present("align_log") { self.align_log = file_args.align_log; }
-        if !is_present("stdout_log") { self.stdout_log = file_args.stdout_log; }
+        if !is_present("stderr_log") { self.stderr_log = file_args.stderr_log; }
         if !is_present("output_log") { self.output_log = file_args.output_log; }
         if !is_present("removal_tags") { self.removal_tags = file_args.removal_tags; }
         if !is_present("number_tags") { self.number_tags = file_args.number_tags; }
