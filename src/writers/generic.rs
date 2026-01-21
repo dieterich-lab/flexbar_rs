@@ -37,6 +37,18 @@ impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
         })
     }
 
+    pub fn from_writer(writer: Box<dyn Write + Send + 'a>) -> Self {
+        let mut tagged_backends = HashMap::new();
+        tagged_backends.insert(DEFAULT_TAG.to_string(), B::new(writer));
+        Self {
+            prefix: None,
+            compression: CompressionType::Uncompressed,
+            backends_by_tag: tagged_backends,
+            statistics: crate::statistics::WriterStatistics::default(),
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
     fn get_backend(&mut self, tag: Option<&str>) -> io::Result<&mut B> {
         let t = tag.unwrap_or(DEFAULT_TAG);
         if !self.backends_by_tag.contains_key(t) {
