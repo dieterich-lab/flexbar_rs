@@ -71,23 +71,16 @@ fn process_batch(
     let mut worker_stats = WorkerStatistics::default();
 
     for batch_in in get_batch_iter(reader.as_mut(), batch_size) {
-        let batch_out: Vec<(Option<RecordDto>, WorkerStatistics)> = batch_in
+        let batch_out: Vec<(Option<RecordDto>, WorkerStatistics, Option<String>)> = batch_in
             .into_par_iter()
             .map(|rec| worker.process(&rec))
             .collect();
 
-        let mut to_write = Vec::with_capacity(batch_out.len());
-        for result in batch_out {
-            match result {
-                (Some(rec), stats) => {
-                    worker_stats += stats;
-                    to_write.push(rec);
-                }
-                (None, stats) => worker_stats += stats,
+        for (rec_opt, stats, tag) in batch_out {
+            worker_stats += stats;
+            if let Some(rec) = rec_opt {
+                writer.write(&rec, tag.as_deref()).expect("Failed to write record");
             }
-        }
-        if !to_write.is_empty() {
-            writer.write_batch(&to_write, None).expect("Failed to write batch");
         }
     }
 

@@ -3,10 +3,12 @@ use crate::config::Config;
 use crate::types::RecordDto;
 use crate::steps::single_adapter_remover::SingleAdapterRemover;
 use crate::steps::single_uncalled_sequence_filter::SingleUncalledSequenceFilter;
+use crate::steps::single_barcode_splitter::SingleBarcodeSplitter;
 
 pub struct SingleWorker<'a> {
     adapter_remover: SingleAdapterRemover<'a>,
     uncalled_filter: SingleUncalledSequenceFilter,
+    barcode_splitter: SingleBarcodeSplitter<'a>,
 }
 
 impl<'a> SingleWorker<'a> {
@@ -14,16 +16,18 @@ impl<'a> SingleWorker<'a> {
         Self {
             adapter_remover: SingleAdapterRemover::new(config, &context.adapters),
             uncalled_filter: SingleUncalledSequenceFilter::new(config),
+            barcode_splitter: SingleBarcodeSplitter::new(config, &context.barcodes),
         }
     }
 
-    pub fn process(&self, record: &RecordDto) -> (Option<RecordDto>, crate::statistics::WorkerStatistics) {
+    pub fn process(&self, record: &RecordDto) -> (Option<RecordDto>, crate::statistics::WorkerStatistics, Option<String>) {
         let mut worker_stats = crate::statistics::WorkerStatistics::default();
         if self.uncalled_filter.filter(record, &mut worker_stats) {
-            return (None, worker_stats);
+            return (None, worker_stats, None);
         }
-        let processed_record = self.adapter_remover.remove_adapters(record, &mut worker_stats);
-        (Some(processed_record), worker_stats)
+        let (processed_record, barcode_tag) = self.barcode_splitter.split_barcodes(record, &mut worker_stats);
+        let processed_record = self.adapter_remover.remove_adapters(&processed_record, &mut worker_stats);
+        (Some(processed_record), worker_stats, barcode_tag)
     }
 }
 
@@ -46,7 +50,7 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let (processed_opt, _worker_stats) = worker.process(&record);
+        let (processed_opt, _worker_stats, _tag) = worker.process(&record);
         let processed = processed_opt.unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
@@ -63,11 +67,30 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
-        let (processed_opt, _worker_stats) = worker.process(&record);
+        let (processed_opt, _worker_stats, _tag) = worker.process(&record);
         let processed = processed_opt.unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
+    }
+
+    #[test]
+    fn test_process_barcode() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4"]);
+        let config = Config::new(args);
+        let mut context = Context::new();
+        context.barcodes.push(("bc1".to_string(), "GGGG".to_string()));
+        
+        let worker = SingleWorker::new(&config, &context);
+        
+        // Barcode at start
+        let record = RecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
+        let (processed_opt, worker_stats, tag) = worker.process(&record);
+        let processed = processed_opt.unwrap();
+        
+        assert_eq!(tag, Some("bc1".to_string()));
+        assert_eq!(processed.seq(), b"ACGT");
+        assert_eq!(*worker_stats.barcode_counts.get("bc1").unwrap(), 1);
     }
 
     #[test]
@@ -79,12 +102,12 @@ mod tests {
 
         // 2 'N's - should keep
         let record = RecordDto::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
-        let (_processed, worker_stats) = worker.process(&record);
+        let (_processed, worker_stats, _tag) = worker.process(&record);
         assert_eq!(worker_stats.total_discarded_uncalled, 0);
 
         // 3 'N's - should discard
         let record = RecordDto::with_attrs("read2", None, b"ACNNGN", b"IIIIII");
-        let (_processed, worker_stats) = worker.process(&record);
+        let (_processed, worker_stats, _tag) = worker.process(&record);
         assert_eq!(worker_stats.total_discarded_uncalled, 1);
     }
 }

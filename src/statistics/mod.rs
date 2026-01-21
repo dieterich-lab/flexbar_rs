@@ -8,7 +8,7 @@ pub use reader::ReaderStatistics;
 pub use worker::WorkerStatistics;
 pub use writer::WriterStatistics;
 
-#[derive(Debug, Default, Clone, Copy)]
+#[derive(Debug, Default, Clone)]
 pub struct Statistics {
     pub reader: ReaderStatistics,
     pub worker: WorkerStatistics,
@@ -34,6 +34,13 @@ impl Statistics {
         info!("  Total records read:           {}", self.reader.total_records_read);
         info!("  Total discarded (uncalled):   {}", self.worker.total_discarded_uncalled);
         info!("  Total adapters removed:       {}", self.worker.total_adapters_removed);
+        if !self.worker.barcode_counts.is_empty() {
+            let mut sorted_barcodes: Vec<_> = self.worker.barcode_counts.iter().collect();
+            sorted_barcodes.sort_by_key(|(id, _)| *id);
+            for (id, count) in sorted_barcodes {
+                info!("  Barcode {}: {}", id, count);
+            }
+        }
         info!("  Total records written:        {}", self.writer.total_records_written);
     }
 }

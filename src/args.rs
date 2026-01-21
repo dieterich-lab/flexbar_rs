@@ -75,9 +75,13 @@ pub struct Args {
     #[arg(long = "barcode-mismatch", alias = "bi", default_value_t = -1)]
     pub barcode_mismatch: i32,
 
-    /// Alignment gap score
-    #[arg(long = "barcode-gap", alias = "bg", default_value_t = -9)]
-    pub barcode_gap: i32,
+    /// Alignment gap open score for barcodes
+    #[arg(long = "barcode-gap-open", alias = "bg", default_value_t = -9)]
+    pub barcode_gap_open: i32,
+
+    // Alignment gap extend score for barcodes
+    #[arg(long = "barcode-gap-extend", alias = "ba", default_value_t = -3)]
+    pub barcode_gap_extend: i32,
 
     // Adapter removal
     /// Fasta file with adapters for removal that may contain N
@@ -374,7 +378,8 @@ impl Args {
         if !is_present("barcode_unassigned") { self.barcode_unassigned = file_args.barcode_unassigned; }
         if !is_present("barcode_match") { self.barcode_match = file_args.barcode_match; }
         if !is_present("barcode_mismatch") { self.barcode_mismatch = file_args.barcode_mismatch; }
-        if !is_present("barcode_gap") { self.barcode_gap = file_args.barcode_gap; }
+        if !is_present("barcode_gap_open") { self.barcode_gap_open = file_args.barcode_gap_open; }
+        if !is_present("barcode_gap_extend") { self.barcode_gap_extend = file_args.barcode_gap_extend; }
 
         // Adapter removal
         if !is_present("adapters") { self.adapters = file_args.adapters; }
