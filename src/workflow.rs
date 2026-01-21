@@ -3,7 +3,7 @@ use crate::config::Config;
 use crate::context::Context;
 use crate::readers::fasta::SingleReaderFasta;
 use crate::readers::fastq::SingleReaderFastq;
-use crate::readers::SequenceReader;
+use crate::readers::{SequenceReader, get_batch_iter};
 use crate::writers::fasta::SingleWriterFasta;
 use crate::writers::fastq::SingleWriterFastq;
 use crate::types::{FileFormat, CompressionType, RecordDto};
@@ -48,33 +48,24 @@ fn process_batch(
 ) -> WorkerStatistics {
     let mut worker_stats = WorkerStatistics::default();
 
-    let mut last_batch: bool = false;
-
-    while !last_batch {
-        let mut batch_in: Vec<RecordDto> = Vec::with_capacity(batch_size);
-        let mut actual_batch_size = batch_size;
-        for i in 0..batch_size {
-            match reader.next() {
-                Some(rec) => { batch_in.push(rec) },
-                None => { last_batch = true; actual_batch_size = i; },
-            }
-        }
-
-        if actual_batch_size == 0 { continue }
-
+    for batch_in in get_batch_iter(reader.as_mut(), batch_size) {
         let batch_out: Vec<Option<(RecordDto, WorkerStatistics)>> = batch_in
             .into_par_iter()
             .map(|rec| worker.process(&rec))
             .collect();
+
+        let mut to_write = Vec::with_capacity(batch_out.len());
         for result in batch_out {
-            if let Some((processed, w_stats)) = result {
-                worker_stats += w_stats;
-                if !w_stats.is_discarded() {
-                    writer.write(&processed).expect("Failed to write record");
-                }
+            if let Some((processed, stats)) = result {
+                worker_stats += stats;
+               to_write.push(processed);
             }
         }
+        if !to_write.is_empty() {
+            writer.write_batch(&to_write).expect("Failed to write batch");
+        }
     }
+
     worker_stats
 }
 

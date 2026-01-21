@@ -41,6 +41,13 @@ impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
         Ok(())
     }
 
+    fn write_batch(&mut self, records: &[RecordDto]) -> io::Result<()> {
+        for record in records {
+            self.write(record)?;
+        }
+        Ok(())
+    }
+
     fn statistics(&self) -> crate::statistics::WriterStatistics {
         self.statistics
     }
