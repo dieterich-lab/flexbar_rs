@@ -8,6 +8,7 @@ mod readers;
 mod writers;
 mod workers;
 mod workflow;
+mod steps;
 
 fn main() {
     let args = args::Args::get_args();

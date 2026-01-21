@@ -160,9 +160,13 @@ pub struct Args {
     #[arg(long = "adapter-mismatch", alias = "ai", default_value_t = -1)]
     pub adapter_mismatch: i32,
 
-    /// Alignment gap score
-    #[arg(long = "adapter-gap", alias = "ag", default_value_t = -6)]
-    pub adapter_gap: i32,
+    /// Alignment gap open score for adapters (default -6)
+    #[arg(long = "adapter-gap-open", default_value_t = -6)]
+    pub adapter_gap_open: i32,
+
+    /// Alignment gap extend score for adapters (default -6)
+    #[arg(long = "adapter-gap-extend", default_value_t = -6)]
+    pub adapter_gap_extend: i32,
 
     // Filtering and trimming
     /// Allowed uncalled bases N for each read
@@ -392,7 +396,8 @@ impl Args {
         if !is_present("adapter_cycles") { self.adapter_cycles = file_args.adapter_cycles; }
         if !is_present("adapter_match") { self.adapter_match = file_args.adapter_match; }
         if !is_present("adapter_mismatch") { self.adapter_mismatch = file_args.adapter_mismatch; }
-        if !is_present("adapter_gap") { self.adapter_gap = file_args.adapter_gap; }
+        if !is_present("adapter_gap_open") { self.adapter_gap_open = file_args.adapter_gap_open; }
+        if !is_present("adapter_gap_extend") { self.adapter_gap_extend = file_args.adapter_gap_extend; }
 
         // Filtering and trimming
         if !is_present("max_uncalled") { self.max_uncalled = file_args.max_uncalled; }
