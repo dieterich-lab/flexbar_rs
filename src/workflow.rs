@@ -6,14 +6,11 @@ use crate::readers::fastq::SingleReaderFastq;
 use crate::readers::SequenceReader;
 use crate::writers::fasta::SingleWriterFasta;
 use crate::writers::fastq::SingleWriterFastq;
-use crate::types::{FileFormat, CompressionType};
+use crate::types::{FileFormat, CompressionType, RecordDto};
 use crate::workers::single::SingleWorker;
 use std::path::Path;
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
-
-use std::sync::mpsc::sync_channel;
-use std::thread;
 
 pub fn do_it(config: Config) {
     let mut context = Context::new();
@@ -29,54 +26,56 @@ pub fn do_it(config: Config) {
 }
 
 fn process_single(config: &Config, context: &Context, reads_path: &Path, output_prefix: &str) -> Statistics {
-    let reader = get_single_reader(reads_path, config.format);
+    let mut reader = get_single_reader(reads_path, config.format);
     let compression = get_compression(&reader, config);
     let worker = SingleWorker::new(config, context);
     let mut writer = get_single_writer(config, output_prefix, compression);
 
-    // reader.par_iert()
-    //     .map(|record| worker.process(&record))
-    //     .map(|record, worker_stats| writer.write(&record).expect("Failed to write record"); writer_stats)
-    let (tx, rx) = sync_channel(100);
-    let (stats_tx, stats_rx) = std::sync::mpsc::channel();
+    let worker_stats = process_batch(&mut reader, &worker, &mut writer, config.batch_size);
 
-    let writer_stats = thread::scope(|s| {
-        s.spawn(move || {
-            let reader_stats_val = reader.statistics();
-            let (worker_stats, reader_stats) = reader
-                .par_bridge()
-                .map(|record| {
-                    let result = worker.process(&record);
-                    (record, result)
-                })
-                .fold(|| (WorkerStatistics::default(), crate::statistics::ReaderStatistics::default()), |(mut w_acc, r_acc), (_record, result)| {
-                    if let Some((processed, w_stats)) = result {
-                        w_acc += w_stats;
-                        
-                        if !w_stats.is_discarded() {
-                            tx.send(processed).expect("Failed to send record to writer");
-                        }
-                    }
-                    (w_acc, r_acc)
-                })
-                .reduce(|| (WorkerStatistics::default(), crate::statistics::ReaderStatistics::default()), |(w1, r1), (w2, r2)| (w1 + w2, r1 + r2));
-
-            stats_tx.send((reader_stats_val + reader_stats, worker_stats)).ok();
-        });
-
-        for record in rx {
-            writer.write(&record).expect("Failed to write record");
-        }
-        writer.statistics()
-    });
-
-    let (reader_stats, worker_stats) = stats_rx.recv().expect("Failed to receive statistics from worker thread");
-    
     Statistics {
-        reader: reader_stats,
+        reader: reader.statistics(),
         worker: worker_stats,
-        writer: writer_stats,
+        writer: writer.statistics(),
     }
+}
+
+fn process_batch(
+    reader: &mut Box<dyn SequenceReader + Send>,
+    worker: &SingleWorker,
+    writer: &mut Box<dyn Writer>,
+    batch_size: usize,
+) -> WorkerStatistics {
+    let mut worker_stats = WorkerStatistics::default();
+
+    let mut last_batch: bool = false;
+
+    while !last_batch {
+        let mut batch_in: Vec<RecordDto> = Vec::with_capacity(batch_size);
+        let mut actual_batch_size = batch_size;
+        for i in 0..batch_size {
+            match reader.next() {
+                Some(rec) => { batch_in.push(rec) },
+                None => { last_batch = true; actual_batch_size = i; },
+            }
+        }
+
+        if actual_batch_size == 0 { continue }
+
+        let batch_out: Vec<Option<(RecordDto, WorkerStatistics)>> = batch_in
+            .into_par_iter()
+            .map(|rec| worker.process(&rec))
+            .collect();
+        for result in batch_out {
+            if let Some((processed, w_stats)) = result {
+                worker_stats += w_stats;
+                if !w_stats.is_discarded() {
+                    writer.write(&processed).expect("Failed to write record");
+                }
+            }
+        }
+    }
+    worker_stats
 }
 
 fn get_single_reader(reads_path: &Path, format: FileFormat) -> Box<dyn SequenceReader + Send> {
@@ -97,15 +96,13 @@ fn get_compression(reader: &Box<dyn SequenceReader + Send>, config: &Config) -> 
 }
 
 fn get_single_writer(config: &Config, output_prefix: &str, compression: CompressionType) -> Box<dyn Writer> {
-    if config.args.stdout_reads {
-        if config.args.fasta_output {
-            Box::new(SingleWriterFasta::new("-", compression).expect("Failed to create FASTA writer"))
-        } else {
-            Box::new(SingleWriterFastq::new("-", compression).expect("Failed to create FASTQ writer"))
-        }
-    } else if config.args.fasta_output {
-        Box::new(SingleWriterFasta::new(output_prefix, compression).expect("Failed to create FASTA writer"))
+    let p = match config.args.single_reads {
+        true => "-",
+        false => output_prefix,
+    };
+    if config.args.fasta_output {
+        Box::new(SingleWriterFasta::new(p, compression).expect("Failed to create FASTA writer"))
     } else {
-        Box::new(SingleWriterFastq::new(output_prefix, compression).expect("Failed to create FASTQ writer"))
+        Box::new(SingleWriterFastq::new(p, compression).expect("Failed to create FASTQ writer"))
     }
 }

@@ -14,6 +14,8 @@ pub struct Config {
     pub adapter_removal: AdapterRemoval,
     pub a_trimmed: AdapterTrimmed,
 
+    pub batch_size: usize,
+
     pub args: Args,
 }
 
@@ -34,6 +36,7 @@ impl Config {
             bar_detect,
             adapter_removal: Self::determine_adapter_removal(&args, has_adapters),
             a_trimmed,
+            batch_size: args.batch_size,
         };
         let config = Self::sanitize_config(raw_config, has_adapters);
         debug!("{:#?}", config);
@@ -150,6 +153,11 @@ impl Config {
 
     fn sanitize_config(raw_config: Config, has_adapters: bool) -> Config {
         let mut config = raw_config.clone();
+
+        if config.batch_size == 0 {
+            config.batch_size = 256;
+        }
+
         let is_paired = raw_config.args.reads2.is_some();
 
         match raw_config.args.adapter_preset {

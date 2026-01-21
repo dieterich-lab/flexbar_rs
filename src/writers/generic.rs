@@ -4,7 +4,7 @@ use crate::types::{CompressionType, RecordDto};
 use crate::utils::{get_writer_from_path, get_writer_path};
 use crate::writers::Writer;
 
-pub trait GenericWriterBackend<'a> {
+pub trait GenericWriterBackend<'a>: Send {
     fn new(writer: Box<dyn Write + Send + 'a>) -> Self;
     fn write_record(&mut self, record: &RecordDto) -> io::Result<()>;
     fn get_extension() -> &'static str;
@@ -14,7 +14,7 @@ pub trait GenericWriterBackend<'a> {
 pub struct GenericWriter<'a, B: GenericWriterBackend<'a>> {
     backend: B,
     statistics: crate::statistics::WriterStatistics,
-    _phantom: std::marker::PhantomData<&'a (RecordDto, B)>,
+    _phantom: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
