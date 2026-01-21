@@ -91,6 +91,38 @@ mod tests {
     use std::io::Read;
 
     #[test]
+    fn test_generic_writer_tagging_unsafe() {
+        let temp = tempfile::tempdir().unwrap();
+        let prefix = temp.path().join("out").to_str().unwrap().to_string();
+        
+        struct TestBackend<'a> {
+            writer: Box<dyn Write + Send + 'a>,
+        }
+        impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
+            fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { writer } }
+            fn write_record(&mut self, record: &RecordDto) -> io::Result<()> {
+                self.writer.write_all(record.id().as_bytes())
+            }
+            fn get_extension() -> &'static str { "txt" }
+        }
+
+        {
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
+            let rec1 = RecordDto::with_attrs("R1", None, b"A", b"I");
+            
+            // This tag contains characters that should be removed in the filename
+            writer.write(&rec1, Some("tag/with\\slashes")).unwrap();
+        }
+
+        let tagged_path = temp.path().join("out_tagwithslashes.txt");
+        assert!(tagged_path.exists());
+        
+        let mut s = String::new();
+        std::fs::File::open(tagged_path).unwrap().read_to_string(&mut s).unwrap();
+        assert_eq!(s, "R1");
+    }
+
+    #[test]
     fn test_generic_writer_tagging() {
         let temp = tempfile::tempdir().unwrap();
         let prefix = temp.path().join("out").to_str().unwrap().to_string();

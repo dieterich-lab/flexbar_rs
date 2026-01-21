@@ -38,9 +38,10 @@ pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &s
     }
     let mut path = PathBuf::from(prefix);
     if let Some(t) = tag {
+        let cleaned_tag = t.replace(['/', '\\'], "");
         let mut filename = path.file_name().unwrap_or_default().to_os_string();
         filename.push("_");
-        filename.push(t);
+        filename.push(cleaned_tag);
         path.set_file_name(filename);
     }
     path.set_extension(extension);
@@ -108,6 +109,16 @@ mod tests {
         assert_eq!(content, ">test\nACGT\n");
 
         std::fs::remove_file(path).unwrap();
+    }
+
+    #[test]
+    fn test_get_writer_path_with_unsafe_tag() {
+        let prefix = "output/test";
+        let compression = CompressionType::Uncompressed;
+        let extension = "fastq";
+        let tag = Some("tag/with\\slashes");
+        let path = get_writer_path(prefix, compression, extension, tag).unwrap();
+        assert_eq!(path, PathBuf::from("output/test_tagwithslashes.fastq"));
     }
 
     #[test]
