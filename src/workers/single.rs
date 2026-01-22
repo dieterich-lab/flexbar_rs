@@ -4,11 +4,14 @@ use crate::types::RecordDto;
 use crate::steps::single_adapter_remover::SingleAdapterRemover;
 use crate::steps::single_uncalled_sequence_filter::SingleUncalledSequenceFilter;
 use crate::steps::single_barcode_splitter::SingleBarcodeSplitter;
+use crate::steps::single_quality_trim::SingleQualityTrim;
 
 pub struct SingleWorker<'a> {
     adapter_remover: SingleAdapterRemover<'a>,
     uncalled_filter: SingleUncalledSequenceFilter,
     barcode_splitter: SingleBarcodeSplitter<'a>,
+    quality_trimmer: SingleQualityTrim,
+    qtrim_post_removal: bool,
 }
 
 impl<'a> SingleWorker<'a> {
@@ -17,6 +20,8 @@ impl<'a> SingleWorker<'a> {
             adapter_remover: SingleAdapterRemover::new(config, &context.adapters),
             uncalled_filter: SingleUncalledSequenceFilter::new(config),
             barcode_splitter: SingleBarcodeSplitter::new(config, &context.barcodes),
+            quality_trimmer: SingleQualityTrim::new(config),
+            qtrim_post_removal: config.args.qtrim_post_removal,
         }
     }
 
@@ -25,8 +30,20 @@ impl<'a> SingleWorker<'a> {
         if self.uncalled_filter.filter(record, &mut worker_stats) {
             return (None, worker_stats, None);
         }
-        let (processed_record, barcode_tag) = self.barcode_splitter.split_barcodes(record, &mut worker_stats);
-        let processed_record = self.adapter_remover.remove_adapters(&processed_record, &mut worker_stats);
+
+        let (mut processed_record, barcode_tag) = if !self.qtrim_post_removal {
+            let record_trimmed = self.quality_trimmer.trim(record);
+            self.barcode_splitter.split_barcodes(&record_trimmed, &mut worker_stats)
+        } else {
+            self.barcode_splitter.split_barcodes(record, &mut worker_stats)
+        };
+
+        processed_record = self.adapter_remover.remove_adapters(&processed_record, &mut worker_stats);
+
+        if self.qtrim_post_removal {
+            processed_record = self.quality_trimmer.trim(&processed_record);
+        }
+
         (Some(processed_record), worker_stats, barcode_tag)
     }
 }
@@ -163,5 +180,52 @@ mod tests {
         // barcode removal appends _Flexbar_removal
         // adapter removal appends _Flexbar_removal_0
         assert_eq!(processed.id(), "read1_Flexbar_removal_Flexbar_removal_0");
+    }
+
+    #[test]
+    fn test_quality_trim_tail() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "TAIL", "--qtrim-threshold", "20"]);
+        let config = Config::new(args);
+        let context = Context::new();
+        let worker = SingleWorker::new(&config, &context);
+
+        // Threshold 20 + 33 (sanger) = 53 ('5')
+        let record = RecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
+        let (processed_opt, _, _) = worker.process(&record);
+        let processed = processed_opt.unwrap();
+
+        assert_eq!(processed.seq(), b"ACTGT");
+        assert_eq!(processed.qual(), b"IIIII");
+    }
+
+    #[test]
+    fn test_quality_trim_win() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "WIN", "--qtrim-threshold", "20", "--qtrim-win-size", "5"]);
+        let config = Config::new(args);
+        let context = Context::new();
+        let worker = SingleWorker::new(&config, &context);
+
+        // Threshold 53. Window size 5.
+        // "IIIII" sum = 5 * 73 = 365. Threshold sum = 5 * 53 = 265.
+        // "44444" sum = 5 * 52 = 260.
+        let record = RecordDto::with_attrs("read1", None, b"ACTGTACGTACGT", b"IIIII44444III");
+        let (processed_opt, _, _) = worker.process(&record);
+        let processed = processed_opt.unwrap();
+
+        assert_eq!(processed.seq(), b"ACTGT");
+    }
+
+    #[test]
+    fn test_quality_trim_bwa() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "BWA", "--qtrim-threshold", "20"]);
+        let config = Config::new(args);
+        let context = Context::new();
+        let worker = SingleWorker::new(&config, &context);
+
+        let record = RecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
+        let (processed_opt, _, _) = worker.process(&record);
+        let processed = processed_opt.unwrap();
+
+        assert_eq!(processed.seq(), b"ACTGT");
     }
 }
