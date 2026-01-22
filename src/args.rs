@@ -81,7 +81,7 @@ pub struct Args {
     pub barcode_gap_open: i32,
 
     // Alignment gap extend score for barcodes
-    #[arg(long = "barcode-gap-extend", alias = "ba", default_value_t = -3)]
+    #[arg(long = "barcode-gap-extend", alias = "ba", default_value_t = -1)]
     pub barcode_gap_extend: i32,
 
     // Adapter removal
@@ -170,7 +170,7 @@ pub struct Args {
     pub adapter_gap_open: i32,
 
     /// Alignment gap extend score for adapters (default -6)
-    #[arg(long = "adapter-gap-extend", default_value_t = -6)]
+    #[arg(long = "adapter-gap-extend", default_value_t = -1)]
     pub adapter_gap_extend: i32,
 
     // Filtering and trimming
