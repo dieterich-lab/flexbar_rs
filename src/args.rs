@@ -174,7 +174,7 @@ pub struct Args {
     pub adapter_gap_extend: i32,
 
     // Filtering and trimming
-    /// Allowed uncalled bases N for each read
+    /// Filter out reads with more than N uncalled bases. 0 (default) means no filtering.
     #[arg(short = 'u', long = "max-uncalled", default_value_t = 0)]
     pub max_uncalled: usize,
 

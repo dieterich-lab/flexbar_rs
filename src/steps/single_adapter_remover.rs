@@ -1,11 +1,12 @@
 use crate::config::Config;
 use crate::types::{TrimEnd, RecordDto};
 use crate::statistics::WorkerStatistics;
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use bio::alignment::pairwise::*;
 use bio::alignment::Alignment;
 
-pub struct SingleAdapterRemover<'a> {
-    adapters: &'a [String],
+pub struct SingleAdapterRemover {
+    adapters: Vec<String>,
     adapter_trim_end: TrimEnd,
     adapter_min_overlap: usize,
     adapter_error_rate: f32,
@@ -19,8 +20,8 @@ pub struct SingleAdapterRemover<'a> {
     max_adapter_len: usize,
 }
 
-impl<'a> SingleAdapterRemover<'a> {
-    pub fn new(config: &Config, adapters: &'a [String]) -> Self {
+impl SingleAdapterRemover {
+    pub fn new(config: &Config, adapters: &[String]) -> Self {
         let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix)
             = match config.args.adapter_trim_end {
             TrimEnd::Any => (0, 0, 0, 0),
@@ -33,7 +34,7 @@ impl<'a> SingleAdapterRemover<'a> {
         let max_adapter_len = adapters.iter().map(|a| a.len()).max().unwrap_or(0);
 
         Self {
-            adapters,
+            adapters: adapters.to_vec(),
             adapter_trim_end: config.args.adapter_trim_end,
             adapter_min_overlap: config.args.adapter_min_overlap,
             adapter_error_rate: config.args.adapter_error_rate,
@@ -62,10 +63,6 @@ impl<'a> SingleAdapterRemover<'a> {
     }
 
     pub fn remove_adapters(&self, record: &RecordDto, stats: &mut WorkerStatistics) -> RecordDto {
-        if self.adapters.is_empty() {
-            return record.clone();
-        }
-
         let mut aligner = Aligner::with_capacity_and_scoring(
             record.seq().len(),
             self.max_adapter_len,
@@ -127,5 +124,14 @@ impl<'a> SingleAdapterRemover<'a> {
         } else {
             record.clone()
         }
+    }
+}
+
+impl GenericStep<RecordDto> for SingleAdapterRemover {
+    fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
+        if let Some(record) = rec.record {
+            rec.record = Some(self.remove_adapters(&record, &mut rec.stats));
+        }
+        rec
     }
 }

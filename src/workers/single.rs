@@ -1,50 +1,52 @@
 use crate::context::Context;
 use crate::config::Config;
-use crate::types::RecordDto;
+use crate::types::{RecordDto, QualTrimType};
 use crate::steps::single_adapter_remover::SingleAdapterRemover;
 use crate::steps::single_uncalled_sequence_filter::SingleUncalledSequenceFilter;
 use crate::steps::single_barcode_splitter::SingleBarcodeSplitter;
 use crate::steps::single_quality_trim::SingleQualityTrim;
+use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::workers::generic::GenericWorker;
+use std::sync::Arc;
 
-pub struct SingleWorker<'a> {
-    adapter_remover: SingleAdapterRemover<'a>,
-    uncalled_filter: SingleUncalledSequenceFilter,
-    barcode_splitter: SingleBarcodeSplitter<'a>,
-    quality_trimmer: SingleQualityTrim,
-    qtrim_post_removal: bool,
-}
+pub struct SingleWorker ( GenericWorker<RecordDto> );
 
-impl<'a> SingleWorker<'a> {
-    pub fn new(config: &'a Config, context: &'a Context) -> Self {
-        Self {
-            adapter_remover: SingleAdapterRemover::new(config, &context.adapters),
-            uncalled_filter: SingleUncalledSequenceFilter::new(config),
-            barcode_splitter: SingleBarcodeSplitter::new(config, &context.barcodes),
-            quality_trimmer: SingleQualityTrim::new(config),
-            qtrim_post_removal: config.args.qtrim_post_removal,
+impl SingleWorker {
+    pub fn new(config: &Config, context: &Context) -> Self {
+        let mut steps: Vec<Arc<dyn GenericStep<RecordDto>>> = Vec::new();
+
+        if config.args.max_uncalled > 0 {
+            steps.push(
+                Arc::new(SingleUncalledSequenceFilter::new(config))
+            );
         }
+        if config.args.qtrim != QualTrimType::Off && !config.args.qtrim_post_removal {
+            steps.push(
+                Arc::new(SingleQualityTrim::new(config))
+            );
+        }
+        if !context.barcodes.is_empty() {
+            steps.push(
+                Arc::new(SingleBarcodeSplitter::new(config, &context.barcodes))
+            );
+        }
+        if !context.adapters.is_empty() {
+            steps.push(
+                Arc::new(SingleAdapterRemover::new(config, &context.adapters))
+            );
+        }
+
+        if config.args.qtrim != QualTrimType::Off && config.args.qtrim_post_removal {
+            steps.push(
+                Arc::new(SingleQualityTrim::new(config))
+            )
+        }
+
+        Self (GenericWorker::new(steps))
     }
-
-    pub fn process(&self, record: &RecordDto) -> (Option<RecordDto>, crate::statistics::WorkerStatistics, Option<String>) {
-        let mut worker_stats = crate::statistics::WorkerStatistics::default();
-        if self.uncalled_filter.filter(record, &mut worker_stats) {
-            return (None, worker_stats, None);
-        }
-
-        let (mut processed_record, barcode_tag) = if !self.qtrim_post_removal {
-            let record_trimmed = self.quality_trimmer.trim(record);
-            self.barcode_splitter.split_barcodes(&record_trimmed, &mut worker_stats)
-        } else {
-            self.barcode_splitter.split_barcodes(record, &mut worker_stats)
-        };
-
-        processed_record = self.adapter_remover.remove_adapters(&processed_record, &mut worker_stats);
-
-        if self.qtrim_post_removal {
-            processed_record = self.quality_trimmer.trim(&processed_record);
-        }
-
-        (Some(processed_record), worker_stats, barcode_tag)
+    
+    pub fn process(&self, record: &RecordDto) -> RecordInTransformation<RecordDto> {
+        self.0.process(record)
     }
 }
 
@@ -67,8 +69,8 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let (processed_opt, _worker_stats, _tag) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -84,8 +86,8 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
-        let (processed_opt, _worker_stats, _tag) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -102,12 +104,12 @@ mod tests {
         
         // Barcode at start
         let record = RecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
-        let (processed_opt, worker_stats, tag) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
         
-        assert_eq!(tag, Some("bc1".to_string()));
+        assert_eq!(res.barcode_tag, Some("bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
-        assert_eq!(*worker_stats.barcode_counts.get("bc1").unwrap(), 1);
+        assert_eq!(*res.stats.barcode_counts.get("bc1").unwrap(), 1);
     }
 
     #[test]
@@ -119,13 +121,13 @@ mod tests {
 
         // 2 'N's - should keep
         let record = RecordDto::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
-        let (_processed, worker_stats, _tag) = worker.process(&record);
-        assert_eq!(worker_stats.total_discarded_uncalled, 0);
+        let res = worker.process(&record);
+        assert_eq!(res.stats.total_discarded_uncalled, 0);
 
         // 3 'N's - should discard
         let record = RecordDto::with_attrs("read2", None, b"ACNNGN", b"IIIIII");
-        let (_processed, worker_stats, _tag) = worker.process(&record);
-        assert_eq!(worker_stats.total_discarded_uncalled, 1);
+        let res = worker.process(&record);
+        assert_eq!(res.stats.total_discarded_uncalled, 1);
     }
 
     #[test]
@@ -138,8 +140,8 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
-        let (processed_opt, _worker_stats, _tag) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
         
         assert_eq!(processed.id(), "read1_Flexbar_removal");
     }
@@ -154,8 +156,8 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let (processed_opt, _worker_stats, _tag) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
         
         assert_eq!(processed.id(), "read1_Flexbar_removal_0");
     }
@@ -174,8 +176,8 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
-        let (processed_opt, _worker_stats, _tag) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
         
         // barcode removal appends _Flexbar_removal
         // adapter removal appends _Flexbar_removal_0
@@ -191,8 +193,8 @@ mod tests {
 
         // Threshold 20 + 33 (sanger) = 53 ('5')
         let record = RecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
-        let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
 
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -209,8 +211,8 @@ mod tests {
         // "IIIII" sum = 5 * 73 = 365. Threshold sum = 5 * 53 = 265.
         // "44444" sum = 5 * 52 = 260.
         let record = RecordDto::with_attrs("read1", None, b"ACTGTACGTACGT", b"IIIII44444III");
-        let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
 
         assert_eq!(processed.seq(), b"ACTGT");
     }
@@ -223,8 +225,8 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
 
         let record = RecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
-        let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
 
         assert_eq!(processed.seq(), b"ACTGT");
     }

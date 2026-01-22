@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::types::{QualTrimType, RecordDto};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 
 pub struct SingleQualityTrim {
     qtrim: QualTrimType,
@@ -17,10 +18,6 @@ impl SingleQualityTrim {
     }
 
     pub fn trim(&self, record: &RecordDto) -> RecordDto {
-        if self.qtrim == QualTrimType::Off || record.qual().is_empty() {
-            return record.clone();
-        }
-
         let trim_pos = match self.qtrim {
             QualTrimType::Tail => self.get_tail_trim_pos(record.qual()),
             QualTrimType::Win => self.get_win_trim_pos(record.qual()),
@@ -87,5 +84,14 @@ impl SingleQualityTrim {
             }
         }
         trim_pos
+    }
+}
+
+impl GenericStep<RecordDto> for SingleQualityTrim {
+    fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
+        if let Some(record) = rec.record {
+            rec.record = Some(self.trim(&record));
+        }
+        rec
     }
 }

@@ -1,11 +1,12 @@
 use crate::config::Config;
 use crate::types::{TrimEnd, RecordDto};
 use crate::statistics::WorkerStatistics;
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use bio::alignment::pairwise::*;
 use bio::alignment::Alignment;
 
-pub struct SingleBarcodeSplitter<'a> {
-    barcodes: &'a [(String, String)],
+pub struct SingleBarcodeSplitter {
+    barcodes: Vec<(String, String)>,
     trim_end: TrimEnd,
     min_overlap: usize,
     error_rate: f32,
@@ -22,8 +23,8 @@ pub struct SingleBarcodeSplitter<'a> {
     max_barcode_len: usize,
 }
 
-impl<'a> SingleBarcodeSplitter<'a> {
-    pub fn new(config: &Config, barcodes: &'a [(String, String)]) -> Self {
+impl SingleBarcodeSplitter {
+    pub fn new(config: &Config, barcodes: &[(String, String)]) -> Self {
         let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix)
             = match config.args.barcode_trim_end {
             TrimEnd::Any => (0, 0, 0, 0),
@@ -37,7 +38,7 @@ impl<'a> SingleBarcodeSplitter<'a> {
         let barcode_min_overlap = config.args.barcode_min_overlap.unwrap_or(max_barcode_len);
 
         Self {
-            barcodes,
+            barcodes: barcodes.to_vec(),
             trim_end: config.args.barcode_trim_end,
             min_overlap: barcode_min_overlap,
             error_rate: config.args.barcode_error_rate,
@@ -71,10 +72,6 @@ impl<'a> SingleBarcodeSplitter<'a> {
     }
 
     pub fn split_barcodes(&self, record: &RecordDto, stats: &mut WorkerStatistics) -> (RecordDto, Option<String>) {
-        if self.barcodes.is_empty() {
-            return (record.clone(), None);
-        }
-
         let mut aligner = Aligner::with_capacity_and_scoring(
             record.seq().len(),
             self.max_barcode_len,
@@ -83,7 +80,7 @@ impl<'a> SingleBarcodeSplitter<'a> {
 
         let mut best_alignment: Option<(Alignment, &str)> = None;
 
-        for (id, barcode) in self.barcodes {
+        for (id, barcode) in &self.barcodes {
             let alignment = aligner.semiglobal(barcode.as_bytes(), record.seq());
             let overlap = alignment.yend - alignment.ystart;
             let barcode_overlap = alignment.xend - alignment.xstart;
@@ -138,5 +135,16 @@ impl<'a> SingleBarcodeSplitter<'a> {
         } else {
             (record.clone(), None)
         }
+    }
+}
+
+impl GenericStep<RecordDto> for SingleBarcodeSplitter {
+    fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
+        if let Some(record) = rec.record {
+            let (new_record, tag) = self.split_barcodes(&record, &mut rec.stats);
+            rec.record = Some(new_record);
+            rec.barcode_tag = tag;
+        }
+        rec
     }
 }
