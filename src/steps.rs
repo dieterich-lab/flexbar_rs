@@ -4,3 +4,4 @@ pub mod single_barcode_splitter;
 pub mod single_quality_trim;
 pub mod add_umi_tags;
 pub mod generic;
+pub mod utils;

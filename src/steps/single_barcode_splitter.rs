@@ -2,8 +2,9 @@ use crate::config::Config;
 use crate::types::{TrimEnd, RecordDto};
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::utils::{extract_umi_tags, trim_sequence};
 use bio::alignment::pairwise::*;
-use bio::alignment::{Alignment, AlignmentOperation};
+use bio::alignment::Alignment;
 
 pub struct SingleBarcodeSplitter {
     barcodes: Vec<(String, String)>,
@@ -101,64 +102,17 @@ impl SingleBarcodeSplitter {
         }
 
         if let Some((alignment, id, barcode)) = best_alignment {
-            let mut umi_tags = Vec::new();
-            if self.umi_tags {
-                let mut umi = String::new();
-                let mut x = alignment.xstart;
-                let mut y = alignment.ystart;
-                let barcode_bytes = barcode.as_bytes();
-                let record_bytes = record.seq();
+            let umi_tags = if self.umi_tags {
+                extract_umi_tags(&alignment, barcode.as_bytes(), record.seq())
+            } else {
+                Vec::new()
+            };
 
-                for op in &alignment.operations {
-                    match op {
-                        AlignmentOperation::Match | AlignmentOperation::Subst => {
-                            if barcode_bytes[x] == b'N' {
-                                umi.push(record_bytes[y] as char);
-                            } else if !umi.is_empty() {
-                                umi_tags.push(umi);
-                                umi = String::new();
-                            }
-                            x += 1;
-                            y += 1;
-                        }
-                        AlignmentOperation::Del => {
-                            x += 1;
-                        }
-                        AlignmentOperation::Ins => {
-                            y += 1;
-                        }
-                        _ => {}
-                    }
-                }
-                if !umi.is_empty() {
-                    umi_tags.push(umi);
-                }
-            }
-
-            let mut new_seq = record.seq().to_vec();
-            let mut new_qual = record.qual().to_vec();
-
-            if !self.barcode_keep {
-                match self.trim_end {
-                    TrimEnd::Right | TrimEnd::RTail => {
-                        new_seq.truncate(alignment.ystart);
-                        new_qual.truncate(alignment.ystart);
-                    }
-                    TrimEnd::Left | TrimEnd::LTail => {
-                        new_seq = new_seq[alignment.yend..].to_vec();
-                        new_qual = new_qual[alignment.yend..].to_vec();
-                    }
-                    TrimEnd::Any => {
-                        if alignment.ystart < record.seq().len() - alignment.yend {
-                             new_seq = new_seq[alignment.yend..].to_vec();
-                             new_qual = new_qual[alignment.yend..].to_vec();
-                        } else {
-                             new_seq.truncate(alignment.ystart);
-                             new_qual.truncate(alignment.ystart);
-                        }
-                    }
-                }
-            }
+            let (new_seq, new_qual) = if !self.barcode_keep {
+                trim_sequence(record, &alignment, self.trim_end)
+            } else {
+                (record.seq().to_vec(), record.qual().to_vec())
+            };
             
             *stats.barcode_counts.entry(id.to_string()).or_insert(0) += 1;
             
