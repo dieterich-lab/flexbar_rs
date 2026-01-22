@@ -56,7 +56,16 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
     let worker = SingleWorker::new(config, context);
     let mut writer = get_single_writer(config, output_prefix, compression);
 
-    let worker_stats = process_batch(&mut reader, &worker, &mut writer, config.batch_size);
+    if config.args.skip > 0 {
+        info!("Skipping first {} reads", config.args.skip);
+        for _ in 0..config.args.skip {
+            if reader.next().is_none() {
+                break;
+            }
+        }
+    }
+
+    let worker_stats = process_batch(&mut reader, &worker, &mut writer, config.batch_size, config.args.count);
 
     Statistics {
         reader: reader.statistics(),
@@ -72,13 +81,24 @@ fn process_batch(
     worker: &SingleWorker,
     writer: &mut Box<dyn Writer>,
     batch_size: usize,
+    count: Option<usize>,
 ) -> WorkerStatistics {
     let mut worker_stats = WorkerStatistics::default();
     let mut batch_num = 0;
+    let mut processed_total = 0;
 
-    for batch_in in get_batch_iter(reader.as_mut(), batch_size) {
+    for mut batch_in in get_batch_iter(reader.as_mut(), batch_size) {
         batch_num += 1;
         debug!("Processing batch {}", batch_num);
+
+        if let Some(c) = count {
+            if processed_total + batch_in.len() > c {
+                let remaining = c - processed_total;
+                batch_in.truncate(remaining);
+            }
+        }
+
+        let batch_len = batch_in.len();
         
         let batch_out: Vec<RecordInTransformation<RecordDto>> = batch_in
             .into_par_iter()
@@ -89,6 +109,13 @@ fn process_batch(
             worker_stats += res.stats;
             if let Some(rec) = res.record {
                 writer.write(&rec, res.alignment_results.barcode_tag.as_deref()).expect("Failed to write record");
+            }
+        }
+
+        processed_total += batch_len;
+        if let Some(c) = count {
+            if processed_total >= c {
+                break;
             }
         }
     }

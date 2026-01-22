@@ -307,6 +307,14 @@ pub struct Args {
     #[arg(short = 'd', long = "umi-tags")]
     pub umi_tags: bool,
 
+    /// Skip the first N reads
+    #[arg(long, default_value_t = 0)]
+    pub skip: usize,
+
+    /// Terminate after processing N reads
+    #[arg(long)]
+    pub count: Option<usize>,
+
     /// Print debug information
     #[arg(long)]
     pub debug: bool,
