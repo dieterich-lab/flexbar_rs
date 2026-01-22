@@ -114,7 +114,7 @@ mod tests {
         let res = worker.process(&record);
         let processed = res.record.unwrap();
         
-        assert_eq!(res.alignment_results.barcode_tag, Some("bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
         assert_eq!(*res.stats.barcode_counts.get("bc1").unwrap(), 1);
     }
@@ -252,7 +252,7 @@ mod tests {
         let res = worker.process(&record);
         let processed = res.record.unwrap();
         
-        assert_eq!(res.alignment_results.barcode_tag, Some("bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
         assert_eq!(res.alignment_results.umi_tags, vec!["AA".to_string(), "TT".to_string()]);
         assert_eq!(processed.id(), "read1_AA_TT");
         assert_eq!(processed.seq(), b"ACGT");

@@ -121,7 +121,8 @@ impl SingleBarcodeSplitter {
                 id_str.push_str("_Flexbar_removal");
             }
             
-            (RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual), Some(id.to_string()), umi_tags)
+            let tag = format!("barcode_{}", id);
+            (RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual), Some(tag), umi_tags)
         } else {
             (record.clone(), None, Vec::new())
         }
