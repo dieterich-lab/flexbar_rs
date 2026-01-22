@@ -8,6 +8,15 @@ This tool is a rewrite of Flexbar in Rust. The original Fexbar can be found here
 
 It is heavily based on Rust-bio.
 
+## Quickstart for Flexbar Veterans
+
+Most options work as for Flexbar, but:
+
+* Multi-letter options including 2-letter shortcuts (e.g. `-qt` for `--trim-treshold`) must be written now
+  with double-dash: `--qt`. You may now cluster single-letter options (e.g. `-df` instead of `-d -f`).
+* The gap scores have been split into two parameters, e.g. `--barcode-gap` was replaced by `--barcode-gap-open`
+  and `--barcode-gap-extend`.
+
 ## References
 
 ### Flexbar
