@@ -14,6 +14,7 @@ pub struct SingleBarcodeSplitter<'a> {
     barcode_match: i32,
     barcode_mismatch: i32,
     barcode_keep: bool,
+    removal_tags: bool,
     xclip_prefix: i32,
     xclip_suffix: i32,
     yclip_prefix: i32,
@@ -45,6 +46,7 @@ impl<'a> SingleBarcodeSplitter<'a> {
             barcode_match: config.args.barcode_match,
             barcode_mismatch: config.args.barcode_mismatch,
             barcode_keep: config.args.barcode_keep,
+            removal_tags: config.args.removal_tags,
             xclip_prefix,
             xclip_suffix,
             yclip_prefix,
@@ -126,7 +128,13 @@ impl<'a> SingleBarcodeSplitter<'a> {
             }
             
             *stats.barcode_counts.entry(id.to_string()).or_insert(0) += 1;
-            (RecordDto::with_attrs(record.id(), record.desc(), &new_seq, &new_qual), Some(id.to_string()))
+            
+            let mut id_str = record.id().to_string();
+            if self.removal_tags && !self.barcode_keep {
+                id_str.push_str("_Flexbar_removal");
+            }
+            
+            (RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual), Some(id.to_string()))
         } else {
             (record.clone(), None)
         }

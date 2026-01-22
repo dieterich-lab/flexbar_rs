@@ -9,6 +9,7 @@ pub struct SingleAdapterRemover<'a> {
     adapter_trim_end: TrimEnd,
     adapter_min_overlap: usize,
     adapter_error_rate: f32,
+    removal_tags: bool,
     adapter_gap_open: i32,
     adapter_gap_extend: i32,
     xclip_prefix: i32,
@@ -36,6 +37,7 @@ impl<'a> SingleAdapterRemover<'a> {
             adapter_trim_end: config.args.adapter_trim_end,
             adapter_min_overlap: config.args.adapter_min_overlap,
             adapter_error_rate: config.args.adapter_error_rate,
+            removal_tags: config.args.removal_tags,
             adapter_gap_open: config.args.adapter_gap_open,
             adapter_gap_extend: config.args.adapter_gap_extend,
             xclip_prefix,
@@ -70,9 +72,9 @@ impl<'a> SingleAdapterRemover<'a> {
             self.get_scoring(),
         );
 
-        let mut best_alignment: Option<Alignment> = None;
+        let mut best_alignment: Option<(Alignment, usize)> = None;
 
-        for adapter in self.adapters {
+        for (i, adapter) in self.adapters.iter().enumerate() {
             let alignment = aligner.semiglobal(adapter.as_bytes(), record.seq());
             let overlap = alignment.yend - alignment.ystart;
             let adapter_overlap = alignment.xend - alignment.xstart;
@@ -83,14 +85,14 @@ impl<'a> SingleAdapterRemover<'a> {
                 let error_rate = errors as f32 / overlap as f32;
 
                 if error_rate <= self.adapter_error_rate {
-                    if best_alignment.as_ref().map_or(true, |best| alignment.score > best.score) {
-                        best_alignment = Some(alignment);
+                    if best_alignment.as_ref().map_or(true, |(best, _)| alignment.score > best.score) {
+                        best_alignment = Some((alignment, i));
                     }
                 }
             }
         }
 
-        if let Some(alignment) = best_alignment {
+        if let Some((alignment, i)) = best_alignment {
             let mut new_seq = record.seq().to_vec();
             let mut new_qual = record.qual().to_vec();
 
@@ -115,7 +117,13 @@ impl<'a> SingleAdapterRemover<'a> {
             }
             
             stats.total_adapters_removed += 1;
-            RecordDto::with_attrs(record.id(), record.desc(), &new_seq, &new_qual)
+            
+            let mut id_str = record.id().to_string();
+            if self.removal_tags {
+                id_str.push_str(&format!("_Flexbar_removal_{}", i));
+            }
+            
+            RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual)
         } else {
             record.clone()
         }

@@ -110,4 +110,58 @@ mod tests {
         let (_processed, worker_stats, _tag) = worker.process(&record);
         assert_eq!(worker_stats.total_discarded_uncalled, 1);
     }
+
+    #[test]
+    fn test_removal_tags_barcode() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--removal-tags"]);
+        let config = Config::new(args);
+        let mut context = Context::new();
+        context.barcodes.push(("bc1".to_string(), "GGGG".to_string()));
+        
+        let worker = SingleWorker::new(&config, &context);
+        
+        let record = RecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
+        let (processed_opt, _worker_stats, _tag) = worker.process(&record);
+        let processed = processed_opt.unwrap();
+        
+        assert_eq!(processed.id(), "read1_Flexbar_removal");
+    }
+
+    #[test]
+    fn test_removal_tags_adapter() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--removal-tags"]);
+        let config = Config::new(args);
+        let mut context = Context::new();
+        context.adapters.push("AGATCGGAAGAG".to_string());
+        
+        let worker = SingleWorker::new(&config, &context);
+        
+        let record = RecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
+        let (processed_opt, _worker_stats, _tag) = worker.process(&record);
+        let processed = processed_opt.unwrap();
+        
+        assert_eq!(processed.id(), "read1_Flexbar_removal_0");
+    }
+
+    #[test]
+    fn test_removal_tags_both() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", 
+            "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4",
+            "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5",
+            "--removal-tags"]);
+        let config = Config::new(args);
+        let mut context = Context::new();
+        context.barcodes.push(("bc1".to_string(), "GGGG".to_string()));
+        context.adapters.push("AGATCGGAAGAG".to_string());
+        
+        let worker = SingleWorker::new(&config, &context);
+        
+        let record = RecordDto::with_attrs("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
+        let (processed_opt, _worker_stats, _tag) = worker.process(&record);
+        let processed = processed_opt.unwrap();
+        
+        // barcode removal appends _Flexbar_removal
+        // adapter removal appends _Flexbar_removal_0
+        assert_eq!(processed.id(), "read1_Flexbar_removal_Flexbar_removal_0");
+    }
 }
