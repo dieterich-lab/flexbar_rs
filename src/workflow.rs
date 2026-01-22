@@ -12,7 +12,7 @@ use std::path::Path;
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
 use crate::logging::log_fatal;
-use log::info;
+use log::{info, debug};
 
 pub fn do_it(config: Config) {
     let mut context = Context::new();
@@ -20,12 +20,12 @@ pub fn do_it(config: Config) {
 
     if !context.adapters.is_empty() {
         for (i, adapter) in context.adapters.iter().enumerate() {
-            info!("Adapter 1-{}: {}", i + 1, adapter);
+            info!("Adapter 1-{}: {}", i, adapter);
         }
     }
     if !context.adapters2.is_empty() {
         for (i, adapter) in context.adapters2.iter().enumerate() {
-            info!("Adapter 2-{}: {}", i + 1, adapter);
+            info!("Adapter 2-{}: {}", i, adapter);
         }
     }
     if !context.barcodes.is_empty() {
@@ -74,8 +74,12 @@ fn process_batch(
     batch_size: usize,
 ) -> WorkerStatistics {
     let mut worker_stats = WorkerStatistics::default();
+    let mut batch_num = 0;
 
     for batch_in in get_batch_iter(reader.as_mut(), batch_size) {
+        batch_num += 1;
+        debug!("Processing batch {}", batch_num);
+        
         let batch_out: Vec<RecordInTransformation<RecordDto>> = batch_in
             .into_par_iter()
             .map(|rec| worker.process(&rec))

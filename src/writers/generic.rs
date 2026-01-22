@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::io::Write;
+use log::trace;
 use crate::types::{CompressionType, RecordDto};
 use crate::utils::{get_writer_from_path, get_writer_path};
 use crate::writers::Writer;
@@ -70,6 +71,7 @@ impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
         let backend = self.get_backend(tag)?;
         backend.write_record(record)?;
         self.statistics.total_records_written += 1;
+        trace!("Writer processed record: {} with tag: {:?}", record.id(), tag);
         Ok(())
     }
 

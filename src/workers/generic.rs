@@ -20,6 +20,9 @@ impl<RecordType: Clone> GenericWorker<RecordType> {
 
         for step in &self.steps {
             rec_in = step.apply(rec_in);
+            if rec_in.record.is_none() {
+                break;
+            }
         }
 
         rec_in

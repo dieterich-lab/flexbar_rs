@@ -311,6 +311,10 @@ pub struct Args {
     #[arg(long)]
     pub debug: bool,
 
+    /// Print trace information for each record
+    #[arg(long)]
+    pub trace: bool,
+
     /// Path to a parameter file in TOML format
     #[arg(long = "parameter-file")]
     pub parameter_file: Option<PathBuf>,

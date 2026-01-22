@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::types::{TrimEnd, RecordDto};
+use log::trace;
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::utils::{extract_umi_tags, trim_sequence};
@@ -132,7 +133,17 @@ impl SingleBarcodeSplitter {
 impl GenericStep<RecordDto> for SingleBarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
         if let Some(record) = rec.record {
+            trace!("Barcode splitter processing record: {}", record.id());
             let (new_record, tag, umi_tags) = self.split_barcodes(&record, &mut rec.stats);
+            if let Some(ref t) = tag {
+                trace!("Barcode splitter assigned tag: {} to record: {}", t, record.id());
+            }
+            if new_record.seq().len() < record.seq().len() {
+                trace!("Barcode splitter removed barcode from record: {} (length {} -> {})", record.id(), record.seq().len(), new_record.seq().len());
+            }
+            if !umi_tags.is_empty() {
+                trace!("Barcode splitter extracted UMIs: {:?} from record: {}", umi_tags, record.id());
+            }
             rec.record = Some(new_record);
             rec.alignment_results.barcode_tag = tag;
             rec.alignment_results.umi_tags.extend(umi_tags);

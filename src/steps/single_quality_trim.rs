@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::types::{QualTrimType, RecordDto};
+use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 
 pub struct SingleQualityTrim {
@@ -90,7 +91,12 @@ impl SingleQualityTrim {
 impl GenericStep<RecordDto> for SingleQualityTrim {
     fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
         if let Some(record) = rec.record {
-            rec.record = Some(self.trim(&record));
+            trace!("Quality trim processing record: {}", record.id());
+            let trimmed = self.trim(&record);
+            if trimmed.seq().len() < record.seq().len() {
+                trace!("Quality trim trimmed record: {} from {} to {} bases", record.id(), record.seq().len(), trimmed.seq().len());
+            }
+            rec.record = Some(trimmed);
         }
         rec
     }

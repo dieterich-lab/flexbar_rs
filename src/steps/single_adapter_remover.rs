@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::types::{TrimEnd, RecordDto};
+use log::trace;
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::utils::{extract_umi_tags, trim_sequence};
@@ -71,7 +72,7 @@ impl SingleAdapterRemover {
         }
     }
 
-    pub fn remove_adapters(&self, record: &RecordDto, stats: &mut WorkerStatistics) -> (RecordDto, Vec<String>) {
+    pub fn remove_adapters(&self, record: &RecordDto, stats: &mut WorkerStatistics) -> (RecordDto, Vec<String>, Option<usize>) {
         let mut aligner = Aligner::with_capacity_and_scoring(
             record.seq().len(),
             self.max_adapter_len,
@@ -114,9 +115,9 @@ impl SingleAdapterRemover {
                 id_str.push_str(&format!("_Flexbar_removal_{}", i));
             }
             
-            (RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual), umi_tags)
+            (RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual), umi_tags, Some(i))
         } else {
-            (record.clone(), Vec::new())
+            (record.clone(), Vec::new(), None)
         }
     }
 }
@@ -124,7 +125,17 @@ impl SingleAdapterRemover {
 impl GenericStep<RecordDto> for SingleAdapterRemover {
     fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
         if let Some(record) = rec.record {
-            let (new_record, umi_tags) = self.remove_adapters(&record, &mut rec.stats);
+            trace!("Adapter remover processing record: {}", record.id());
+            let (new_record, umi_tags, adapter_idx) = self.remove_adapters(&record, &mut rec.stats);
+            if let Some(idx) = adapter_idx {
+                trace!("Adapter remover matched adapter: {} for record: {}", idx, record.id());
+            }
+            if new_record.seq().len() < record.seq().len() {
+                trace!("Adapter remover removed adapter from record: {} (length {} -> {})", record.id(), record.seq().len(), new_record.seq().len());
+            }
+            if !umi_tags.is_empty() {
+                trace!("Adapter remover extracted UMIs: {:?} from record: {}", umi_tags, record.id());
+            }
             rec.record = Some(new_record);
             rec.alignment_results.umi_tags.extend(umi_tags);
         }
