@@ -5,6 +5,7 @@ use crate::steps::single_adapter_remover::SingleAdapterRemover;
 use crate::steps::single_uncalled_sequence_filter::SingleUncalledSequenceFilter;
 use crate::steps::single_barcode_splitter::SingleBarcodeSplitter;
 use crate::steps::single_quality_trim::SingleQualityTrim;
+use crate::steps::add_umi_tags::AddUmiTags;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::workers::generic::GenericWorker;
 use std::sync::Arc;
@@ -40,6 +41,12 @@ impl SingleWorker {
             steps.push(
                 Arc::new(SingleQualityTrim::new(config))
             )
+        }
+
+        if config.args.umi_tags {
+            steps.push(
+                Arc::new(AddUmiTags::new())
+            );
         }
 
         Self (GenericWorker::new(steps))
@@ -107,7 +114,7 @@ mod tests {
         let res = worker.process(&record);
         let processed = res.record.unwrap();
         
-        assert_eq!(res.barcode_tag, Some("bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_tag, Some("bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
         assert_eq!(*res.stats.barcode_counts.get("bc1").unwrap(), 1);
     }
@@ -228,6 +235,44 @@ mod tests {
         let res = worker.process(&record);
         let processed = res.record.unwrap();
 
+        assert_eq!(processed.seq(), b"ACTGT");
+    }
+
+    #[test]
+    fn test_umi_tags_barcode() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--umi-tags"]);
+        let config = Config::new(args);
+        let mut context = Context::new();
+        context.barcodes.push(("bc1".to_string(), "NNGGGGNN".to_string()));
+        
+        let worker = SingleWorker::new(&config, &context);
+        
+        // Barcode NNGGGGNN matches AAGGGGTT
+        let record = RecordDto::with_attrs("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
+        
+        assert_eq!(res.alignment_results.barcode_tag, Some("bc1".to_string()));
+        assert_eq!(res.alignment_results.umi_tags, vec!["AA".to_string(), "TT".to_string()]);
+        assert_eq!(processed.id(), "read1_AA_TT");
+        assert_eq!(processed.seq(), b"ACGT");
+    }
+
+    #[test]
+    fn test_umi_tags_adapter() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATNNNN", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "4", "--umi-tags"]);
+        let config = Config::new(args);
+        let mut context = Context::new();
+        context.adapters.push("AGATNNNN".to_string());
+        
+        let worker = SingleWorker::new(&config, &context);
+        
+        let record = RecordDto::with_attrs("read1", None, b"ACTGTAGATCCCC", b"IIIIIIIIIIIII");
+        let res = worker.process(&record);
+        let processed = res.record.unwrap();
+        
+        assert_eq!(res.alignment_results.umi_tags, vec!["CCCC".to_string()]);
+        assert_eq!(processed.id(), "read1_CCCC");
         assert_eq!(processed.seq(), b"ACTGT");
     }
 }

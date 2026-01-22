@@ -3,7 +3,7 @@ use crate::types::{TrimEnd, RecordDto};
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use bio::alignment::pairwise::*;
-use bio::alignment::Alignment;
+use bio::alignment::{Alignment, AlignmentOperation};
 
 pub struct SingleAdapterRemover {
     adapters: Vec<String>,
@@ -11,12 +11,15 @@ pub struct SingleAdapterRemover {
     adapter_min_overlap: usize,
     adapter_error_rate: f32,
     removal_tags: bool,
+    adapter_match: i32,
+    adapter_mismatch: i32,
     adapter_gap_open: i32,
     adapter_gap_extend: i32,
     xclip_prefix: i32,
     xclip_suffix: i32,
     yclip_prefix: i32,
     yclip_suffix: i32,
+    umi_tags: bool,
     max_adapter_len: usize,
 }
 
@@ -39,19 +42,24 @@ impl SingleAdapterRemover {
             adapter_min_overlap: config.args.adapter_min_overlap,
             adapter_error_rate: config.args.adapter_error_rate,
             removal_tags: config.args.removal_tags,
+            adapter_match: config.args.adapter_match,
+            adapter_mismatch: config.args.adapter_mismatch,
             adapter_gap_open: config.args.adapter_gap_open,
             adapter_gap_extend: config.args.adapter_gap_extend,
             xclip_prefix,
             xclip_suffix,
             yclip_prefix,
             yclip_suffix,
+            umi_tags: config.args.umi_tags,
             max_adapter_len,
         }
     }
 
-    fn get_scoring(&self) -> Scoring<fn(u8, u8) -> i32> {
+    fn get_scoring(&self) -> Scoring<impl Fn(u8, u8) -> i32> {
+        let m = self.adapter_match;
+        let mm = self.adapter_mismatch;
         Scoring {
-            match_fn: |a, b| if a == b { 1 } else { -1 },
+            match_fn: move |a, b| if a == b || a == b'N' { m } else { mm },
             match_scores: None,
             gap_open: self.adapter_gap_open,
             gap_extend: self.adapter_gap_extend,
@@ -62,7 +70,7 @@ impl SingleAdapterRemover {
         }
     }
 
-    pub fn remove_adapters(&self, record: &RecordDto, stats: &mut WorkerStatistics) -> RecordDto {
+    pub fn remove_adapters(&self, record: &RecordDto, stats: &mut WorkerStatistics) -> (RecordDto, Vec<String>) {
         let mut aligner = Aligner::with_capacity_and_scoring(
             record.seq().len(),
             self.max_adapter_len,
@@ -77,7 +85,7 @@ impl SingleAdapterRemover {
             let adapter_overlap = alignment.xend - alignment.xstart;
             
             if overlap >= self.adapter_min_overlap && adapter_overlap >= self.adapter_min_overlap {
-                let matches = (alignment.score + overlap as i32) / 2;
+                let matches = (alignment.score - overlap as i32 * self.adapter_mismatch) / (self.adapter_match - self.adapter_mismatch);
                 let errors = overlap as i32 - matches;
                 let error_rate = errors as f32 / overlap as f32;
 
@@ -90,6 +98,40 @@ impl SingleAdapterRemover {
         }
 
         if let Some((alignment, i)) = best_alignment {
+            let mut umi_tags = Vec::new();
+            if self.umi_tags {
+                let mut umi = String::new();
+                let mut x = alignment.xstart;
+                let mut y = alignment.ystart;
+                let adapter_bytes = self.adapters[i].as_bytes();
+                let record_bytes = record.seq();
+
+                for op in &alignment.operations {
+                    match op {
+                        AlignmentOperation::Match | AlignmentOperation::Subst => {
+                            if adapter_bytes[x] == b'N' {
+                                umi.push(record_bytes[y] as char);
+                            } else if !umi.is_empty() {
+                                umi_tags.push(umi);
+                                umi = String::new();
+                            }
+                            x += 1;
+                            y += 1;
+                        }
+                        AlignmentOperation::Del => {
+                            x += 1;
+                        }
+                        AlignmentOperation::Ins => {
+                            y += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                if !umi.is_empty() {
+                    umi_tags.push(umi);
+                }
+            }
+
             let mut new_seq = record.seq().to_vec();
             let mut new_qual = record.qual().to_vec();
 
@@ -120,9 +162,9 @@ impl SingleAdapterRemover {
                 id_str.push_str(&format!("_Flexbar_removal_{}", i));
             }
             
-            RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual)
+            (RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual), umi_tags)
         } else {
-            record.clone()
+            (record.clone(), Vec::new())
         }
     }
 }
@@ -130,7 +172,9 @@ impl SingleAdapterRemover {
 impl GenericStep<RecordDto> for SingleAdapterRemover {
     fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
         if let Some(record) = rec.record {
-            rec.record = Some(self.remove_adapters(&record, &mut rec.stats));
+            let (new_record, umi_tags) = self.remove_adapters(&record, &mut rec.stats);
+            rec.record = Some(new_record);
+            rec.alignment_results.umi_tags.extend(umi_tags);
         }
         rec
     }

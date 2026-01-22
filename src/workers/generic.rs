@@ -1,4 +1,4 @@
-use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::generic::{GenericStep, RecordInTransformation, AlignmentResults};
 use crate::statistics::WorkerStatistics;
 use std::sync::Arc;
 
@@ -14,7 +14,7 @@ impl<RecordType: Clone> GenericWorker<RecordType> {
     pub fn process(&self, record: &RecordType) -> RecordInTransformation<RecordType> {
         let mut rec_in = RecordInTransformation::<RecordType> {
             record: Some(record.clone()),
-            barcode_tag: None,
+            alignment_results: AlignmentResults::default(),
             stats: WorkerStatistics::default(),
         };
 

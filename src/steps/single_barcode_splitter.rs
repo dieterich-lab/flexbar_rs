@@ -3,7 +3,7 @@ use crate::types::{TrimEnd, RecordDto};
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use bio::alignment::pairwise::*;
-use bio::alignment::Alignment;
+use bio::alignment::{Alignment, AlignmentOperation};
 
 pub struct SingleBarcodeSplitter {
     barcodes: Vec<(String, String)>,
@@ -20,6 +20,7 @@ pub struct SingleBarcodeSplitter {
     xclip_suffix: i32,
     yclip_prefix: i32,
     yclip_suffix: i32,
+    umi_tags: bool,
     max_barcode_len: usize,
 }
 
@@ -52,6 +53,7 @@ impl SingleBarcodeSplitter {
             xclip_suffix,
             yclip_prefix,
             yclip_suffix,
+            umi_tags: config.args.umi_tags,
             max_barcode_len,
         }
     }
@@ -60,7 +62,7 @@ impl SingleBarcodeSplitter {
         let m = self.barcode_match;
         let mm = self.barcode_mismatch;
         Scoring {
-            match_fn: move |a, b| if a == b { m } else { mm },
+            match_fn: move |a, b| if a == b || a == b'N' { m } else { mm },
             match_scores: None,
             gap_open: self.gap_open,
             gap_extend: self.gap_extend,
@@ -71,14 +73,14 @@ impl SingleBarcodeSplitter {
         }
     }
 
-    pub fn split_barcodes(&self, record: &RecordDto, stats: &mut WorkerStatistics) -> (RecordDto, Option<String>) {
+    pub fn split_barcodes(&self, record: &RecordDto, stats: &mut WorkerStatistics) -> (RecordDto, Option<String>, Vec<String>) {
         let mut aligner = Aligner::with_capacity_and_scoring(
             record.seq().len(),
             self.max_barcode_len,
             self.get_scoring(),
         );
 
-        let mut best_alignment: Option<(Alignment, &str)> = None;
+        let mut best_alignment: Option<(Alignment, &str, &str)> = None;
 
         for (id, barcode) in &self.barcodes {
             let alignment = aligner.semiglobal(barcode.as_bytes(), record.seq());
@@ -91,14 +93,48 @@ impl SingleBarcodeSplitter {
                 let error_rate = errors as f32 / overlap as f32;
 
                 if error_rate <= self.error_rate {
-                    if best_alignment.as_ref().map_or(true, |(best, _)| alignment.score > best.score) {
-                        best_alignment = Some((alignment, id));
+                    if best_alignment.as_ref().map_or(true, |(best, _, _)| alignment.score > best.score) {
+                        best_alignment = Some((alignment, id, barcode));
                     }
                 }
             }
         }
 
-        if let Some((alignment, id)) = best_alignment {
+        if let Some((alignment, id, barcode)) = best_alignment {
+            let mut umi_tags = Vec::new();
+            if self.umi_tags {
+                let mut umi = String::new();
+                let mut x = alignment.xstart;
+                let mut y = alignment.ystart;
+                let barcode_bytes = barcode.as_bytes();
+                let record_bytes = record.seq();
+
+                for op in &alignment.operations {
+                    match op {
+                        AlignmentOperation::Match | AlignmentOperation::Subst => {
+                            if barcode_bytes[x] == b'N' {
+                                umi.push(record_bytes[y] as char);
+                            } else if !umi.is_empty() {
+                                umi_tags.push(umi);
+                                umi = String::new();
+                            }
+                            x += 1;
+                            y += 1;
+                        }
+                        AlignmentOperation::Del => {
+                            x += 1;
+                        }
+                        AlignmentOperation::Ins => {
+                            y += 1;
+                        }
+                        _ => {}
+                    }
+                }
+                if !umi.is_empty() {
+                    umi_tags.push(umi);
+                }
+            }
+
             let mut new_seq = record.seq().to_vec();
             let mut new_qual = record.qual().to_vec();
 
@@ -131,9 +167,9 @@ impl SingleBarcodeSplitter {
                 id_str.push_str("_Flexbar_removal");
             }
             
-            (RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual), Some(id.to_string()))
+            (RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual), Some(id.to_string()), umi_tags)
         } else {
-            (record.clone(), None)
+            (record.clone(), None, Vec::new())
         }
     }
 }
@@ -141,9 +177,10 @@ impl SingleBarcodeSplitter {
 impl GenericStep<RecordDto> for SingleBarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
         if let Some(record) = rec.record {
-            let (new_record, tag) = self.split_barcodes(&record, &mut rec.stats);
+            let (new_record, tag, umi_tags) = self.split_barcodes(&record, &mut rec.stats);
             rec.record = Some(new_record);
-            rec.barcode_tag = tag;
+            rec.alignment_results.barcode_tag = tag;
+            rec.alignment_results.umi_tags.extend(umi_tags);
         }
         rec
     }

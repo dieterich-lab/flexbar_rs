@@ -1,8 +1,14 @@
 use crate::statistics::WorkerStatistics;
 
+#[derive(Default, Clone)]
+pub struct AlignmentResults {
+    pub barcode_tag: Option<String>,
+    pub umi_tags: Vec<String>,
+}
+
 pub struct RecordInTransformation<RecordType> {
     pub record: Option<RecordType>,
-    pub barcode_tag: Option<String>,
+    pub alignment_results: AlignmentResults,
     pub stats: WorkerStatistics,
 }
 

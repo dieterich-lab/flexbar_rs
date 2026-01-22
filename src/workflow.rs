@@ -84,7 +84,7 @@ fn process_batch(
         for res in batch_out {
             worker_stats += res.stats;
             if let Some(rec) = res.record {
-                writer.write(&rec, res.barcode_tag.as_deref()).expect("Failed to write record");
+                writer.write(&rec, res.alignment_results.barcode_tag.as_deref()).expect("Failed to write record");
             }
         }
     }
