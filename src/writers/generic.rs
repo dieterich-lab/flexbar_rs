@@ -25,14 +25,10 @@ pub struct GenericWriter<'a, B: GenericWriterBackend<'a>> {
 
 impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
     pub fn new(prefix: &str, compression: CompressionType) -> io::Result<Self> {
-        let path = get_writer_path(prefix, compression, B::get_extension(), None);
-        let writer = get_writer_from_path(path.as_deref(), compression)?;
-        let mut tagged_backends = HashMap::new();
-        tagged_backends.insert(DEFAULT_TAG.to_string(), B::new(writer));
         Ok(Self {
             prefix: Some(prefix.to_string()),
             compression,
-            backends_by_tag: tagged_backends,
+            backends_by_tag: HashMap::new(),
             statistics: crate::statistics::WriterStatistics::default(),
             _phantom: std::marker::PhantomData,
         })
@@ -54,11 +50,12 @@ impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
         let t = tag.unwrap_or(DEFAULT_TAG);
         if !self.backends_by_tag.contains_key(t) {
             if let Some(ref prefix) = self.prefix {
-                let path = get_writer_path(prefix, self.compression, B::get_extension(), Some(t));
+                let actual_tag = if t == DEFAULT_TAG { None } else { Some(t) };
+                let path = get_writer_path(prefix, self.compression, B::get_extension(), actual_tag);
                 let writer = get_writer_from_path(path.as_deref(), self.compression)?;
                 self.backends_by_tag.insert(t.to_string(), B::new(writer));
             } else {
-                return Err(io::Error::new(io::ErrorKind::Other, "Cannot create tagged writer without prefix"));
+                return Err(io::Error::new(io::ErrorKind::Other, format!("Cannot create tagged writer for tag '{}' without prefix", t)));
             }
         }
         Ok(self.backends_by_tag.get_mut(t).unwrap())
@@ -115,6 +112,37 @@ mod tests {
         let mut s = String::new();
         std::fs::File::open(tagged_path).unwrap().read_to_string(&mut s).unwrap();
         assert_eq!(s, "R1");
+    }
+
+    #[test]
+    fn test_generic_writer_on_demand_default() {
+        let temp = tempfile::tempdir().unwrap();
+        let prefix = temp.path().join("out").to_str().unwrap().to_string();
+        
+        struct TestBackend<'a> {
+            _writer: Box<dyn Write + Send + 'a>,
+        }
+        impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
+            fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { _writer: writer } }
+            fn write_record(&mut self, _record: &RecordDto) -> io::Result<()> { Ok(()) }
+            fn get_extension() -> &'static str { "txt" }
+        }
+
+        let default_path = temp.path().join("out.txt");
+        let tagged_path = temp.path().join("out_tagA.txt");
+
+        {
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
+            let rec1 = RecordDto::with_attrs("R1", None, b"A", b"I");
+            
+            // Write only with a tag
+            writer.write(&rec1, Some("tagA")).unwrap();
+            
+            assert!(!default_path.exists(), "Default output file should not exist yet");
+            assert!(tagged_path.exists(), "Tagged output file should exist");
+        }
+        
+        assert!(!default_path.exists(), "Default output file should still not exist after drop");
     }
 
     #[test]
