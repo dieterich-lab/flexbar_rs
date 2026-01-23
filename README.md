@@ -17,6 +17,17 @@ Most options work as for Flexbar, but:
 * The gap scores have been split into two parameters, e.g. `--barcode-gap` was replaced by `--barcode-gap-open`
   and `--barcode-gap-extend`.
 
+Not yet implemented:
+
+* Paired reads
+* Trimming of homopolymers
+* pre-trim-left/right
+* min-read-length
+
+Dropped features:
+
+* Support for interleaved FASTQ files
+
 ## References
 
 ### Flexbar
