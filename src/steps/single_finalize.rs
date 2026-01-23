@@ -10,24 +10,31 @@ impl FinalizeStep<RecordDto> for SingleFinalizeStep {
             return (None, None, rec.stats);
         }
 
-        let mut new_id = rec.record.id().to_string();
-        
-        for tag in &rec.alignment_results.umi_tags {
-            new_id.push('_');
-            new_id.push_str(tag);
+        let mut desc_parts = Vec::new();
+        match {rec.record.desc()} {
+            Some(desc) => desc_parts.push(desc),
+            None => (),
         }
 
         for tag in &rec.alignment_results.removal_tags {
-            new_id.push('_');
-            new_id.push_str(tag);
+            desc_parts.push(tag);
         }
+
+        for tag in &rec.alignment_results.umi_tags {
+            desc_parts.push(tag);
+        }
+
+        let new_desc: Option<&str> = match desc_parts.is_empty() {
+            true => None,
+            false => Some(&desc_parts.join("_")),
+        };
 
         let new_seq = rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end].to_vec();
         let new_qual = rec.record.qual()[rec.alignment_results.seq_start..rec.alignment_results.seq_end].to_vec();
 
         let final_record = RecordDto::with_attrs(
-            &new_id,
-            rec.record.desc(),
+            rec.record.id(),
+            new_desc,
             &new_seq,
             &new_qual,
         );

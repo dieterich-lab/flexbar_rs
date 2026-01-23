@@ -48,7 +48,12 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> Iterator for GenericReader<R
             Ok(Some(record)) => {
                 self.last_id = Self::truncate_id(record.id());
                 self.statistics.total_records_read += 1;
-                trace!("Reader processed record: {}", record.id());
+                trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {}",
+                    record.id(),
+                    record.desc().unwrap_or("None"),
+                    String::from_utf8_lossy(record.seq()), 
+                    String::from_utf8_lossy(record.qual())
+                );
                 Some(record)
             }
             Ok(None) => None,
