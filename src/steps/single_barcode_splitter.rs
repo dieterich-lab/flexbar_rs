@@ -142,6 +142,7 @@ impl GenericStep<RecordDto> for SingleBarcodeSplitter {
                 if self.barcode_unassigned {
                     tag = Some("barcode_unassigned_".to_string());
                 } else {
+                    rec.stats.total_discarded_barcode += 1;
                     rec.record = None;
                     return rec;
                 }
@@ -187,6 +188,7 @@ mod tests {
         let res = splitter.apply(rec_in);
         
         assert!(res.record.is_none());
+        assert_eq!(res.stats.total_discarded_barcode, 1);
     }
 
     #[test]

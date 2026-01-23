@@ -2,7 +2,7 @@ use std::ops::Add;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct ReaderStatistics {
-    pub total_records_read: u64,
+    pub total_records_read: usize,
 }
 
 impl Add for ReaderStatistics {

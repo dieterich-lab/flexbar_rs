@@ -2,7 +2,7 @@ use std::ops::Add;
 
 #[derive(Debug, Default, Clone, Copy)]
 pub struct WriterStatistics {
-    pub total_records_written: u64,
+    pub total_records_written: usize,
 }
 
 impl Add for WriterStatistics {
