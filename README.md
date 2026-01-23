@@ -22,7 +22,6 @@ Not yet implemented:
 * Paired reads
 * Trimming of homopolymers
 * pre-trim-left/right
-* min-read-length
 
 Dropped features:
 

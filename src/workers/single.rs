@@ -5,6 +5,7 @@ use crate::steps::single_adapter_remover::SingleAdapterRemover;
 use crate::steps::single_uncalled_sequence_filter::SingleUncalledSequenceFilter;
 use crate::steps::single_barcode_splitter::SingleBarcodeSplitter;
 use crate::steps::single_quality_trim::SingleQualityTrim;
+use crate::steps::single_filter_length::SingleFilterLength;
 use crate::steps::single_finalize::SingleFinalizeStep;
 use crate::steps::generic::GenericStep;
 use crate::workers::generic::GenericWorker;
@@ -43,6 +44,8 @@ impl SingleWorker {
             )
         }
 
+        steps.push(Arc::new(SingleFilterLength::new(config)));
+
         Self (GenericWorker::new(steps, Arc::new(SingleFinalizeStep)))
     }
     
@@ -62,7 +65,7 @@ mod tests {
 
     #[test]
     fn test_process_right() {
-        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5"]);
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
         let config = Config::new(args);
         let mut context = Context::new();
         context.adapters.push("AGATCGGAAGAG".to_string());
@@ -70,8 +73,8 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let (processed_opt, _, stats) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let (processed_opt, _, _stats) = worker.process(&record);
+        let processed = processed_opt.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -79,7 +82,7 @@ mod tests {
 
     #[test]
     fn test_process_left() {
-        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "LEFT", "--adapter-min-overlap", "5"]);
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "LEFT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
         let config = Config::new(args);
         let mut context = Context::new();
         context.adapters.push("AGATCGGAAGAG".to_string());
@@ -87,8 +90,8 @@ mod tests {
         let worker = SingleWorker::new(&config, &context);
         
         let record = RecordDto::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
-        let (processed_opt, _, stats) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let (processed_opt, _, _stats) = worker.process(&record);
+        let processed = processed_opt.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -96,7 +99,7 @@ mod tests {
 
     #[test]
     fn test_process_barcode() {
-        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4"]);
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--min-read-length", "0"]);
         let config = Config::new(args);
         let mut context = Context::new();
         context.barcodes.push(("bc1".to_string(), "GGGG".to_string()));
@@ -106,7 +109,7 @@ mod tests {
         // Barcode at start
         let record = RecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
         let (processed_opt, tag_opt, stats) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let processed = processed_opt.expect("Should not be dropped by length filter");
         
         assert_eq!(tag_opt, Some("barcode_bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
@@ -133,7 +136,7 @@ mod tests {
 
     #[test]
     fn test_removal_tags_barcode() {
-        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--removal-tags"]);
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--removal-tags", "--min-read-length", "0"]);
         let config = Config::new(args);
         let mut context = Context::new();
         context.barcodes.push(("bc1".to_string(), "GGGG".to_string()));
@@ -142,14 +145,15 @@ mod tests {
         
         let record = RecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let processed = processed_opt.expect("Should not be dropped by length filter");
         
-        assert_eq!(processed.id(), "read1_Flexbar_removal");
+        assert_eq!(processed.id(), "read1");
+        assert_eq!(processed.desc(), Some("Flexbar_removal"));
     }
 
     #[test]
     fn test_removal_tags_adapter() {
-        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--removal-tags"]);
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--removal-tags", "--min-read-length", "0"]);
         let config = Config::new(args);
         let mut context = Context::new();
         context.adapters.push("AGATCGGAAGAG".to_string());
@@ -158,9 +162,10 @@ mod tests {
         
         let record = RecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let processed = processed_opt.expect("Should not be dropped by length filter");
         
-        assert_eq!(processed.id(), "read1_Flexbar_removal_0");
+        assert_eq!(processed.id(), "read1");
+        assert_eq!(processed.desc(), Some("Flexbar_removal_0"));
     }
 
     #[test]
@@ -168,7 +173,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", 
             "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4",
             "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5",
-            "--removal-tags"]);
+            "--removal-tags", "--min-read-length", "0"]);
         let config = Config::new(args);
         let mut context = Context::new();
         context.barcodes.push(("bc1".to_string(), "GGGG".to_string()));
@@ -178,16 +183,17 @@ mod tests {
         
         let record = RecordDto::with_attrs("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let processed = processed_opt.expect("Should not be dropped by length filter");
         
         // barcode removal appends _Flexbar_removal
         // adapter removal appends _Flexbar_removal_0
-        assert_eq!(processed.id(), "read1_Flexbar_removal_Flexbar_removal_0");
+        assert_eq!(processed.id(), "read1");
+        assert_eq!(processed.desc(), Some("Flexbar_removal_Flexbar_removal_0"));
     }
 
     #[test]
     fn test_quality_trim_tail() {
-        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "TAIL", "--qtrim-threshold", "20"]);
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "TAIL", "--qtrim-threshold", "20", "--min-read-length", "0"]);
         let config = Config::new(args);
         let context = Context::new();
         let worker = SingleWorker::new(&config, &context);
@@ -195,7 +201,7 @@ mod tests {
         // Threshold 20 + 33 (sanger) = 53 ('5')
         let record = RecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
         let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let processed = processed_opt.expect("Should not be dropped by length filter");
 
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -203,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_quality_trim_win() {
-        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "WIN", "--qtrim-threshold", "20", "--qtrim-win-size", "5"]);
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "WIN", "--qtrim-threshold", "20", "--qtrim-win-size", "5", "--min-read-length", "0"]);
         let config = Config::new(args);
         let context = Context::new();
         let worker = SingleWorker::new(&config, &context);
@@ -213,28 +219,28 @@ mod tests {
         // "44444" sum = 5 * 52 = 260.
         let record = RecordDto::with_attrs("read1", None, b"ACTGTACGTACGT", b"IIIII44444III");
         let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let processed = processed_opt.expect("Should not be dropped by length filter");
 
         assert_eq!(processed.seq(), b"ACTGT");
     }
 
     #[test]
     fn test_quality_trim_bwa() {
-        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "BWA", "--qtrim-threshold", "20"]);
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "BWA", "--qtrim-threshold", "20", "--min-read-length", "0"]);
         let config = Config::new(args);
         let context = Context::new();
         let worker = SingleWorker::new(&config, &context);
 
         let record = RecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
         let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let processed = processed_opt.expect("Should not be dropped by length filter");
 
         assert_eq!(processed.seq(), b"ACTGT");
     }
 
     #[test]
     fn test_umi_tags_barcode() {
-        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--umi-tags"]);
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--umi-tags", "--min-read-length", "0"]);
         let config = Config::new(args);
         let mut context = Context::new();
         context.barcodes.push(("bc1".to_string(), "NNGGGGNN".to_string()));
@@ -244,16 +250,17 @@ mod tests {
         // Barcode NNGGGGNN matches AAGGGGTT
         let record = RecordDto::with_attrs("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
         let (processed_opt, tag_opt, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let processed = processed_opt.expect("Should not be dropped by length filter");
         
         assert_eq!(tag_opt, Some("barcode_bc1".to_string()));
-        assert_eq!(processed.id(), "read1_AA_TT");
+        assert_eq!(processed.id(), "read1");
+        assert_eq!(processed.desc(), Some("AA_TT"));
         assert_eq!(processed.seq(), b"ACGT");
     }
 
     #[test]
     fn test_umi_tags_adapter() {
-        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATNNNN", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "4", "--umi-tags"]);
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATNNNN", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "4", "--umi-tags", "--min-read-length", "0"]);
         let config = Config::new(args);
         let mut context = Context::new();
         context.adapters.push("AGATNNNN".to_string());
@@ -262,9 +269,30 @@ mod tests {
         
         let record = RecordDto::with_attrs("read1", None, b"ACTGTAGATCCCC", b"IIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.unwrap();
+        let processed = processed_opt.expect("Should not be dropped by length filter");
         
-        assert_eq!(processed.id(), "read1_CCCC");
+        assert_eq!(processed.id(), "read1");
+        assert_eq!(processed.desc(), Some("CCCC"));
         assert_eq!(processed.seq(), b"ACTGT");
+    }
+
+    #[test]
+    fn test_min_read_length() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
+        let config = Config::new(args);
+        let context = Context::new();
+        let worker = SingleWorker::new(&config, &context);
+
+        // Length 10 - should keep
+        let record = RecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");
+        let (processed_opt, _, stats) = worker.process(&record);
+        assert!(processed_opt.is_some(), "Should keep read of length 10 when min is 10");
+        assert_eq!(stats.total_discarded_length, 0);
+
+        // Length 9 - should discard
+        let record = RecordDto::with_attrs("read2", None, b"012345678", b"IIIIIIIII");
+        let (processed_opt, _, stats) = worker.process(&record);
+        assert!(processed_opt.is_none(), "Should discard read of length 9 when min is 10");
+        assert_eq!(stats.total_discarded_length, 1);
     }
 }

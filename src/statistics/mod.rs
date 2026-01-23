@@ -34,6 +34,7 @@ impl Statistics {
         info!("  Total records read:           {}", self.reader.total_records_read);
         info!("  Total discarded (uncalled):   {}", self.worker.total_discarded_uncalled);
         info!("  Total discarded (barcode):    {}", self.worker.total_discarded_barcode);
+        info!("  Total discarded (length):     {}", self.worker.total_discarded_length);
         info!("  Total adapters removed:       {}", self.worker.total_adapters_removed);
         if !self.worker.barcode_counts.is_empty() {
             let mut sorted_barcodes: Vec<_> = self.worker.barcode_counts.iter().collect();

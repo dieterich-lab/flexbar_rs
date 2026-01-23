@@ -190,7 +190,8 @@ pub struct Args {
     #[arg(short = 'k', long = "post-trim-length", default_value_t = 0)]
     pub post_trim_length: usize,
 
-    /// Minimum read length to remain after removal, default 18
+    /// Minimum read length to remain after removal, default 18. Shorter
+    /// reads are discarded. Set to 0 to disable.
     #[arg(short = 'm', long = "min-read-length", default_value_t = 18)]
     pub min_read_length: usize,
 
