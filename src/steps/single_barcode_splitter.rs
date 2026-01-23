@@ -17,6 +17,7 @@ pub struct SingleBarcodeSplitter {
     barcode_match: i32,
     barcode_mismatch: i32,
     barcode_keep: bool,
+    barcode_unassigned: bool,
     removal_tags: bool,
     xclip_prefix: i32,
     xclip_suffix: i32,
@@ -50,6 +51,7 @@ impl SingleBarcodeSplitter {
             barcode_match: config.args.barcode_match,
             barcode_mismatch: config.args.barcode_mismatch,
             barcode_keep: config.args.barcode_keep,
+            barcode_unassigned: config.args.barcode_unassigned,
             removal_tags: config.args.removal_tags,
             xclip_prefix,
             xclip_suffix,
@@ -134,7 +136,17 @@ impl GenericStep<RecordDto> for SingleBarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
         if let Some(record) = rec.record {
             trace!("Barcode splitter processing record: {}", record.id());
-            let (new_record, tag, umi_tags) = self.split_barcodes(&record, &mut rec.stats);
+            let (new_record, mut tag, umi_tags) = self.split_barcodes(&record, &mut rec.stats);
+            
+            if tag.is_none() {
+                if self.barcode_unassigned {
+                    tag = Some("barcode_unassigned_".to_string());
+                } else {
+                    rec.record = None;
+                    return rec;
+                }
+            }
+
             if let Some(ref t) = tag {
                 trace!("Barcode splitter assigned tag: {} to record: {}", t, record.id());
             }
@@ -149,5 +161,51 @@ impl GenericStep<RecordDto> for SingleBarcodeSplitter {
             rec.alignment_results.umi_tags.extend(umi_tags);
         }
         rec
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::args::Args;
+    use crate::steps::generic::AlignmentResults;
+    use clap::Parser;
+
+    #[test]
+    fn test_barcode_unassigned_false() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-min-overlap", "4"]);
+        let config = Config::new(args);
+        let barcodes = vec![("bc1".to_string(), "GGGG".to_string())];
+        let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
+        
+        let record = RecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII");
+        let rec_in = RecordInTransformation {
+            record: Some(record),
+            alignment_results: AlignmentResults::default(),
+            stats: WorkerStatistics::default(),
+        };
+        let res = splitter.apply(rec_in);
+        
+        assert!(res.record.is_none());
+    }
+
+    #[test]
+    fn test_barcode_unassigned_true() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-min-overlap", "4", "--barcode-unassigned"]);
+        let config = Config::new(args);
+        let barcodes = vec![("bc1".to_string(), "GGGG".to_string())];
+        let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
+        
+        let record = RecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII");
+        let rec_in = RecordInTransformation {
+            record: Some(record.clone()),
+            alignment_results: AlignmentResults::default(),
+            stats: WorkerStatistics::default(),
+        };
+        let res = splitter.apply(rec_in);
+        
+        assert!(res.record.is_some());
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_unassigned_".to_string()));
+        assert_eq!(res.record.unwrap().seq(), record.seq());
     }
 }
