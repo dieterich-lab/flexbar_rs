@@ -18,3 +18,8 @@ bzip2 = "0.4"
 zstd = "0.13"
 tempfile = "3.10"
 
+[profile.release]
+strip = "symbols"
+panic = "abort"
+lto = "thin"
+

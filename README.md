@@ -28,6 +28,15 @@ Dropped features:
 
 * Support for interleaved FASTQ files
 
+## Building
+
+To create an optimised production binary, run:
+```bash
+cargo +nightly multivers
+```
+
+The binary will be created in `target/cargo-multivers/x86_64-unknown-linux-gnu/release/flexbar_rs`.
+
 ## References
 
 ### Flexbar
