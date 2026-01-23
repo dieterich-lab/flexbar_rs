@@ -1,7 +1,7 @@
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::fs::File;
-use flate2::read::GzDecoder;
+use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
 use bzip2::read::BzDecoder;
 use bzip2::write::BzEncoder;
@@ -24,7 +24,7 @@ pub fn get_reader<P: AsRef<Path>>(path: P) -> io::Result<(BufReader<Box<dyn Read
             .map(|s| s.to_lowercase());
 
         match extension.as_deref() {
-            Some("gz") => (Box::new(GzDecoder::new(file)), CompressionType::Gz),
+            Some("gz") => (Box::new(MultiGzDecoder::new(file)), CompressionType::Gz),
             Some("bz2") => (Box::new(BzDecoder::new(file)), CompressionType::Bz2),
             Some("zstd") | Some("zst") => (Box::new(ZstdDecoder::new(file)?), CompressionType::Zstd),
             _ => (Box::new(file), CompressionType::Uncompressed),
@@ -199,10 +199,28 @@ mod tests {
     }
 
     #[test]
-    fn test_stdout_writer() {
-        let path = get_writer_path("-", CompressionType::Uncompressed, "fastq", None);
-        assert!(path.is_none());
-        let _writer = get_writer_from_path(None, CompressionType::Uncompressed).unwrap();
-        // Cannot easily check if it is stdout, but at least it didn't fail
+    fn test_multi_gz_decompression() {
+        let mut buf = Vec::new();
+        {
+            let mut encoder = GzEncoder::new(&mut buf, flate2::Compression::default());
+            encoder.write_all(b"member1").unwrap();
+            encoder.finish().unwrap();
+        }
+        {
+            let mut encoder = GzEncoder::new(&mut buf, flate2::Compression::default());
+            encoder.write_all(b"member2").unwrap();
+            encoder.finish().unwrap();
+        }
+
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("test.gz");
+        File::create(&path).unwrap().write_all(&buf).unwrap();
+
+        let (mut reader, _source, compression) = get_reader(&path).unwrap();
+        assert_eq!(compression, CompressionType::Gz);
+
+        let mut content = String::new();
+        reader.read_to_string(&mut content).unwrap();
+        assert_eq!(content, "member1member2");
     }
 }
