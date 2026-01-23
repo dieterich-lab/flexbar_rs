@@ -48,6 +48,7 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> Iterator for GenericReader<R
             Ok(Some(record)) => {
                 self.last_id = Self::truncate_id(record.id());
                 self.statistics.total_records_read += 1;
+                self.statistics.total_bases_read += record.seq().len();
                 trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {}",
                     record.id(),
                     record.desc().unwrap_or("None"),
@@ -99,6 +100,18 @@ mod tests {
                 Err(io::Error::new(io::ErrorKind::Other, "test error"))
             }
         }
+    }
+
+    #[test]
+    fn test_generic_reader_statistics() {
+        let data = b"@id1\nACGT\n+\n!!!!\n";
+        let reader = io::BufReader::new(&data[..]);
+        let mut gen_reader: GenericReader<_, crate::readers::fastq::FastqBackend<_>> = GenericReader::new(reader, "test.fq".to_string(), CompressionType::Uncompressed);
+        
+        let _ = gen_reader.next();
+        let stats = gen_reader.statistics();
+        assert_eq!(stats.total_records_read, 1);
+        assert_eq!(stats.total_bases_read, 4);
     }
 
     #[test]

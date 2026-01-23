@@ -77,7 +77,7 @@ impl SingleBarcodeSplitter {
         }
     }
 
-    pub fn split_barcodes(&self, record: &RecordDto, results: &mut AlignmentResults, stats: &mut WorkerStatistics) {
+    pub fn split_barcodes(&self, record: &RecordDto, results: &mut AlignmentResults, _stats: &mut WorkerStatistics) {
         let current_seq = &record.seq()[results.seq_start..results.seq_end];
         let mut aligner = Aligner::with_capacity_and_scoring(
             current_seq.len(),
@@ -121,7 +121,6 @@ impl SingleBarcodeSplitter {
                 }
             }
             
-            *stats.barcode_counts.entry(id.to_string()).or_insert(0) += 1;
             results.barcode_tag = Some(format!("barcode_{}", id));
         }
     }

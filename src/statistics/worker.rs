@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::ops::{Add, AddAssign};
 
 #[derive(Debug, Default, Clone)]
@@ -7,7 +6,6 @@ pub struct WorkerStatistics {
     pub total_discarded_uncalled: usize,
     pub total_discarded_barcode: usize,
     pub total_discarded_length: usize,
-    pub barcode_counts: HashMap<String, usize>,
 }
 
 impl WorkerStatistics {
@@ -23,9 +21,6 @@ impl Add for WorkerStatistics {
         self.total_discarded_uncalled += other.total_discarded_uncalled;
         self.total_discarded_barcode += other.total_discarded_barcode;
         self.total_discarded_length += other.total_discarded_length;
-        for (id, count) in other.barcode_counts {
-            *self.barcode_counts.entry(id).or_insert(0) += count;
-        }
         self
     }
 }
@@ -36,8 +31,5 @@ impl AddAssign for WorkerStatistics {
         self.total_discarded_uncalled += other.total_discarded_uncalled;
         self.total_discarded_barcode += other.total_discarded_barcode;
         self.total_discarded_length += other.total_discarded_length;
-        for (id, count) in other.barcode_counts {
-            *self.barcode_counts.entry(id).or_insert(0) += count;
-        }
     }
 }

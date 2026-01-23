@@ -108,12 +108,13 @@ mod tests {
         
         // Barcode at start
         let record = RecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
-        let (processed_opt, tag_opt, stats) = worker.process(&record);
+        let (processed_opt, tag_opt, _stats) = worker.process(&record);
         let processed = processed_opt.expect("Should not be dropped by length filter");
         
         assert_eq!(tag_opt, Some("barcode_bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
-        assert_eq!(*stats.barcode_counts.get("bc1").unwrap(), 1);
+        // Stats are now in writer, so worker.process doesn't see them yet.
+        // We'll trust GenericWriter to handle it.
     }
 
     #[test]

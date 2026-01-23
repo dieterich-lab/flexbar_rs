@@ -68,12 +68,21 @@ impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
         let backend = self.get_backend(tag)?;
         backend.write_record(record)?;
         self.statistics.total_records_written += 1;
+        self.statistics.total_bases_written += record.seq().len();
+        if let Some(t) = tag {
+            if t.starts_with("barcode_") && t != DEFAULT_TAG {
+                let bc_id = &t["barcode_".len()..];
+                if !bc_id.is_empty() {
+                    *self.statistics.barcode_counts.entry(bc_id.to_string()).or_insert(0) += 1;
+                }
+            }
+        }
         trace!("Writer processed record: {} with tag: {:?}", record.id(), tag);
         Ok(())
     }
 
     fn statistics(&self) -> crate::statistics::WriterStatistics {
-        self.statistics
+        self.statistics.clone()
     }
 }
 
@@ -81,6 +90,68 @@ impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
 mod tests {
     use super::*;
     use std::io::Read;
+
+    #[test]
+    fn test_generic_writer_statistics() {
+        let mut buffer = Vec::new();
+        {
+            struct TestBackend<'a> {
+                _writer: Box<dyn Write + Send + 'a>,
+            }
+            impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
+                fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { _writer: writer } }
+                fn write_record(&mut self, _record: &RecordDto) -> io::Result<()> { Ok(()) }
+                fn get_extension() -> &'static str { "txt" }
+            }
+
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::from_writer(Box::new(&mut buffer));
+            let record = RecordDto::with_attrs("id1", None, b"ACGT", b"!!!!");
+            writer.write(&record, None).unwrap();
+            
+            let stats = writer.statistics();
+            assert_eq!(stats.total_records_written, 1);
+            assert_eq!(stats.total_bases_written, 4);
+        }
+    }
+
+    #[test]
+    fn test_generic_writer_barcode_statistics() {
+        let temp = tempfile::tempdir().unwrap();
+        let prefix = temp.path().join("out").to_str().unwrap().to_string();
+        {
+            struct TestBackend<'a> {
+                _writer: Box<dyn Write + Send + 'a>,
+            }
+            impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
+                fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { _writer: writer } }
+                fn write_record(&mut self, _record: &RecordDto) -> io::Result<()> { Ok(()) }
+                fn get_extension() -> &'static str { "txt" }
+            }
+
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
+            let record = RecordDto::with_attrs("id1", None, b"ACGT", b"!!!!");
+            
+            // Write with barcode tag
+            writer.write(&record, Some("barcode_bc1")).unwrap();
+            
+            let stats = writer.statistics();
+            assert_eq!(stats.total_records_written, 1);
+            assert_eq!(stats.barcode_counts.get("bc1"), Some(&1));
+            
+            // Write another with same barcode
+            writer.write(&record, Some("barcode_bc1")).unwrap();
+            assert_eq!(writer.statistics().barcode_counts.get("bc1"), Some(&2));
+            
+            // Write another with different barcode
+            writer.write(&record, Some("barcode_bc2")).unwrap();
+            assert_eq!(writer.statistics().barcode_counts.get("bc2"), Some(&1));
+
+            // Write without barcode tag
+            writer.write(&record, None).unwrap();
+            assert_eq!(writer.statistics().total_records_written, 4);
+            assert_eq!(writer.statistics().barcode_counts.len(), 2);
+        }
+    }
 
     #[test]
     fn test_generic_writer_tagging_unsafe() {
