@@ -18,22 +18,12 @@ impl SingleQualityTrim {
         }
     }
 
-    pub fn trim(&self, record: &RecordDto) -> RecordDto {
-        let trim_pos = match self.qtrim {
-            QualTrimType::Tail => self.get_tail_trim_pos(record.qual()),
-            QualTrimType::Win => self.get_win_trim_pos(record.qual()),
-            QualTrimType::Bwa => self.get_bwa_trim_pos(record.qual()),
-            QualTrimType::Off => unreachable!(),
-        };
-
-        if trim_pos < record.seq().len() {
-            let mut new_seq = record.seq().to_vec();
-            let mut new_qual = record.qual().to_vec();
-            new_seq.truncate(trim_pos);
-            new_qual.truncate(trim_pos);
-            RecordDto::with_attrs(record.id(), record.desc(), &new_seq, &new_qual)
-        } else {
-            record.clone()
+    pub fn get_trim_pos(&self, qual: &[u8]) -> usize {
+        match self.qtrim {
+            QualTrimType::Tail => self.get_tail_trim_pos(qual),
+            QualTrimType::Win => self.get_win_trim_pos(qual),
+            QualTrimType::Bwa => self.get_bwa_trim_pos(qual),
+            QualTrimType::Off => qual.len(),
         }
     }
 
@@ -90,13 +80,16 @@ impl SingleQualityTrim {
 
 impl GenericStep<RecordDto> for SingleQualityTrim {
     fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
-        if let Some(record) = rec.record {
-            trace!("Quality trim processing record: {}", record.id());
-            let trimmed = self.trim(&record);
-            if trimmed.seq().len() < record.seq().len() {
-                trace!("Quality trim trimmed record: {} from {} to {} bases", record.id(), record.seq().len(), trimmed.seq().len());
+        if !rec.alignment_results.record_dropped {
+            trace!("Quality trim processing record: {}", rec.record.id());
+            let current_qual = &rec.record.qual()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
+            let trim_pos = self.get_trim_pos(current_qual);
+            
+            if trim_pos < current_qual.len() {
+                let old_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
+                rec.alignment_results.seq_end = rec.alignment_results.seq_start + trim_pos;
+                trace!("Quality trim trimmed record: {} from {} to {} bases", rec.record.id(), old_len, trim_pos);
             }
-            rec.record = Some(trimmed);
         }
         rec
     }

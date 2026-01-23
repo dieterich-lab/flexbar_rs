@@ -17,12 +17,13 @@ impl SingleUncalledSequenceFilter {
 
 impl GenericStep<RecordDto> for SingleUncalledSequenceFilter {
     fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
-        if let Some(ref record) = rec.record {
-            trace!("Uncalled filter processing record: {}", record.id());
-            let uncalled_count = record.seq().iter().filter(|&&b| b == b'N' || b == b'n').count();
+        if !rec.alignment_results.record_dropped {
+            trace!("Uncalled filter processing record: {}", rec.record.id());
+            let seq = &rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
+            let uncalled_count = seq.iter().filter(|&&b| b == b'N' || b == b'n').count();
             if uncalled_count > self.max_uncalled {
-                trace!("Uncalled filter dropped record: {}", record.id());
-                rec.record = None;
+                trace!("Uncalled filter dropped record: {}", rec.record.id());
+                rec.alignment_results.record_dropped = true;
                 rec.stats.total_discarded_uncalled += 1;
             }
         }

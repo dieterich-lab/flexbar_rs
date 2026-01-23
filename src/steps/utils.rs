@@ -38,6 +38,28 @@ pub fn extract_umi_tags(
     umi_tags
 }
 
+pub fn get_trim_range(
+    len: usize,
+    alignment: &Alignment,
+    trim_end: TrimEnd,
+) -> (usize, usize) {
+    match trim_end {
+        TrimEnd::Right | TrimEnd::RTail => {
+            (0, alignment.ystart)
+        }
+        TrimEnd::Left | TrimEnd::LTail => {
+            (alignment.yend, len)
+        }
+        TrimEnd::Any => {
+            if alignment.ystart < len - alignment.yend {
+                (alignment.yend, len)
+            } else {
+                (0, alignment.ystart)
+            }
+        }
+    }
+}
+
 pub fn trim_sequence(
     record: &RecordDto,
     alignment: &Alignment,

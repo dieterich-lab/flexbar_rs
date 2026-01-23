@@ -3,7 +3,7 @@ use crate::types::{TrimEnd, RecordDto};
 use log::trace;
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
-use crate::steps::utils::{extract_umi_tags, trim_sequence};
+use crate::steps::utils::{extract_umi_tags, get_trim_range};
 use bio::alignment::pairwise::*;
 use bio::alignment::Alignment;
 
@@ -72,9 +72,10 @@ impl SingleAdapterRemover {
         }
     }
 
-    pub fn remove_adapters(&self, record: &RecordDto, stats: &mut WorkerStatistics) -> (RecordDto, Vec<String>, Option<usize>) {
+    pub fn remove_adapters(&self, record: &RecordDto, results: &mut crate::steps::generic::AlignmentResults, stats: &mut WorkerStatistics) {
+        let current_seq = &record.seq()[results.seq_start..results.seq_end];
         let mut aligner = Aligner::with_capacity_and_scoring(
-            record.seq().len(),
+            current_seq.len(),
             self.max_adapter_len,
             self.get_scoring(),
         );
@@ -82,7 +83,7 @@ impl SingleAdapterRemover {
         let mut best_alignment: Option<(Alignment, usize)> = None;
 
         for (i, adapter) in self.adapters.iter().enumerate() {
-            let alignment = aligner.semiglobal(adapter.as_bytes(), record.seq());
+            let alignment = aligner.semiglobal(adapter.as_bytes(), current_seq);
             let overlap = alignment.yend - alignment.ystart;
             let adapter_overlap = alignment.xend - alignment.xstart;
             
@@ -100,44 +101,29 @@ impl SingleAdapterRemover {
         }
 
         if let Some((alignment, i)) = best_alignment {
-            let umi_tags = if self.umi_tags {
-                extract_umi_tags(&alignment, self.adapters[i].as_bytes(), record.seq())
-            } else {
-                Vec::new()
-            };
+            if self.umi_tags {
+                results.umi_tags.extend(extract_umi_tags(&alignment, self.adapters[i].as_bytes(), current_seq));
+            }
 
-            let (new_seq, new_qual) = trim_sequence(record, &alignment, self.adapter_trim_end);
+            let (rel_start, rel_end) = get_trim_range(current_seq.len(), &alignment, self.adapter_trim_end);
+            let old_start = results.seq_start;
+            results.seq_start = old_start + rel_start;
+            results.seq_end = old_start + rel_end;
             
             stats.total_adapters_removed += 1;
             
-            let mut id_str = record.id().to_string();
             if self.removal_tags {
-                id_str.push_str(&format!("_Flexbar_removal_{}", i));
+                results.removal_tags.push(format!("Flexbar_removal_{}", i));
             }
-            
-            (RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual), umi_tags, Some(i))
-        } else {
-            (record.clone(), Vec::new(), None)
         }
     }
 }
 
 impl GenericStep<RecordDto> for SingleAdapterRemover {
     fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
-        if let Some(record) = rec.record {
-            trace!("Adapter remover processing record: {}", record.id());
-            let (new_record, umi_tags, adapter_idx) = self.remove_adapters(&record, &mut rec.stats);
-            if let Some(idx) = adapter_idx {
-                trace!("Adapter remover matched adapter: {} for record: {}", idx, record.id());
-            }
-            if new_record.seq().len() < record.seq().len() {
-                trace!("Adapter remover removed adapter from record: {} (length {} -> {})", record.id(), record.seq().len(), new_record.seq().len());
-            }
-            if !umi_tags.is_empty() {
-                trace!("Adapter remover extracted UMIs: {:?} from record: {}", umi_tags, record.id());
-            }
-            rec.record = Some(new_record);
-            rec.alignment_results.umi_tags.extend(umi_tags);
+        if !rec.alignment_results.record_dropped {
+            trace!("Adapter remover processing record: {}", rec.record.id());
+            self.remove_adapters(&rec.record, &mut rec.alignment_results, &mut rec.stats);
         }
         rec
     }

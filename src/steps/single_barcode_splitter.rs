@@ -2,8 +2,8 @@ use crate::config::Config;
 use crate::types::{TrimEnd, RecordDto};
 use log::trace;
 use crate::statistics::WorkerStatistics;
-use crate::steps::generic::{GenericStep, RecordInTransformation};
-use crate::steps::utils::{extract_umi_tags, trim_sequence};
+use crate::steps::generic::{GenericStep, RecordInTransformation, AlignmentResults};
+use crate::steps::utils::{extract_umi_tags, get_trim_range};
 use bio::alignment::pairwise::*;
 use bio::alignment::Alignment;
 
@@ -77,9 +77,10 @@ impl SingleBarcodeSplitter {
         }
     }
 
-    pub fn split_barcodes(&self, record: &RecordDto, stats: &mut WorkerStatistics) -> (RecordDto, Option<String>, Vec<String>) {
+    pub fn split_barcodes(&self, record: &RecordDto, results: &mut AlignmentResults, stats: &mut WorkerStatistics) {
+        let current_seq = &record.seq()[results.seq_start..results.seq_end];
         let mut aligner = Aligner::with_capacity_and_scoring(
-            record.seq().len(),
+            current_seq.len(),
             self.max_barcode_len,
             self.get_scoring(),
         );
@@ -87,7 +88,7 @@ impl SingleBarcodeSplitter {
         let mut best_alignment: Option<(Alignment, &str, &str)> = None;
 
         for (id, barcode) in &self.barcodes {
-            let alignment = aligner.semiglobal(barcode.as_bytes(), record.seq());
+            let alignment = aligner.semiglobal(barcode.as_bytes(), current_seq);
             let overlap = alignment.yend - alignment.ystart;
             let barcode_overlap = alignment.xend - alignment.xstart;
             
@@ -105,61 +106,46 @@ impl SingleBarcodeSplitter {
         }
 
         if let Some((alignment, id, barcode)) = best_alignment {
-            let umi_tags = if self.umi_tags {
-                extract_umi_tags(&alignment, barcode.as_bytes(), record.seq())
-            } else {
-                Vec::new()
-            };
+            if self.umi_tags {
+                results.umi_tags.extend(extract_umi_tags(&alignment, barcode.as_bytes(), current_seq));
+            }
 
-            let (new_seq, new_qual) = if !self.barcode_keep {
-                trim_sequence(record, &alignment, self.trim_end)
-            } else {
-                (record.seq().to_vec(), record.qual().to_vec())
-            };
-            
-            *stats.barcode_counts.entry(id.to_string()).or_insert(0) += 1;
-            
-            let mut id_str = record.id().to_string();
-            if self.removal_tags && !self.barcode_keep {
-                id_str.push_str("_Flexbar_removal");
+            if !self.barcode_keep {
+                let (rel_start, rel_end) = get_trim_range(current_seq.len(), &alignment, self.trim_end);
+                let old_start = results.seq_start;
+                results.seq_start = old_start + rel_start;
+                results.seq_end = old_start + rel_end;
+
+                if self.removal_tags {
+                    results.removal_tags.push("Flexbar_removal".to_string());
+                }
             }
             
-            let tag = format!("barcode_{}", id);
-            (RecordDto::with_attrs(&id_str, record.desc(), &new_seq, &new_qual), Some(tag), umi_tags)
-        } else {
-            (record.clone(), None, Vec::new())
+            *stats.barcode_counts.entry(id.to_string()).or_insert(0) += 1;
+            results.barcode_tag = Some(format!("barcode_{}", id));
         }
     }
 }
 
 impl GenericStep<RecordDto> for SingleBarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
-        if let Some(record) = rec.record {
-            trace!("Barcode splitter processing record: {}", record.id());
-            let (new_record, mut tag, umi_tags) = self.split_barcodes(&record, &mut rec.stats);
+        if !rec.alignment_results.record_dropped {
+            trace!("Barcode splitter processing record: {}", rec.record.id());
+            self.split_barcodes(&rec.record, &mut rec.alignment_results, &mut rec.stats);
             
-            if tag.is_none() {
+            if rec.alignment_results.barcode_tag.is_none() {
                 if self.barcode_unassigned {
-                    tag = Some("barcode_unassigned_".to_string());
+                    rec.alignment_results.barcode_tag = Some("barcode_unassigned_".to_string());
                 } else {
                     rec.stats.total_discarded_barcode += 1;
-                    rec.record = None;
+                    rec.alignment_results.record_dropped = true;
                     return rec;
                 }
             }
 
-            if let Some(ref t) = tag {
-                trace!("Barcode splitter assigned tag: {} to record: {}", t, record.id());
+            if let Some(ref t) = rec.alignment_results.barcode_tag {
+                trace!("Barcode splitter assigned tag: {} to record: {}", t, rec.record.id());
             }
-            if new_record.seq().len() < record.seq().len() {
-                trace!("Barcode splitter removed barcode from record: {} (length {} -> {})", record.id(), record.seq().len(), new_record.seq().len());
-            }
-            if !umi_tags.is_empty() {
-                trace!("Barcode splitter extracted UMIs: {:?} from record: {}", umi_tags, record.id());
-            }
-            rec.record = Some(new_record);
-            rec.alignment_results.barcode_tag = tag;
-            rec.alignment_results.umi_tags.extend(umi_tags);
         }
         rec
     }
@@ -181,13 +167,20 @@ mod tests {
         
         let record = RecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII");
         let rec_in = RecordInTransformation {
-            record: Some(record),
-            alignment_results: AlignmentResults::default(),
+            record: record.clone(),
+            alignment_results: AlignmentResults {
+                barcode_tag: None,
+                umi_tags: Vec::new(),
+                removal_tags: Vec::new(),
+                seq_start: 0,
+                seq_end: record.seq().len(),
+                record_dropped: false,
+            },
             stats: WorkerStatistics::default(),
         };
         let res = splitter.apply(rec_in);
         
-        assert!(res.record.is_none());
+        assert!(res.alignment_results.record_dropped);
         assert_eq!(res.stats.total_discarded_barcode, 1);
     }
 
@@ -200,14 +193,21 @@ mod tests {
         
         let record = RecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII");
         let rec_in = RecordInTransformation {
-            record: Some(record.clone()),
-            alignment_results: AlignmentResults::default(),
+            record: record.clone(),
+            alignment_results: AlignmentResults {
+                barcode_tag: None,
+                umi_tags: Vec::new(),
+                removal_tags: Vec::new(),
+                seq_start: 0,
+                seq_end: record.seq().len(),
+                record_dropped: false,
+            },
             stats: WorkerStatistics::default(),
         };
         let res = splitter.apply(rec_in);
         
-        assert!(res.record.is_some());
+        assert!(!res.alignment_results.record_dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_unassigned_".to_string()));
-        assert_eq!(res.record.unwrap().seq(), record.seq());
+        assert_eq!(res.alignment_results.seq_end - res.alignment_results.seq_start, record.seq().len());
     }
 }

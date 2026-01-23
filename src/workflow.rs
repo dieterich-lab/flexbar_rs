@@ -74,7 +74,6 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
     }
 }
 
-use crate::steps::generic::RecordInTransformation;
 
 fn process_batch(
     reader: &mut Box<dyn SequenceReader + Send>,
@@ -100,15 +99,15 @@ fn process_batch(
 
         let batch_len = batch_in.len();
         
-        let batch_out: Vec<RecordInTransformation<RecordDto>> = batch_in
+        let batch_out: Vec<(Option<RecordDto>, Option<String>, WorkerStatistics)> = batch_in
             .into_par_iter()
             .map(|rec| worker.process(&rec))
             .collect();
 
-        for res in batch_out {
-            worker_stats += res.stats;
-            if let Some(rec) = res.record {
-                writer.write(&rec, res.alignment_results.barcode_tag.as_deref()).expect("Failed to write record");
+        for (rec_opt, tag_opt, stats) in batch_out {
+            worker_stats += stats;
+            if let Some(rec) = rec_opt {
+                writer.write(&rec, tag_opt.as_deref()).expect("Failed to write record");
             }
         }
 
