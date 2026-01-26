@@ -1,11 +1,11 @@
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{FinalizeStep, RecordInTransformation};
-use crate::types::RecordDto;
+use crate::types::SingeRecordDto;
 
 pub struct SingleFinalizeStep;
 
-impl FinalizeStep<RecordDto> for SingleFinalizeStep {
-    fn apply(&self, rec: RecordInTransformation<RecordDto>) -> (Option<RecordDto>, Option<String>, WorkerStatistics) {
+impl FinalizeStep<SingeRecordDto> for SingleFinalizeStep {
+    fn apply(&self, rec: RecordInTransformation<SingeRecordDto>) -> (Option<SingeRecordDto>, Option<String>, WorkerStatistics) {
         if rec.alignment_results.record_dropped {
             return (None, None, rec.stats);
         }
@@ -32,7 +32,7 @@ impl FinalizeStep<RecordDto> for SingleFinalizeStep {
         let new_seq = rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end].to_vec();
         let new_qual = rec.record.qual()[rec.alignment_results.seq_start..rec.alignment_results.seq_end].to_vec();
 
-        let final_record = RecordDto::with_attrs(
+        let final_record = SingeRecordDto::with_attrs(
             rec.record.id(),
             new_desc,
             &new_seq,

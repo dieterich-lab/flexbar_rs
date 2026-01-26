@@ -255,4 +255,5 @@ impl FromStr for AdapterTrimmed {
     }
 }
 
-pub type RecordDto = bio::io::fastq::Record;
+pub type SingeRecordDto = bio::io::fastq::Record;
+

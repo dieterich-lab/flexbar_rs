@@ -2,13 +2,13 @@ use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use log::trace;
-use crate::types::{CompressionType, RecordDto};
+use crate::types::{CompressionType, SingeRecordDto};
 use crate::utils::{get_writer_from_path, get_writer_path};
 use crate::writers::Writer;
 
 pub trait GenericWriterBackend<'a>: Send {
     fn new(writer: Box<dyn Write + Send + 'a>) -> Self;
-    fn write_record(&mut self, record: &RecordDto) -> io::Result<()>;
+    fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()>;
     fn get_extension() -> &'static str;
 }
 
@@ -63,7 +63,7 @@ impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
 }
 
 impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
-    fn write(&mut self, record: &RecordDto, tag: Option<&str>) -> io::Result<()>
+    fn write(&mut self, record: &SingeRecordDto, tag: Option<&str>) -> io::Result<()>
     {
         let backend = self.get_backend(tag)?;
         backend.write_record(record)?;
@@ -100,12 +100,12 @@ mod tests {
             }
             impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
                 fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { _writer: writer } }
-                fn write_record(&mut self, _record: &RecordDto) -> io::Result<()> { Ok(()) }
+                fn write_record(&mut self, _record: &SingeRecordDto) -> io::Result<()> { Ok(()) }
                 fn get_extension() -> &'static str { "txt" }
             }
 
             let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::from_writer(Box::new(&mut buffer));
-            let record = RecordDto::with_attrs("id1", None, b"ACGT", b"!!!!");
+            let record = SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!");
             writer.write(&record, None).unwrap();
             
             let stats = writer.statistics();
@@ -124,12 +124,12 @@ mod tests {
             }
             impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
                 fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { _writer: writer } }
-                fn write_record(&mut self, _record: &RecordDto) -> io::Result<()> { Ok(()) }
+                fn write_record(&mut self, _record: &SingeRecordDto) -> io::Result<()> { Ok(()) }
                 fn get_extension() -> &'static str { "txt" }
             }
 
             let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
-            let record = RecordDto::with_attrs("id1", None, b"ACGT", b"!!!!");
+            let record = SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!");
             
             // Write with barcode tag
             writer.write(&record, Some("barcode_bc1")).unwrap();
@@ -163,7 +163,7 @@ mod tests {
         }
         impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
             fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { writer } }
-            fn write_record(&mut self, record: &RecordDto) -> io::Result<()> {
+            fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()> {
                 self.writer.write_all(record.id().as_bytes())
             }
             fn get_extension() -> &'static str { "txt" }
@@ -171,7 +171,7 @@ mod tests {
 
         {
             let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
-            let rec1 = RecordDto::with_attrs("R1", None, b"A", b"I");
+            let rec1 = SingeRecordDto::with_attrs("R1", None, b"A", b"I");
             
             // This tag contains characters that should be removed in the filename
             writer.write(&rec1, Some("tag/with\\slashes")).unwrap();
@@ -195,7 +195,7 @@ mod tests {
         }
         impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
             fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { _writer: writer } }
-            fn write_record(&mut self, _record: &RecordDto) -> io::Result<()> { Ok(()) }
+            fn write_record(&mut self, _record: &SingeRecordDto) -> io::Result<()> { Ok(()) }
             fn get_extension() -> &'static str { "txt" }
         }
 
@@ -204,7 +204,7 @@ mod tests {
 
         {
             let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
-            let rec1 = RecordDto::with_attrs("R1", None, b"A", b"I");
+            let rec1 = SingeRecordDto::with_attrs("R1", None, b"A", b"I");
             
             // Write only with a tag
             writer.write(&rec1, Some("tagA")).unwrap();
@@ -226,7 +226,7 @@ mod tests {
         }
         impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
             fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { writer } }
-            fn write_record(&mut self, record: &RecordDto) -> io::Result<()> {
+            fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()> {
                 self.writer.write_all(record.id().as_bytes())
             }
             fn get_extension() -> &'static str { "txt" }
@@ -234,8 +234,8 @@ mod tests {
 
         {
             let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
-            let rec1 = RecordDto::with_attrs("R1", None, b"A", b"I");
-            let rec2 = RecordDto::with_attrs("R2", None, b"A", b"I");
+            let rec1 = SingeRecordDto::with_attrs("R1", None, b"A", b"I");
+            let rec2 = SingeRecordDto::with_attrs("R2", None, b"A", b"I");
             
             writer.write(&rec1, None).unwrap();
             writer.write(&rec2, Some("tagA")).unwrap();

@@ -2,17 +2,23 @@ use crate::config::Config;
 use crate::types::{AdapterPreset, AdapterRemoval, RevCompMode};
 use bio::io::fasta;
 use bio::alphabets::dna::revcomp;
-use log::debug;
+use log::{info};
 use std::fs::File;
 use std::io::BufReader;
-
 use crate::logging::log_fatal;
+
+
+#[derive(Clone)]
+pub struct SequenceWithId {
+    pub id: String,
+    pub sequence: String,
+}
 
 pub struct Context {
     pub adapters: Vec<String>,
     pub adapters2: Vec<String>,
-    pub barcodes: Vec<(String, String)>, // (ID, Sequence)
-    pub barcodes2: Vec<(String, String)>,
+    pub barcodes: Vec<SequenceWithId>,
+    pub barcodes2: Vec<SequenceWithId>,
 }
 
 impl Context {
@@ -40,38 +46,43 @@ impl Context {
         }
 
         if let Some(adapter_file) = &args.adapters {
-            self.load_adapters_from_file(adapter_file, false);
+            let mut new_items = self.load_fasta_file(adapter_file)
+                .into_iter()
+                .map(|item| item.sequence)
+                .collect();
+            self.adapters.append(&mut new_items);
         }
 
         if config.adapter_removal == AdapterRemoval::Normal2 {
             if let Some(adapter_file2) = &args.adapters2 {
-                self.load_adapters_from_file(adapter_file2, true);
+                self.adapters2 = self.load_fasta_file(adapter_file2)
+                    .into_iter()
+                    .map(|item| item.sequence)
+                    .collect();
             }
         }
 
         if let Some(barcode_file) = &args.barcodes {
-            self.load_barcodes_from_file(barcode_file, false);
+            self.barcodes = self.load_fasta_file(barcode_file);
         }
 
         if let Some(barcode_file2) = &args.barcodes2 {
-            self.load_barcodes_from_file(barcode_file2, true);
+            self.barcodes2 = self.load_fasta_file(barcode_file2);
         }
 
         self.apply_revcomp(args.adapter_revcomp);
-
-        if args.debug {
-            for (i, adapter) in self.adapters.iter().enumerate() {
-                debug!("Adapter 1-{}: {}", i + 1, adapter);
-            }
-            for (i, adapter) in self.adapters2.iter().enumerate() {
-                debug!("Adapter 2-{}: {}", i + 1, adapter);
-            }
-            for (i, (id, barcode)) in self.barcodes.iter().enumerate() {
-                debug!("Barcode 1-{}: {} {}", i + 1, id, barcode);
-            }
-            for (i, (id, barcode)) in self.barcodes2.iter().enumerate() {
-                debug!("Barcode 2-{}: {} {}", i + 1, id, barcode);
-            }
+        
+        for (i, adapter) in self.adapters.iter().enumerate() {
+            info!("Adapter 1-{}: {}", i + 1, adapter);
+        }
+        for (i, adapter) in self.adapters2.iter().enumerate() {
+            info!("Adapter 2-{}: {}", i + 1, adapter);
+        }
+        for (i, b) in self.barcodes.iter().enumerate() {
+            info!("Barcode-1-{}: {} {}", i, b.id, b.sequence);
+        }
+        for (i, b) in self.barcodes2.iter().enumerate() {
+            info!("Barcode 2-{}: {} {}", i, b.id, b.sequence);
         }
     }
 
@@ -104,57 +115,18 @@ impl Context {
         }
     }
 
-    fn load_adapters_from_file(&mut self, path: &std::path::Path, is_adapter2: bool) {
-        let file = File::open(path).unwrap_or_else(|e| {
-            log_fatal(&format!("Failed to open adapter file {}: {}", path.display(), e))
-        });
-        let reader = fasta::Reader::new(BufReader::new(file));
-        let mut last_successful: Option<(String, String)> = None;
-
-        for result in reader.records() {
-            match result {
-                Ok(record) => {
-                    let seq = String::from_utf8(record.seq().to_vec()).unwrap_or_else(|e| {
-                        let context = self.format_last_successful(&last_successful);
-                        log_fatal(&format!(
-                            "Failed to parse sequence in {} as UTF-8: {}{}",
-                            path.display(),
-                            e,
-                            context
-                        ))
-                    });
-                    if is_adapter2 {
-                        self.adapters2.push(seq.clone());
-                    } else {
-                        self.adapters.push(seq.clone());
-                    }
-                    last_successful = Some((record.id().to_string(), seq));
-                }
-                Err(e) => {
-                    let context = self.format_last_successful(&last_successful);
-                    log_fatal(&format!(
-                        "Error reading FASTA record from {}: {}{}",
-                        path.display(),
-                        e,
-                        context
-                    ))
-                }
-            }
-        }
-    }
-
-    fn load_barcodes_from_file(&mut self, path: &std::path::Path, is_barcode2: bool) {
+    fn load_fasta_file(&mut self, path: &std::path::Path) -> Vec<SequenceWithId> {
         let file = File::open(path).unwrap_or_else(|e| {
             log_fatal(&format!("Failed to open barcode file {}: {}", path.display(), e))
         });
         let reader = fasta::Reader::new(BufReader::new(file));
-        let mut last_successful: Option<(String, String)> = None;
-
+        let mut last_successful: Option<SequenceWithId> = None;
+        let mut barcodes: Vec<SequenceWithId> = Vec::new();
         for result in reader.records() {
             match result {
                 Ok(record) => {
                     let seq = String::from_utf8(record.seq().to_vec()).unwrap_or_else(|e| {
-                        let context = self.format_last_successful(&last_successful);
+                        let context = self.format_last_successful(last_successful);
                         log_fatal(&format!(
                             "Failed to parse sequence in {} as UTF-8: {}{}",
                             path.display(),
@@ -162,16 +134,15 @@ impl Context {
                             context
                         ))
                     });
-                    let id = record.id().to_string();
-                    if is_barcode2 {
-                        self.barcodes2.push((id.clone(), seq.clone()));
-                    } else {
-                        self.barcodes.push((id.clone(), seq.clone()));
-                    }
-                    last_successful = Some((id, seq));
+                    let new_item = SequenceWithId {
+                        id: record.id().to_string(),
+                        sequence: seq.clone()
+                    };
+                    last_successful = Some(new_item.clone());
+                    barcodes.push(new_item);
                 }
                 Err(e) => {
-                    let context = self.format_last_successful(&last_successful);
+                    let context = self.format_last_successful(last_successful);
                     log_fatal(&format!(
                         "Error reading FASTA record from {}: {}{}",
                         path.display(),
@@ -181,11 +152,12 @@ impl Context {
                 }
             }
         }
+        barcodes
     }
 
-    fn format_last_successful(&self, last_successful: &Option<(String, String)>) -> String {
-        if let Some((id, seq)) = last_successful {
-            let mut info = format!(" (last successful: {} {})", id, seq);
+    fn format_last_successful(&self, last_successful: Option<SequenceWithId>) -> String {
+        if let Some(b) = last_successful {
+            let mut info = format!(" (last successful: {} {})", b.id, b.sequence);
             if info.len() > 80 {
                 info.truncate(77);
                 info.push_str("...");
@@ -259,7 +231,8 @@ mod tests {
         let mut context = Context::new();
         context.load(&config);
         assert_eq!(context.barcodes.len(), 1);
-        assert_eq!(context.barcodes[0], ("bc1".to_string(), "GGGG".to_string()));
+        assert_eq!(context.barcodes[0].id, "bc1");
+        assert_eq!(context.barcodes[0].sequence, "GGGG");
     }
 
     #[test]

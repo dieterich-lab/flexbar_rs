@@ -1,6 +1,6 @@
 use std::io;
 use bio::io::fasta;
-use crate::types::RecordDto;
+use crate::types::SingeRecordDto;
 use crate::writers::generic::{GenericWriter, GenericWriterBackend};
 
 type FastaBackend<'a> = fasta::Writer<Box<dyn io::Write + Send + 'a>>;
@@ -10,7 +10,7 @@ impl<'a> GenericWriterBackend<'a> for FastaBackend<'a> {
         fasta::Writer::new(writer)
     }
 
-    fn write_record(&mut self, record: &RecordDto) -> io::Result<()> {
+    fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()> {
         let fasta_record = fasta::Record::with_attrs(
             record.id(),
             record.desc(),
@@ -29,7 +29,7 @@ pub type SingleWriterFasta<'a> = GenericWriter<'a, FastaBackend<'a>>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::RecordDto;
+    use crate::types::SingeRecordDto;
     use crate::writers::Writer;
 
     #[test]
@@ -37,7 +37,7 @@ mod tests {
         let mut buffer = Vec::new();
         {
             let mut writer = SingleWriterFasta::from_writer(Box::new(&mut buffer));
-            let record = RecordDto::with_attrs("id1", Some("desc1"), b"ACGT", b"!!!!");
+            let record = SingeRecordDto::with_attrs("id1", Some("desc1"), b"ACGT", b"!!!!");
             writer.write(&record, None).expect("Failed to write record");
         }
         

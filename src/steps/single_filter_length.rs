@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::types::RecordDto;
+use crate::types::SingeRecordDto;
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 
@@ -15,8 +15,8 @@ impl SingleFilterLength {
     }
 }
 
-impl GenericStep<RecordDto> for SingleFilterLength {
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
+impl GenericStep<SingeRecordDto> for SingleFilterLength {
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped && self.min_read_length > 0 {
             let current_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
             if current_len < self.min_read_length {
@@ -43,7 +43,7 @@ mod tests {
         let config = Config::new(args);
         let filter = SingleFilterLength::new(&config);
         
-        let record = RecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");
+        let record = SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");
         let rec_in = RecordInTransformation {
             record: record.clone(),
             alignment_results: AlignmentResults {
@@ -65,7 +65,7 @@ mod tests {
         let config = Config::new(args);
         let filter = SingleFilterLength::new(&config);
         
-        let record = RecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII");
+        let record = SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII");
         let rec_in = RecordInTransformation {
             record: record.clone(),
             alignment_results: AlignmentResults {
@@ -87,7 +87,7 @@ mod tests {
         let config = Config::new(args);
         let filter = SingleFilterLength::new(&config);
         
-        let record = RecordDto::with_attrs("read1", None, b"A", b"I");
+        let record = SingeRecordDto::with_attrs("read1", None, b"A", b"I");
         let rec_in = RecordInTransformation {
             record: record.clone(),
             alignment_results: AlignmentResults {

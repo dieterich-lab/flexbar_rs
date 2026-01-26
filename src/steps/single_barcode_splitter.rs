@@ -1,14 +1,15 @@
 use crate::config::Config;
-use crate::types::{TrimEnd, RecordDto};
+use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{GenericStep, RecordInTransformation, AlignmentResults};
 use crate::steps::utils::{extract_umi_tags, get_trim_range};
 use bio::alignment::pairwise::*;
-use bio::alignment::Alignment;
+use bio::alignment::{Alignment, AlignmentOperation};
+use crate::context::SequenceWithId;
 
 pub struct SingleBarcodeSplitter {
-    barcodes: Vec<(String, String)>,
+    barcodes: Vec<SequenceWithId>,
     trim_end: TrimEnd,
     min_overlap: usize,
     error_rate: f32,
@@ -27,8 +28,13 @@ pub struct SingleBarcodeSplitter {
     max_barcode_len: usize,
 }
 
+struct BarCodeAlignment<'a> {
+    alignment: Alignment,
+    barcode: &'a SequenceWithId,
+}
+
 impl SingleBarcodeSplitter {
-    pub fn new(config: &Config, barcodes: &[(String, String)]) -> Self {
+    pub fn new(config: &Config, barcodes: &Vec<SequenceWithId>) -> Self {
         let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix)
             = match config.args.barcode_trim_end {
             TrimEnd::Any => (0, 0, 0, 0),
@@ -38,11 +44,12 @@ impl SingleBarcodeSplitter {
             TrimEnd::RTail => (MIN_SCORE, 0, 0, 0),
         };
 
-        let max_barcode_len = barcodes.iter().map(|(_, b)| b.len()).max().unwrap_or(0);
+        let max_barcode_len = barcodes.iter().map(|b| b.sequence.len())
+            .max().unwrap_or(0);
         let barcode_min_overlap = config.args.barcode_min_overlap.unwrap_or(max_barcode_len);
 
         Self {
-            barcodes: barcodes.to_vec(),
+            barcodes: (*barcodes).clone(),
             trim_end: config.args.barcode_trim_end,
             min_overlap: barcode_min_overlap,
             error_rate: config.args.barcode_error_rate,
@@ -66,7 +73,10 @@ impl SingleBarcodeSplitter {
         let m = self.barcode_match;
         let mm = self.barcode_mismatch;
         Scoring {
-            match_fn: move |a, b| if a == b || a == b'N' { m } else { mm },
+            match_fn: move |a, b|
+                if a == b'N' || b == b'N' { 0 }
+                else if a == b { m }
+                else { mm },
             match_scores: None,
             gap_open: self.gap_open,
             gap_extend: self.gap_extend,
@@ -77,57 +87,103 @@ impl SingleBarcodeSplitter {
         }
     }
 
-    pub fn split_barcodes(&self, record: &RecordDto, results: &mut AlignmentResults, _stats: &mut WorkerStatistics) {
+    pub fn split_barcodes(&self, record: &SingeRecordDto, results: &mut AlignmentResults, _stats: &mut WorkerStatistics) {
         let current_seq = &record.seq()[results.seq_start..results.seq_end];
         let mut aligner = Aligner::with_capacity_and_scoring(
             current_seq.len(),
             self.max_barcode_len,
             self.get_scoring(),
         );
+        let mut best_alignment: Option<BarCodeAlignment> = None;
+        for barcode in &self.barcodes {
+            let alignment = aligner.semiglobal(barcode.sequence.as_bytes(), current_seq);
+            let candidate = BarCodeAlignment { alignment, barcode: &barcode };
+            self.update_best_alignment(&mut best_alignment, candidate, current_seq);
+        }
 
-        let mut best_alignment: Option<(Alignment, &str, &str)> = None;
-
-        for (id, barcode) in &self.barcodes {
-            let alignment = aligner.semiglobal(barcode.as_bytes(), current_seq);
-            let overlap = alignment.yend - alignment.ystart;
-            let barcode_overlap = alignment.xend - alignment.xstart;
-            
-            if overlap >= self.min_overlap && barcode_overlap >= self.min_overlap {
-                let matches = (alignment.score - overlap as i32 * self.barcode_mismatch) / (self.barcode_match - self.barcode_mismatch);
-                let errors = overlap as i32 - matches;
-                let error_rate = errors as f32 / overlap as f32;
-
-                if error_rate <= self.error_rate {
-                    if best_alignment.as_ref().map_or(true, |(best, _, _)| alignment.score > best.score) {
-                        best_alignment = Some((alignment, id, barcode));
+        match best_alignment {
+            Some(best) => {
+                results.barcode_tag = Some(format!("barcode_{}", best.barcode.id));
+                if self.umi_tags {
+                    results.umi_tags.extend(extract_umi_tags(
+                        &best.alignment, best.barcode.sequence.as_bytes(), current_seq
+                    ));
+                }
+                if !self.barcode_keep {
+                    let (rel_start, rel_end) = get_trim_range(
+                        current_seq.len(), &best.alignment, self.trim_end
+                    );
+                    let old_start = results.seq_start;
+                    results.seq_start = old_start + rel_start;
+                    results.seq_end = old_start + rel_end;
+                    if self.removal_tags {
+                        results.removal_tags.push("Flexbar_removal".to_string());
                     }
                 }
-            }
+            },
+            None => {}
         }
+    }
 
-        if let Some((alignment, id, barcode)) = best_alignment {
-            if self.umi_tags {
-                results.umi_tags.extend(extract_umi_tags(&alignment, barcode.as_bytes(), current_seq));
-            }
+    fn update_best_alignment<'a>(
+        &self,
+        best_alignment: &mut Option<BarCodeAlignment<'a>>,
+        candidate: BarCodeAlignment<'a>,
+        current_seq: &[u8],
+    ) {
+        let overlap = candidate.alignment.yend - candidate.alignment.ystart;
+        let barcode_overlap = candidate.alignment.xend - candidate.alignment.xstart;
 
-            if !self.barcode_keep {
-                let (rel_start, rel_end) = get_trim_range(current_seq.len(), &alignment, self.trim_end);
-                let old_start = results.seq_start;
-                results.seq_start = old_start + rel_start;
-                results.seq_end = old_start + rel_end;
+        if overlap < self.min_overlap || barcode_overlap < self.min_overlap { return; }
+        let matches = self.count_matches(
+            &candidate.alignment,
+            candidate.barcode.sequence.as_ref(),
+            current_seq,
+        );
 
-                if self.removal_tags {
-                    results.removal_tags.push("Flexbar_removal".to_string());
+        let errors = overlap - matches;
+        let error_rate = errors as f32 / overlap as f32;
+        if error_rate > self.error_rate { return; }
+
+        match best_alignment {
+            Some(best) => {
+                if best.alignment.score > candidate.alignment.score {
+                    *best_alignment = Some(candidate);
                 }
-            }
-            
-            results.barcode_tag = Some(format!("barcode_{}", id));
+            },
+            None => { *best_alignment = Some(candidate); }
         }
+    }
+
+    fn count_matches(&self, alignment: &Alignment, seq_a: &[u8], seq_b: &[u8]) -> usize {
+        let mut matches = 0;
+        let mut xpos = alignment.xstart;
+        let mut ypos = alignment.ystart;
+
+        for op in &alignment.operations {
+            match op {
+                AlignmentOperation::Match | AlignmentOperation::Subst => {
+                    let a = seq_a[xpos];
+                    let b = seq_b[ypos];
+                    if a == b || a == b'N' || b == b'N' { matches += 1; }
+                    xpos += 1;
+                    ypos += 1;
+                }
+                AlignmentOperation::Ins => {
+                    xpos += 1;
+                }
+                AlignmentOperation::Del => {
+                    ypos += 1;
+                }
+                _ => {}
+            }
+        }
+        matches
     }
 }
 
-impl GenericStep<RecordDto> for SingleBarcodeSplitter {
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
+impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped {
             trace!("Barcode splitter processing record: {}", rec.record.id());
             self.split_barcodes(&rec.record, &mut rec.alignment_results, &mut rec.stats);
@@ -154,29 +210,19 @@ impl GenericStep<RecordDto> for SingleBarcodeSplitter {
 mod tests {
     use super::*;
     use crate::args::Args;
-    use crate::steps::generic::AlignmentResults;
     use clap::Parser;
+    use crate::steps::generic::Transformable;
 
     #[test]
     fn test_barcode_unassigned_false() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-min-overlap", "4"]);
         let config = Config::new(args);
-        let barcodes = vec![("bc1".to_string(), "GGGG".to_string())];
+        let barcodes = vec![
+            SequenceWithId{ id: "bc1".to_string(), sequence: "GGGG".to_string()}];
         let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
         
-        let record = RecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII");
-        let rec_in = RecordInTransformation {
-            record: record.clone(),
-            alignment_results: AlignmentResults {
-                barcode_tag: None,
-                umi_tags: Vec::new(),
-                removal_tags: Vec::new(),
-                seq_start: 0,
-                seq_end: record.seq().len(),
-                record_dropped: false,
-            },
-            stats: WorkerStatistics::default(),
-        };
+        let record = SingeRecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII");
+        let rec_in = record.get_record_in_transformation();
         let res = splitter.apply(rec_in);
         
         assert!(res.alignment_results.record_dropped);
@@ -187,26 +233,56 @@ mod tests {
     fn test_barcode_unassigned_true() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-min-overlap", "4", "--barcode-unassigned"]);
         let config = Config::new(args);
-        let barcodes = vec![("bc1".to_string(), "GGGG".to_string())];
+        let barcodes = vec![
+            SequenceWithId { id: "bc1".to_string(), sequence: "GGGG".to_string()}
+        ];
         let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
         
-        let record = RecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII");
-        let rec_in = RecordInTransformation {
-            record: record.clone(),
-            alignment_results: AlignmentResults {
-                barcode_tag: None,
-                umi_tags: Vec::new(),
-                removal_tags: Vec::new(),
-                seq_start: 0,
-                seq_end: record.seq().len(),
-                record_dropped: false,
-            },
-            stats: WorkerStatistics::default(),
-        };
+        let record = SingeRecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII");
+        let rec_in = record.get_record_in_transformation();
         let res = splitter.apply(rec_in);
         
         assert!(!res.alignment_results.record_dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_unassigned_".to_string()));
         assert_eq!(res.alignment_results.seq_end - res.alignment_results.seq_start, record.seq().len());
+    }
+
+    #[test]
+    fn test_issue_record() {
+        // Record from issue:
+        // @VH00748:119:AAGJ22MM5:1:1101:28608:1038 1:N:0:TACGGTCT+GCAATGGA
+        // CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA
+        // +
+        // IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII
+
+        let seq = b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA";
+        let qual = b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII";
+        let record = SingeRecordDto::with_attrs("VH00748:119:AAGJ22MM5:1:1101:28608:1038 1:N:0:TACGGTCT+GCAATGGA", None, seq, qual);
+
+        // Barcode from issue:
+        let barcode_seq = "NNNNNNTAGCTCTGTAGGCACCATCAAT";
+        
+        // Flexbar default is LTAIL for barcodes. 
+        // LTAIL means it should match at the beginning of the read.
+        let args = Args::parse_from(&[
+            "flexbar_rs", 
+            "--reads", "test.fq", 
+            "--barcode-trim-end", "RIGHT",
+            "--barcode-min-overlap", "11",
+            "--post-trim-length", "248",
+            "--umi-tags"
+        ]);
+        let config = Config::new(args);
+        let barcodes = vec![
+            SequenceWithId{ id: "bc1".to_string(), sequence: barcode_seq.to_string()}
+        ];
+        let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
+
+        let rec_in = record.get_record_in_transformation();
+        
+        let res = splitter.apply(rec_in);
+        
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert!(!res.alignment_results.record_dropped);
     }
 }

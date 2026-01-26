@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::types::{TrimEnd, RecordDto};
+use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
@@ -72,7 +72,7 @@ impl SingleAdapterRemover {
         }
     }
 
-    pub fn remove_adapters(&self, record: &RecordDto, results: &mut crate::steps::generic::AlignmentResults, stats: &mut WorkerStatistics) {
+    pub fn remove_adapters(&self, record: &SingeRecordDto, results: &mut crate::steps::generic::AlignmentResults, stats: &mut WorkerStatistics) {
         let current_seq = &record.seq()[results.seq_start..results.seq_end];
         let mut aligner = Aligner::with_capacity_and_scoring(
             current_seq.len(),
@@ -119,8 +119,8 @@ impl SingleAdapterRemover {
     }
 }
 
-impl GenericStep<RecordDto> for SingleAdapterRemover {
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
+impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped {
             trace!("Adapter remover processing record: {}", rec.record.id());
             self.remove_adapters(&rec.record, &mut rec.alignment_results, &mut rec.stats);

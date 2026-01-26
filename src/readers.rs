@@ -1,14 +1,14 @@
-use crate::types::RecordDto;
+use crate::types::SingeRecordDto;
 
 pub mod fasta;
 pub mod fastq;
 mod generic;
 
-pub trait SequenceReader: Iterator<Item = RecordDto> {
+pub trait SequenceReader: Iterator<Item =SingeRecordDto> {
     fn compression(&self) -> crate::types::CompressionType;
     fn statistics(&self) -> crate::statistics::ReaderStatistics;
 
-    fn next_batch(&mut self, batch_size: usize) -> Option<Vec<RecordDto>> {
+    fn next_batch(&mut self, batch_size: usize) -> Option<Vec<SingeRecordDto>> {
         let mut batch = Vec::with_capacity(batch_size);
         for _ in 0..batch_size {
             if let Some(record) = self.next() {
@@ -31,7 +31,7 @@ pub struct SequenceReaderBatchIterator<'a> {
 }
 
 impl<'a> Iterator for SequenceReaderBatchIterator<'a> {
-    type Item = Vec<RecordDto>;
+    type Item = Vec<SingeRecordDto>;
 
     fn next(&mut self) -> Option<Self::Item> {
         self.reader.next_batch(self.batch_size)

@@ -6,7 +6,7 @@ use crate::readers::fastq::SingleReaderFastq;
 use crate::readers::{SequenceReader, get_batch_iter};
 use crate::writers::fasta::SingleWriterFasta;
 use crate::writers::fastq::SingleWriterFastq;
-use crate::types::{FileFormat, CompressionType, RecordDto};
+use crate::types::{FileFormat, CompressionType, SingeRecordDto};
 use crate::workers::single::SingleWorker;
 use std::path::Path;
 use crate::writers::Writer;
@@ -17,27 +17,6 @@ use log::{info, debug};
 pub fn do_it(config: Config) {
     let mut context = Context::new();
     context.load(&config);
-
-    if !context.adapters.is_empty() {
-        for (i, adapter) in context.adapters.iter().enumerate() {
-            info!("Adapter 1-{}: {}", i, adapter);
-        }
-    }
-    if !context.adapters2.is_empty() {
-        for (i, adapter) in context.adapters2.iter().enumerate() {
-            info!("Adapter 2-{}: {}", i, adapter);
-        }
-    }
-    if !context.barcodes.is_empty() {
-        for (i, (id, barcode)) in context.barcodes.iter().enumerate() {
-            info!("Barcode 1-{}: {} {}", i + 1, id, barcode);
-        }
-    }
-    if !context.barcodes2.is_empty() {
-        for (i, (id, barcode)) in context.barcodes2.iter().enumerate() {
-            info!("Barcode 2-{}: {} {}", i + 1, id, barcode);
-        }
-    }
 
     let reads_path = config.args.reads.as_ref().unwrap_or_else(|| {
         log_fatal("No input reads provided");
@@ -99,7 +78,7 @@ fn process_batch(
 
         let batch_len = batch_in.len();
         
-        let batch_out: Vec<(Option<RecordDto>, Option<String>, WorkerStatistics)> = batch_in
+        let batch_out: Vec<(Option<SingeRecordDto>, Option<String>, WorkerStatistics)> = batch_in
             .into_par_iter()
             .map(|rec| worker.process(&rec))
             .collect();

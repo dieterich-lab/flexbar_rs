@@ -1,7 +1,7 @@
 use std::io::BufRead;
 use bio::io::fastq;
 use bio::io::fastq::{FastqRead};
-use crate::types::RecordDto;
+use crate::types::SingeRecordDto;
 use crate::readers::generic::{GenericReader, GenericReaderBackend};
 
 pub struct FastqBackend<R: BufRead + Send> {
@@ -16,8 +16,8 @@ impl<R: BufRead + Send> GenericReaderBackend<R> for FastqBackend<R> {
         }
     }
 
-    fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
-        let mut record = RecordDto::new();
+    fn read_record(&mut self) -> Result<Option<SingeRecordDto>, Self::Error> {
+        let mut record = SingeRecordDto::new();
         self.reader.read(&mut record)?;
         if record.is_empty() {
             Ok(None)

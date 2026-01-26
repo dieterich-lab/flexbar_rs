@@ -1,8 +1,8 @@
 use std::io::{BufRead, self};
 use std::path::Path;
-use log::{info, trace};
+use log::{trace};
 use crate::readers::SequenceReader;
-use crate::types::{CompressionType, RecordDto};
+use crate::types::{CompressionType, SingeRecordDto};
 use crate::logging::log_fatal;
 use crate::args::Args;
 use crate::utils::get_raw_reader;
@@ -10,7 +10,7 @@ use crate::utils::get_raw_reader;
 pub trait GenericReaderBackend<R: BufRead + Send> {
     type Error: std::fmt::Display;
     fn new(reader: R) -> Self;
-    fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error>;
+    fn read_record(&mut self) -> Result<Option<SingeRecordDto>, Self::Error>;
 }
 
 pub struct GenericReader<R: BufRead + Send, B: GenericReaderBackend<R>> {
@@ -21,7 +21,7 @@ pub struct GenericReader<R: BufRead + Send, B: GenericReaderBackend<R>> {
     statistics: crate::statistics::ReaderStatistics,
     skip: usize,
     count: Option<usize>,
-    _phantom: std::marker::PhantomData<(R, RecordDto)>,
+    _phantom: std::marker::PhantomData<(R, SingeRecordDto)>,
 }
 
 impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
@@ -44,7 +44,7 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
         }
     }
 
-    fn try_get_record(&mut self) -> Option<RecordDto> {
+    fn try_get_record(&mut self) -> Option<SingeRecordDto> {
         match self.backend.read_record() {
             Ok(Some(record)) => {
                 self.last_id = Self::truncate_id(record.id());
@@ -79,16 +79,16 @@ impl<B: GenericReaderBackend<io::BufReader<Box<dyn io::Read + Send>>>> GenericRe
 }
 
 impl<R: BufRead + Send, B: GenericReaderBackend<R>> Iterator for GenericReader<R, B> {
-    type Item = RecordDto;
+    type Item = SingeRecordDto;
 
-    fn next(&mut self) -> Option<RecordDto> {
+    fn next(&mut self) -> Option<SingeRecordDto> {
         loop {
             return match self.try_get_record() {
                 Some(record) => {
                     if self.skip > 0 {
                         self.skip -= 1;
                         if self.skip == 0 {
-                            info!("Skipped over records according to -- skip parameter.");
+                            trace!("Don skipped records according to -- skip parameter.");
                         }
                         continue;
                     }
@@ -96,7 +96,7 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> Iterator for GenericReader<R
                         if count > 0 {
                             self.count = Some(count - 1);
                         } else {
-                            info!("Stopped reading records due to --count parameter.");
+                            trace!("Stopped reading records due to --count parameter.");
                             return None;
                         }
                     }
@@ -138,10 +138,10 @@ mod tests {
     impl GenericReaderBackend<BufReader<&[u8]>> for TestBackend {
         type Error = io::Error;
         fn new(_reader: BufReader<&[u8]>) -> Self { TestBackend { count: 0 } }
-        fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
+        fn read_record(&mut self) -> Result<Option<SingeRecordDto>, Self::Error> {
             self.count += 1;
             if self.count == 1 {
-                Ok(Some(RecordDto::with_attrs("rec1", None, b"ACGT", b"IIII")))
+                Ok(Some(SingeRecordDto::with_attrs("rec1", None, b"ACGT", b"IIII")))
             } else {
                 Err(io::Error::new(io::ErrorKind::Other, "test error"))
             }
@@ -180,10 +180,10 @@ mod tests {
         impl GenericReaderBackend<BufReader<&[u8]>> for LongIdBackend {
             type Error = io::Error;
             fn new(_reader: BufReader<&[u8]>) -> Self { LongIdBackend { count: 0 } }
-            fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
+            fn read_record(&mut self) -> Result<Option<SingeRecordDto>, Self::Error> {
                 self.count += 1;
                 if self.count == 1 {
-                    Ok(Some(RecordDto::with_attrs(&"0123456789".repeat(10), None, b"A", b"I"))) // 100 chars
+                    Ok(Some(SingeRecordDto::with_attrs(&"0123456789".repeat(10), None, b"A", b"I"))) // 100 chars
                 } else {
                     Err(io::Error::new(io::ErrorKind::Other, "test error"))
                 }

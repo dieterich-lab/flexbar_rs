@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::types::RecordDto;
+use crate::types::SingeRecordDto;
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 
@@ -15,8 +15,8 @@ impl SingleUncalledSequenceFilter {
     }
 }
 
-impl GenericStep<RecordDto> for SingleUncalledSequenceFilter {
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
+impl GenericStep<SingeRecordDto> for SingleUncalledSequenceFilter {
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped {
             trace!("Uncalled filter processing record: {}", rec.record.id());
             let seq = &rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];

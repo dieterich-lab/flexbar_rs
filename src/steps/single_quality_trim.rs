@@ -1,5 +1,5 @@
 use crate::config::Config;
-use crate::types::{QualTrimType, RecordDto};
+use crate::types::{QualTrimType, SingeRecordDto};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 
@@ -78,8 +78,8 @@ impl SingleQualityTrim {
     }
 }
 
-impl GenericStep<RecordDto> for SingleQualityTrim {
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>) -> RecordInTransformation<RecordDto> {
+impl GenericStep<SingeRecordDto> for SingleQualityTrim {
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped {
             trace!("Quality trim processing record: {}", rec.record.id());
             let current_qual = &rec.record.qual()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];

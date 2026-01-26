@@ -1,4 +1,5 @@
 use crate::statistics::WorkerStatistics;
+use crate::types::SingeRecordDto;
 
 #[derive(Default, Clone)]
 pub struct AlignmentResults {
@@ -10,11 +11,34 @@ pub struct AlignmentResults {
     pub record_dropped: bool,
 }
 
+
 pub struct RecordInTransformation<RecordType> {
     pub record: RecordType,
     pub alignment_results: AlignmentResults,
     pub stats: WorkerStatistics,
 }
+
+pub trait Transformable {
+    fn get_record_in_transformation(&self) -> RecordInTransformation<Self> where Self: Sized;
+}
+
+impl Transformable for SingeRecordDto {
+    fn get_record_in_transformation(&self) -> RecordInTransformation<SingeRecordDto> {
+        RecordInTransformation {
+            record: self.clone(),
+            alignment_results: AlignmentResults {
+                barcode_tag: None,
+                umi_tags: Vec::new(),
+                removal_tags: Vec::new(),
+                seq_start: 0,
+                seq_end: self.seq().len(),
+                record_dropped: false,
+            },
+            stats: WorkerStatistics::default(),
+        }
+    }   
+}
+
 
 pub trait GenericStep<RecordType>: Send + Sync {
     fn apply(&self, rec: RecordInTransformation<RecordType>) -> RecordInTransformation<RecordType>;

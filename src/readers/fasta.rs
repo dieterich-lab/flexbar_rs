@@ -1,7 +1,7 @@
 use std::io::{self, BufRead};
 use bio::io::fasta;
 use bio::io::fasta::FastaRead;
-use crate::types::RecordDto;
+use crate::types::SingeRecordDto;
 use crate::readers::generic::{GenericReader, GenericReaderBackend};
 
 pub struct FastaBackend<R: BufRead + Send> {
@@ -16,13 +16,13 @@ impl<R: BufRead + Send> GenericReaderBackend<R> for FastaBackend<R> {
         }
     }
 
-    fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
+    fn read_record(&mut self) -> Result<Option<SingeRecordDto>, Self::Error> {
         let mut fasta_record = fasta::Record::default();
         self.reader.read(&mut fasta_record)?;
         if fasta_record.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(RecordDto::with_attrs(
+            Ok(Some(SingeRecordDto::with_attrs(
                 fasta_record.id(),
                 fasta_record.desc(),
                 fasta_record.seq(),
