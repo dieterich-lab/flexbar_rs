@@ -11,7 +11,7 @@ use crate::types::CompressionType;
 
 use crate::logging::log_fatal;
 
-pub fn get_reader<P: AsRef<Path>>(path: P) -> io::Result<(BufReader<Box<dyn Read + Send>>, String, CompressionType)> {
+pub fn get_raw_reader<P: AsRef<Path>>(path: P) -> io::Result<(BufReader<Box<dyn Read + Send>>, String, CompressionType)> {
     let path_ref = path.as_ref();
     let source = path_ref.to_string_lossy().into_owned();
 
@@ -102,7 +102,7 @@ mod tests {
         let path = tmp.path().with_extension("bz2");
         std::fs::copy(tmp.path(), &path).unwrap();
 
-        let (mut reader, source, compression) = get_reader(&path).unwrap();
+        let (mut reader, source, compression) = get_raw_reader(&path).unwrap();
         assert_eq!(compression, CompressionType::Bz2);
         assert!(source.contains(path.to_str().unwrap()));
 
@@ -156,7 +156,7 @@ mod tests {
             writer.flush().unwrap();
         }
         
-        let (mut reader, _source, detected_compression) = get_reader(&path).unwrap();
+        let (mut reader, _source, detected_compression) = get_raw_reader(&path).unwrap();
         assert_eq!(detected_compression, compression);
         
         let mut buffer = Vec::new();
@@ -193,7 +193,7 @@ mod tests {
 
     #[test]
     fn test_stdin_reader() {
-        let (_reader, source, compression) = get_reader("-").unwrap();
+        let (_reader, source, compression) = get_raw_reader("-").unwrap();
         assert_eq!(source, "-");
         assert_eq!(compression, CompressionType::Uncompressed);
     }
@@ -216,7 +216,7 @@ mod tests {
         let path = dir.path().join("test.gz");
         File::create(&path).unwrap().write_all(&buf).unwrap();
 
-        let (mut reader, _source, compression) = get_reader(&path).unwrap();
+        let (mut reader, _source, compression) = get_raw_reader(&path).unwrap();
         assert_eq!(compression, CompressionType::Gz);
 
         let mut content = String::new();

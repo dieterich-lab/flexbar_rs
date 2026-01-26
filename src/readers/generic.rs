@@ -1,5 +1,5 @@
 use std::io::{BufRead};
-use log::trace;
+use log::{info, trace};
 use crate::readers::SequenceReader;
 use crate::types::{CompressionType, RecordDto};
 use crate::logging::log_fatal;
@@ -16,18 +16,46 @@ pub struct GenericReader<R: BufRead + Send, B: GenericReaderBackend<R>> {
     compression: CompressionType,
     last_id: String,
     statistics: crate::statistics::ReaderStatistics,
+    skip: usize,
+    count: Option<usize>,
     _phantom: std::marker::PhantomData<(R, RecordDto)>,
 }
 
 impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
-    pub fn new(reader: R, source: String, compression: CompressionType) -> Self {
+    pub fn new(
+        reader: R,
+        source: String,
+        compression: CompressionType,
+        skip: usize,
+        count: Option<usize>
+    ) -> Self {
         Self {
             backend: B::new(reader),
             source,
             compression,
             last_id: String::new(),
             statistics: crate::statistics::ReaderStatistics::default(),
+            skip,
+            count,
             _phantom: std::marker::PhantomData,
+        }
+    }
+
+    fn try_get_record(&mut self) -> Option<RecordDto> {
+        match self.backend.read_record() {
+            Ok(Some(record)) => {
+                self.last_id = Self::truncate_id(record.id());
+                Some(record)
+            },
+            Ok(None) => None,
+            Err(e) => {
+                let context = if self.last_id.is_empty() {
+                    " (no records processed yet)".to_string()
+                } else {
+                    format!(" (last successful record ID: {})", self.last_id)
+                };
+                log_fatal(&format!("Error reading from {}: {}{}", self.source, e, context));
+            }
         }
     }
 
@@ -44,27 +72,35 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> Iterator for GenericReader<R
     type Item = RecordDto;
 
     fn next(&mut self) -> Option<RecordDto> {
-        match self.backend.read_record() {
-            Ok(Some(record)) => {
-                self.last_id = Self::truncate_id(record.id());
-                self.statistics.total_records_read += 1;
-                self.statistics.total_bases_read += record.seq().len();
-                trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {}",
-                    record.id(),
-                    record.desc().unwrap_or("None"),
-                    String::from_utf8_lossy(record.seq()), 
-                    String::from_utf8_lossy(record.qual())
-                );
-                Some(record)
-            }
-            Ok(None) => None,
-            Err(e) => {
-                let context = if self.last_id.is_empty() {
-                    " (no records processed yet)".to_string()
-                } else {
-                    format!(" (last successful record ID: {})", self.last_id)
-                };
-                log_fatal(&format!("Error reading from {}: {}{}", self.source, e, context));
+        loop {
+            return match self.try_get_record() {
+                Some(record) => {
+                    if self.skip > 0 {
+                        self.skip -= 1;
+                        if self.skip == 0 {
+                            info!("Skipped over records according to -- skip parameter.");
+                        }
+                        continue;
+                    }
+                    if let Some(count) = self.count {
+                        if count > 0 {
+                            self.count = Some(count - 1);
+                        } else {
+                            info!("Stopped reading records due to --count parameter.");
+                            return None;
+                        }
+                    }
+                    trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {}",
+                        record.id(),
+                        record.desc().unwrap_or("None"),
+                        String::from_utf8_lossy(record.seq()),
+                        String::from_utf8_lossy(record.qual())
+                    );
+                    self.statistics.total_records_read += 1;
+                    self.statistics.total_bases_read += record.seq().len();
+                    Some(record)
+                },
+                None => None
             }
         }
     }
@@ -105,8 +141,9 @@ mod tests {
     #[test]
     fn test_generic_reader_statistics() {
         let data = b"@id1\nACGT\n+\n!!!!\n";
-        let reader = io::BufReader::new(&data[..]);
-        let mut gen_reader: GenericReader<_, crate::readers::fastq::FastqBackend<_>> = GenericReader::new(reader, "test.fq".to_string(), CompressionType::Uncompressed);
+        let reader = BufReader::new(&data[..]);
+        let mut gen_reader: GenericReader<_, crate::readers::fastq::FastqBackend<_>> =
+            GenericReader::new(reader, "test.fq".to_string(), CompressionType::Uncompressed, 0, None);
         
         let _ = gen_reader.next();
         let stats = gen_reader.statistics();
@@ -118,9 +155,10 @@ mod tests {
     fn test_generic_reader_panic_with_id() {
         let data = b"dummy";
         let reader = BufReader::new(&data[..]);
-        let mut gen_reader: GenericReader<_, TestBackend> = GenericReader::new(reader, "test_source".to_string(), CompressionType::Uncompressed);
+        let mut gen_reader: GenericReader<_, TestBackend> =
+            GenericReader::new(reader, "test_source".to_string(), CompressionType::Uncompressed, 0, None);
         
-        gen_reader.next(); // first call returns "rec1"
+        gen_reader.next(); // the first call returns "rec1"
         // In a real run, the next call would log_fatal and exit(1).
         // For tests, we might want to capture this or just acknowledge that the old test is invalid.
         // gen_reader.next(); 
@@ -144,7 +182,8 @@ mod tests {
 
         let data = b"dummy";
         let reader = BufReader::new(&data[..]);
-        let mut gen_reader: GenericReader<_, LongIdBackend> = GenericReader::new(reader, "test_source".to_string(), CompressionType::Uncompressed);
+        let mut gen_reader: GenericReader<_, LongIdBackend> =
+            GenericReader::new(reader, "test_source".to_string(), CompressionType::Uncompressed, 0, None);
         
         gen_reader.next();
         // gen_reader.next();

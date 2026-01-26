@@ -2,9 +2,10 @@ use std::io::{self, BufRead};
 use std::path::Path;
 use bio::io::fasta;
 use bio::io::fasta::FastaRead;
+use crate::args::Args;
 use crate::types::RecordDto;
 use crate::readers::generic::{GenericReader, GenericReaderBackend};
-use crate::utils::get_reader;
+use crate::utils::get_raw_reader;
 
 pub struct FastaBackend<R: BufRead + Send> {
     reader: fasta::Reader<R>,
@@ -38,9 +39,9 @@ impl<R: BufRead + Send> GenericReaderBackend<R> for FastaBackend<R> {
 pub type SingleReaderFasta<R> = GenericReader<R, FastaBackend<R>>;
 
 impl SingleReaderFasta<io::BufReader<Box<dyn io::Read + Send>>> {
-    pub fn from_path<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let (reader, source, compression) = get_reader(path)?;
-        Ok(Self::new(reader, source, compression))
+    pub fn create_form_args<P: AsRef<Path>>(path: P, args: &Args) -> io::Result<Self> {
+        let (reader, source, compression) = get_raw_reader(path)?;
+        Ok(Self::new(reader, source, compression, args.skip, args.count))
     }
 }
 
@@ -54,7 +55,7 @@ mod tests {
     fn test_fasta_reader() {
         let data = b">id1 desc1\nACGT\n>id2 desc2\nTGCA\n";
         let cursor = Cursor::new(data);
-        let reader = SingleReaderFasta::new(cursor, "test.fa".to_string(), CompressionType::Uncompressed);
+        let reader = SingleReaderFasta::new(cursor, "test.fa".to_string(), CompressionType::Uncompressed, 0 ,None);
         
         let records: Vec<_> = reader.collect();
         assert_eq!(records.len(), 2);

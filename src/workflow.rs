@@ -51,7 +51,7 @@ pub fn do_it(config: Config) {
 }
 
 fn process_single(config: &Config, context: &Context, reads_path: &Path, output_prefix: &str) -> Statistics {
-    let mut reader = get_single_reader(reads_path, config.format);
+    let mut reader = get_single_reader(reads_path, config);
     let compression = get_compression(&reader, config);
     let worker = SingleWorker::new(config, context);
     let mut writer = get_single_writer(config, output_prefix, compression);
@@ -122,11 +122,11 @@ fn process_batch(
     worker_stats
 }
 
-fn get_single_reader(reads_path: &Path, format: FileFormat) -> Box<dyn SequenceReader + Send> {
-    match format {
-        FileFormat::Fasta => Box::new(SingleReaderFasta::from_path(reads_path)
+fn get_single_reader(reads_path: &Path, config: &Config) -> Box<dyn SequenceReader + Send> {
+    match config.format {
+        FileFormat::Fasta => Box::new(SingleReaderFasta::create_form_args(reads_path, &config.args)
             .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA reader: {}", e)))),
-        FileFormat::Fastq => Box::new(SingleReaderFastq::from_path(reads_path)
+        FileFormat::Fastq => Box::new(SingleReaderFastq::create_form_args(reads_path, &config.args)
             .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ reader: {}", e)))),
     }
 }

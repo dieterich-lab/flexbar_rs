@@ -2,9 +2,10 @@ use std::io::{self, BufRead};
 use std::path::Path;
 use bio::io::fastq;
 use bio::io::fastq::{FastqRead};
+use crate::args::Args;
 use crate::types::RecordDto;
 use crate::readers::generic::{GenericReader, GenericReaderBackend};
-use crate::utils::get_reader;
+use crate::utils::get_raw_reader;
 
 pub struct FastqBackend<R: BufRead + Send> {
     reader: fastq::Reader<R>,
@@ -32,9 +33,9 @@ impl<R: BufRead + Send> GenericReaderBackend<R> for FastqBackend<R> {
 pub type SingleReaderFastq<R> = GenericReader<R, FastqBackend<R>>;
 
 impl SingleReaderFastq<io::BufReader<Box<dyn io::Read + Send>>> {
-    pub fn from_path<P: AsRef<Path>>(path: P) -> io::Result<Self> {
-        let (reader, source, compression) = get_reader(path)?;
-        Ok(Self::new(reader, source, compression))
+    pub fn create_form_args<P: AsRef<Path>>(path: P, args: &Args) -> io::Result<Self> {
+        let (reader, source, compression) = get_raw_reader(path)?;
+        Ok(Self::new(reader, source, compression, args.skip, args.count))
     }
 }
 
@@ -48,7 +49,9 @@ mod tests {
     fn test_fastq_reader() {
         let data = b"@id1\nACGT\n+\n!!!!\n";
         let cursor = Cursor::new(data);
-        let reader = SingleReaderFastq::new(cursor, "test.fq".to_string(), CompressionType::Uncompressed);
+        let reader = SingleReaderFastq::new(
+            cursor, "test.fq".to_string(), CompressionType::Uncompressed, 0, None
+        );
         
         let records: Vec<_> = reader.collect();
         assert_eq!(records.len(), 1);
