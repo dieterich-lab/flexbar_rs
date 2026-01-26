@@ -9,7 +9,6 @@ use crate::utils::get_raw_reader;
 
 pub struct FastaBackend<R: BufRead + Send> {
     reader: fasta::Reader<R>,
-    fasta_record: fasta::Record,
 }
 
 impl<R: BufRead + Send> GenericReaderBackend<R> for FastaBackend<R> {
@@ -17,20 +16,20 @@ impl<R: BufRead + Send> GenericReaderBackend<R> for FastaBackend<R> {
     fn new(reader: R) -> Self {
         Self {
             reader: fasta::Reader::from_bufread(reader),
-            fasta_record: fasta::Record::new(),
         }
     }
 
     fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
-        self.reader.read(&mut self.fasta_record)?;
-        if self.fasta_record.is_empty() {
+        let mut fasta_record = fasta::Record::default();
+        self.reader.read(&mut fasta_record)?;
+        if fasta_record.is_empty() {
             Ok(None)
         } else {
             Ok(Some(RecordDto::with_attrs(
-                self.fasta_record.id(),
-                self.fasta_record.desc(),
-                self.fasta_record.seq(),
-                &vec![b'I'; self.fasta_record.seq().len()],
+                fasta_record.id(),
+                fasta_record.desc(),
+                fasta_record.seq(),
+                &vec![b'I'; fasta_record.seq().len()],
             )))
         }
     }
