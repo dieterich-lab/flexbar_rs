@@ -34,16 +34,6 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
     let compression = get_compression(&reader, config);
     let worker = SingleWorker::new(config, context);
     let mut writer = get_single_writer(config, output_prefix, compression);
-
-    if config.args.skip > 0 {
-        info!("Skipping first {} reads", config.args.skip);
-        for _ in 0..config.args.skip {
-            if reader.next().is_none() {
-                break;
-            }
-        }
-    }
-
     let worker_stats = process_batch(&mut reader, &worker, &mut writer, config.batch_size, config.args.count);
 
     Statistics {

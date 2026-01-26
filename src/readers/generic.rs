@@ -32,6 +32,8 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
         skip: usize,
         count: Option<usize>
     ) -> Self {
+        trace!("Creating new generic reader with source: {}, compression: {:?}, skip: {}, count: {:?}",
+            source, compression, skip, count);
         Self {
             backend: B::new(reader),
             source,
@@ -88,7 +90,7 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> Iterator for GenericReader<R
                     if self.skip > 0 {
                         self.skip -= 1;
                         if self.skip == 0 {
-                            trace!("Don skipped records according to -- skip parameter.");
+                            trace!("Done skipped records according to -- skip parameter.");
                         }
                         continue;
                     }
