@@ -1,8 +1,11 @@
-use std::io::{BufRead};
+use std::io::{BufRead, self};
+use std::path::Path;
 use log::{info, trace};
 use crate::readers::SequenceReader;
 use crate::types::{CompressionType, RecordDto};
 use crate::logging::log_fatal;
+use crate::args::Args;
+use crate::utils::get_raw_reader;
 
 pub trait GenericReaderBackend<R: BufRead + Send> {
     type Error: std::fmt::Display;
@@ -65,6 +68,13 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
         } else {
             id.to_string()
         }
+    }
+}
+
+impl<B: GenericReaderBackend<io::BufReader<Box<dyn io::Read + Send>>>> GenericReader<io::BufReader<Box<dyn io::Read + Send>>, B> {
+    pub fn create_form_args<P: AsRef<Path>>(path: P, args: &Args) -> io::Result<Self> {
+        let (reader, source, compression) = get_raw_reader(path)?;
+        Ok(Self::new(reader, source, compression, args.skip, args.count))
     }
 }
 

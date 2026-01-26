@@ -1,11 +1,8 @@
 use std::io::{self, BufRead};
-use std::path::Path;
 use bio::io::fasta;
 use bio::io::fasta::FastaRead;
-use crate::args::Args;
 use crate::types::RecordDto;
 use crate::readers::generic::{GenericReader, GenericReaderBackend};
-use crate::utils::get_raw_reader;
 
 pub struct FastaBackend<R: BufRead + Send> {
     reader: fasta::Reader<R>,
@@ -36,13 +33,6 @@ impl<R: BufRead + Send> GenericReaderBackend<R> for FastaBackend<R> {
 }
 
 pub type SingleReaderFasta<R> = GenericReader<R, FastaBackend<R>>;
-
-impl SingleReaderFasta<io::BufReader<Box<dyn io::Read + Send>>> {
-    pub fn create_form_args<P: AsRef<Path>>(path: P, args: &Args) -> io::Result<Self> {
-        let (reader, source, compression) = get_raw_reader(path)?;
-        Ok(Self::new(reader, source, compression, args.skip, args.count))
-    }
-}
 
 #[cfg(test)]
 mod tests {
