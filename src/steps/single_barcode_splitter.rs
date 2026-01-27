@@ -184,23 +184,31 @@ impl SingleBarcodeSplitter {
 
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
-        if !rec.alignment_results.record_dropped {
-            trace!("Barcode splitter processing record: {}", rec.record.id());
-            self.split_barcodes(&rec.record, &mut rec.alignment_results, &mut rec.stats);
-            
-            if rec.alignment_results.barcode_tag.is_none() {
+        self.split_barcodes(&rec.record, &mut rec.alignment_results, &mut rec.stats);
+
+        match &rec.alignment_results.barcode_tag {
+            Some(tag) => {
+                if self.barcode_keep {
+                    trace!("Barcode splitter on {}: Assigned tag {}", rec.record.id(), tag);
+                } else {
+                    trace!(
+                        "Barcode splitter on {}: Assigned tag: {} and shortened sequence to:\n{:?}",
+                        rec.record.id(), tag, &rec.record.seq()[
+                            rec.alignment_results.seq_start..rec.alignment_results.seq_end
+                        ]
+                    );
+                }
+            }
+            None => {
                 if self.barcode_unassigned {
                     rec.alignment_results.barcode_tag = Some("barcode_unassigned_".to_string());
+                    trace!("Barcode splitter on {}: no tag assigned.", rec.record.id());
                 } else {
                     rec.stats.total_discarded_barcode += 1;
                     rec.alignment_results.record_dropped = true;
-                    return rec;
+                    trace!("Barcode splitter on {}: no tag assigned and DROPPED.", rec.record.id());
                 }
-            }
-
-            if let Some(ref t) = rec.alignment_results.barcode_tag {
-                trace!("Barcode splitter assigned tag: {} to record: {}", t, rec.record.id());
-            }
+            },
         }
         rec
     }

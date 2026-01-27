@@ -10,42 +10,73 @@ use crate::steps::single_finalize::SingleFinalizeStep;
 use crate::steps::generic::GenericStep;
 use crate::workers::generic::GenericWorker;
 use std::sync::Arc;
+use log::debug;
 
-pub struct SingleWorker ( GenericWorker<SingeRecordDto> );
+pub struct SingleWorker (GenericWorker<SingeRecordDto> );
 
 impl SingleWorker {
     pub fn new(config: &Config, context: &Context) -> Self {
         let mut steps: Vec<Arc<dyn GenericStep<SingeRecordDto>>> = Vec::new();
+        debug!("Creating new single worker pipeline:");
 
         if config.args.max_uncalled > 0 {
+            debug!(
+                "- Step SingleUncalledSequenceFilter (max_uncalled: {})", config.args.max_uncalled
+            );
             steps.push(
                 Arc::new(SingleUncalledSequenceFilter::new(config))
             );
         }
         if config.args.qtrim != QualTrimType::Off && !config.args.qtrim_post_removal {
+            debug!(
+                "- Step SingleQualityTrim (mode {:?}, corrected threshold {}, window size {})",
+                config.args.qtrim,
+                config.corrected_qtrim_threshold,
+                config.args.qtrim_win_size
+            );
             steps.push(
                 Arc::new(SingleQualityTrim::new(config))
             );
         }
         if !context.barcodes.is_empty() {
+            debug!(
+                "- Step SingleBarcodeSplitter (min overlap {:?}, err rate {}, trim end {:?}, keep: {})",
+                config.args.barcode_min_overlap,
+                config.args.barcode_error_rate,
+                config.args.barcode_trim_end,
+                config.args.barcode_keep
+            );
             steps.push(
                 Arc::new(SingleBarcodeSplitter::new(config, &context.barcodes))
             );
         }
         if !context.adapters.is_empty() {
+            debug!(
+                "- Step SingleAdapterRemover (min overlap {}, err rate {}, trim_end {:?}, , revcomp {:?})",
+                config.args.adapter_min_overlap,
+                config.args.adapter_error_rate,
+                config.args.adapter_trim_end,
+                config.args.adapter_revcomp,
+            );
             steps.push(
                 Arc::new(SingleAdapterRemover::new(config, &context.adapters))
             );
         }
 
         if config.args.qtrim != QualTrimType::Off && config.args.qtrim_post_removal {
+            debug!(
+                "- Step SingleQualityTrim (mode {:?}, corrected threshold {}, window size {})",
+                config.args.qtrim,
+                config.corrected_qtrim_threshold,
+                config.args.qtrim_win_size
+            );
             steps.push(
                 Arc::new(SingleQualityTrim::new(config))
             )
         }
 
         steps.push(Arc::new(SingleFilterLength::new(config)));
-
+        debug!("Single worker pipeline created.");
         Self (GenericWorker::new(steps, Arc::new(SingleFinalizeStep)))
     }
     
