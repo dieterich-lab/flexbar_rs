@@ -187,7 +187,6 @@ impl SingleBarcodeSplitter {
                 self.assign_barcode_tag(rec, format!("barcode_{}", best.barcode.id));
                 self.handle_umi_tags(rec, &best);
                 self.remove_barcode(rec, &best);
-                self.add_removal_tag(rec, &best);
             },
             None => {
                 if self.barcode_unassigned {
@@ -233,28 +232,18 @@ impl SingleBarcodeSplitter {
         let old_start = rec.alignment_results.seq_start;
         rec.alignment_results.seq_start = old_start + rel_start;
         rec.alignment_results.seq_end = old_start + rel_end;
+        if self.removal_tags {
+            rec.alignment_results.removal_tags.push("Flexbar_removal".to_string());
+        }
         if self.trace {
             trace!(
                 "Barcode splitter on {} shortened sequence to:\n{}",
                 rec.record.id(), rec.get_sequence_as_str()
             );
+            if self.removal_tags {
+                trace!("Barcode splitter on {}: Added removal tag", rec.record.id());
+            }
         }
-    }
-
-    fn add_removal_tag(
-        &self,
-        rec: &mut RecordInTransformation<SingeRecordDto>,
-        best: &BarCodeAlignment
-    ) {
-        if !self.removal_tags { return; }
-        let tag = format!("Flexbar_removal_{}", best.barcode.id);
-        if self.trace {
-            trace!(
-                "Barcode splitter on {}: Added removal tag {}",
-                rec.record.id(), tag.clone()
-            );
-        }
-        rec.alignment_results.removal_tags.push(tag);
     }
 
     fn drop_record(rec: &mut RecordInTransformation<SingeRecordDto>) {
@@ -462,6 +451,18 @@ mod tests {
         assert!(!res.alignment_results.record_dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
         assert_eq!(res.get_sequence(), b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
+    }
+
+    fn get_record_with_with_11_bases_barcode_overlap() -> SingeRecordDto {
+        // Scenario: Barcode matches with an overlap of 11 bases.
+        // Sequence: CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCT
+        // Barcode:                                              NNNNNNTAGCTCTGTAGGCACCATCAAT
+        SingeRecordDto::with_attrs(
+            "VH00748:119:AAGJ22MM5:1:1101:28608:1038",
+            Some("1:N:0:TACGGTCT+GCAATGGA"),
+            b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCT",
+            b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII"
+        )
     }
 
     fn get_record_with_a_deletion_in_the_barcode() -> SingeRecordDto {
