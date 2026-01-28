@@ -184,7 +184,7 @@ mod tests {
         let processed = processed_opt.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc(), Some("Flexbar_removal"));
+        assert_eq!(processed.desc(), Some("Flexbar_removal_bc1"));
     }
 
     #[test]
@@ -226,7 +226,7 @@ mod tests {
         // barcode removal appends _Flexbar_removal
         // adapter removal appends _Flexbar_removal_0
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc(), Some("Flexbar_removal_Flexbar_removal_0"));
+        assert_eq!(processed.desc(), Some("Flexbar_removal_bc1_Flexbar_removal_0"));
     }
 
     #[test]
