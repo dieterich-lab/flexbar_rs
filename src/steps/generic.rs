@@ -18,6 +18,14 @@ pub struct RecordInTransformation<RecordType> {
     pub stats: WorkerStatistics,
 }
 
+impl RecordInTransformation<SingeRecordDto> {
+    pub fn get_sequence_as_str(&self) -> String {
+        String::from_utf8_lossy(&self.record.seq()[
+            self.alignment_results.seq_start..self.alignment_results.seq_end
+        ]).to_string()
+    }
+}
+
 pub trait Transformable {
     fn get_record_in_transformation(&self) -> RecordInTransformation<Self> where Self: Sized;
 }

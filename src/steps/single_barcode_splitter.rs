@@ -26,6 +26,7 @@ pub struct SingleBarcodeSplitter {
     yclip_suffix: i32,
     umi_tags: bool,
     max_barcode_len: usize,
+    trace: bool,
 }
 
 struct BarCodeAlignment<'a> {
@@ -66,6 +67,7 @@ impl SingleBarcodeSplitter {
             yclip_suffix,
             umi_tags: config.args.umi_tags,
             max_barcode_len,
+            trace: config.args.trace
         }
     }
 
@@ -105,9 +107,11 @@ impl SingleBarcodeSplitter {
             Some(best) => {
                 results.barcode_tag = Some(format!("barcode_{}", best.barcode.id));
                 if self.umi_tags {
-                    results.umi_tags.extend(extract_umi_tags(
+                    let new_umi_tags = extract_umi_tags(
                         &best.alignment, best.barcode.sequence.as_bytes(), current_seq
-                    ));
+                    );
+                    trace!("Barcode splitter on {}: Extracted UMI tags {:?}", record.id(), new_umi_tags);
+                    results.umi_tags.extend(new_umi_tags);
                 }
                 if !self.barcode_keep {
                     let (rel_start, rel_end) = get_trim_range(
@@ -188,15 +192,15 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 
         match &rec.alignment_results.barcode_tag {
             Some(tag) => {
-                if self.barcode_keep {
-                    trace!("Barcode splitter on {}: Assigned tag {}", rec.record.id(), tag);
-                } else {
-                    trace!(
-                        "Barcode splitter on {}: Assigned tag: {} and shortened sequence to:\n{:?}",
-                        rec.record.id(), tag, &rec.record.seq()[
-                            rec.alignment_results.seq_start..rec.alignment_results.seq_end
-                        ]
-                    );
+                if self.trace {
+                    if self.barcode_keep {
+                        trace!("Barcode splitter on {}: Assigned tag {}", rec.record.id(), tag);
+                    } else {
+                        trace!(
+                            "Barcode splitter on {}: Assigned tag: {} and shortened sequence to:\n{}",
+                            rec.record.id(), tag, rec.get_sequence_as_str()
+                        );
+                    }
                 }
             }
             None => {

@@ -12,7 +12,7 @@ use std::path::Path;
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
 use crate::logging::log_fatal;
-use log::{info, debug};
+use log::{debug};
 
 pub fn do_it(config: Config) {
     let mut context = Context::new();

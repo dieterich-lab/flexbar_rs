@@ -7,6 +7,7 @@ pub struct SingleQualityTrim {
     qtrim: QualTrimType,
     threshold: usize,
     win_size: usize,
+    trace: bool,
 }
 
 impl SingleQualityTrim {
@@ -15,6 +16,7 @@ impl SingleQualityTrim {
             qtrim: config.args.qtrim,
             threshold: config.corrected_qtrim_threshold,
             win_size: config.args.qtrim_win_size,
+            trace: config.args.trace
         }
     }
 
@@ -80,21 +82,21 @@ impl SingleQualityTrim {
 
 impl GenericStep<SingeRecordDto> for SingleQualityTrim {
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
-        trace!("Quality trim processing record: {}", rec.record.id());
         let current_qual = &rec.record.qual()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
         let trim_pos = self.get_trim_pos(current_qual);
 
         if trim_pos < current_qual.len() {
-            let old_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
             rec.alignment_results.seq_end = rec.alignment_results.seq_start + trim_pos;
-            trace!(
-                "Quality trim on {}: Shortened to {} bases - new sequence:\n{:?}",
-                rec.record.id(), trim_pos, &rec.record.seq()[
-                    rec.alignment_results.seq_start..rec.alignment_results.seq_end
-                ]
-            );
-        } else {
-            trace!("Quality trim on {}: NOP", rec.record.id());
+        }
+        if self.trace {
+            if trim_pos < current_qual.len() {
+                trace!(
+                    "Quality trim on {}: Shortened to {} bases - new sequence:\n{}",
+                    rec.record.id(), trim_pos, rec.get_sequence_as_str()
+                );
+            } else {
+                trace!("Quality trim on {}: NOP", rec.record.id());
+            }
         }
         rec
     }
