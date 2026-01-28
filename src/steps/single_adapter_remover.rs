@@ -1,7 +1,6 @@
 use crate::config::Config;
 use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
-use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::utils::{extract_umi_tags, get_trim_range};
 use bio::alignment::pairwise::*;
@@ -72,8 +71,8 @@ impl SingleAdapterRemover {
         }
     }
 
-    pub fn remove_adapters(&self, record: &SingeRecordDto, results: &mut crate::steps::generic::AlignmentResults, stats: &mut WorkerStatistics) {
-        let current_seq = &record.seq()[results.seq_start..results.seq_end];
+    pub fn remove_adapters(&self, rec: &mut RecordInTransformation<SingeRecordDto>) {
+        let current_seq = &rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
         let mut aligner = Aligner::with_capacity_and_scoring(
             current_seq.len(),
             self.max_adapter_len,
@@ -102,18 +101,18 @@ impl SingleAdapterRemover {
 
         if let Some((alignment, i)) = best_alignment {
             if self.umi_tags {
-                results.umi_tags.extend(extract_umi_tags(&alignment, self.adapters[i].as_bytes(), current_seq));
+                rec.alignment_results.umi_tags.extend(extract_umi_tags(&alignment, self.adapters[i].as_bytes(), current_seq));
             }
 
             let (rel_start, rel_end) = get_trim_range(current_seq.len(), &alignment, self.adapter_trim_end);
-            let old_start = results.seq_start;
-            results.seq_start = old_start + rel_start;
-            results.seq_end = old_start + rel_end;
+            let old_start = rec.alignment_results.seq_start;
+            rec.alignment_results.seq_start = old_start + rel_start;
+            rec.alignment_results.seq_end = old_start + rel_end;
             
-            stats.total_adapters_removed += 1;
+            rec.stats.total_adapters_removed += 1;
             
             if self.removal_tags {
-                results.removal_tags.push(format!("Flexbar_removal_{}", i));
+                rec.alignment_results.removal_tags.push(format!("Flexbar_removal_{}", i));
             }
         }
     }
@@ -123,7 +122,7 @@ impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped {
             trace!("Adapter remover processing record: {}", rec.record.id());
-            self.remove_adapters(&rec.record, &mut rec.alignment_results, &mut rec.stats);
+            self.remove_adapters(&mut rec);
         }
         rec
     }

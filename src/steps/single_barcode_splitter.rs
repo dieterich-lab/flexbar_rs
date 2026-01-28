@@ -1,8 +1,7 @@
 use crate::config::Config;
 use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
-use crate::statistics::WorkerStatistics;
-use crate::steps::generic::{GenericStep, RecordInTransformation, AlignmentResults};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::utils::{extract_umi_tags, get_trim_range};
 use bio::alignment::pairwise::*;
 use bio::alignment::{Alignment, AlignmentOperation};
@@ -32,6 +31,26 @@ pub struct SingleBarcodeSplitter {
 struct BarCodeAlignment<'a> {
     alignment: Alignment,
     barcode: &'a SequenceWithId,
+}
+
+impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+        let mut aligner = Aligner::with_capacity_and_scoring(
+            rec.get_sequence().len(),
+            self.max_barcode_len,
+            self.get_scoring(),
+        );
+        let mut best_alignment: Option<BarCodeAlignment> = None;
+        for barcode in &self.barcodes {
+            let alignment = aligner.semiglobal(
+                barcode.sequence.as_bytes(), rec.get_sequence()
+            );
+            let candidate = BarCodeAlignment { alignment, barcode: &barcode };
+            self.update_best_alignment(&mut best_alignment, candidate);
+        }
+        self.apply_best_alignment(&mut rec, &mut best_alignment);
+        rec
+    }
 }
 
 impl SingleBarcodeSplitter {
@@ -86,46 +105,6 @@ impl SingleBarcodeSplitter {
             xclip_suffix: self.xclip_suffix,
             yclip_prefix: self.yclip_prefix,
             yclip_suffix: self.yclip_suffix,
-        }
-    }
-
-    pub fn split_barcodes(&self, record: &SingeRecordDto, results: &mut AlignmentResults, _stats: &mut WorkerStatistics) {
-        let current_seq = &record.seq()[results.seq_start..results.seq_end];
-        let mut aligner = Aligner::with_capacity_and_scoring(
-            current_seq.len(),
-            self.max_barcode_len,
-            self.get_scoring(),
-        );
-        let mut best_alignment: Option<BarCodeAlignment> = None;
-        for barcode in &self.barcodes {
-            let alignment = aligner.semiglobal(barcode.sequence.as_bytes(), current_seq);
-            let candidate = BarCodeAlignment { alignment, barcode: &barcode };
-            self.update_best_alignment(&mut best_alignment, candidate);
-        }
-
-        match best_alignment {
-            Some(best) => {
-                results.barcode_tag = Some(format!("barcode_{}", best.barcode.id));
-                if self.umi_tags {
-                    let new_umi_tags = extract_umi_tags(
-                        &best.alignment, best.barcode.sequence.as_bytes(), current_seq
-                    );
-                    trace!("Barcode splitter on {}: Extracted UMI tags {:?}", record.id(), new_umi_tags);
-                    results.umi_tags.extend(new_umi_tags);
-                }
-                if !self.barcode_keep {
-                    let (rel_start, rel_end) = get_trim_range(
-                        current_seq.len(), &best.alignment, self.trim_end
-                    );
-                    let old_start = results.seq_start;
-                    results.seq_start = old_start + rel_start;
-                    results.seq_end = old_start + rel_end;
-                    if self.removal_tags {
-                        results.removal_tags.push("Flexbar_removal".to_string());
-                    }
-                }
-            },
-            None => {}
         }
     }
 
@@ -197,37 +176,91 @@ impl SingleBarcodeSplitter {
         }
         false
     }
-}
 
-impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
-        self.split_barcodes(&rec.record, &mut rec.alignment_results, &mut rec.stats);
-
-        match &rec.alignment_results.barcode_tag {
-            Some(tag) => {
-                if self.trace {
-                    if self.barcode_keep {
-                        trace!("Barcode splitter on {}: Assigned tag {}", rec.record.id(), tag);
-                    } else {
-                        trace!(
-                            "Barcode splitter on {}: Assigned tag: {} and shortened sequence to:\n{}",
-                            rec.record.id(), tag, rec.get_sequence_as_str()
-                        );
-                    }
-                }
-            }
+    fn apply_best_alignment(
+        &self,
+        rec:  &mut RecordInTransformation<SingeRecordDto>,
+        best_alignment: &mut Option<BarCodeAlignment>
+    ) {
+        match best_alignment {
+            Some(best) => {
+                self.assign_barcode_tag(rec, format!("barcode_{}", best.barcode.id));
+                self.handle_umi_tags(rec, &best);
+                self.remove_barcode(rec, &best);
+                self.add_removal_tag(rec, &best);
+            },
             None => {
                 if self.barcode_unassigned {
-                    rec.alignment_results.barcode_tag = Some("barcode_unassigned_".to_string());
-                    trace!("Barcode splitter on {}: no tag assigned.", rec.record.id());
+                    self.assign_barcode_tag(rec, "barcode_unassigned_".to_string());
                 } else {
-                    rec.stats.total_discarded_barcode += 1;
-                    rec.alignment_results.record_dropped = true;
-                    trace!("Barcode splitter on {}: no tag assigned and DROPPED.", rec.record.id());
+                    Self::drop_record(rec);
                 }
-            },
+            }
+
         }
-        rec
+    }
+
+    fn assign_barcode_tag(&self, rec: &mut RecordInTransformation<SingeRecordDto>, tag: String) {
+        if self.trace {
+            trace!("Barcode splitter on {}: Assigned tag {}", rec.record.id(), tag);
+        }
+        rec.alignment_results.barcode_tag = Some(tag);
+    }
+
+    fn handle_umi_tags(
+        &self,
+        rec: &mut RecordInTransformation<SingeRecordDto>,
+        best: &BarCodeAlignment
+    ) {
+        if !self.umi_tags { return; }
+        let new_umi_tags = extract_umi_tags(
+            &best.alignment, best.barcode.sequence.as_bytes(), rec.get_sequence()
+        );
+        if self.trace {
+            trace!(
+                "Barcode splitter on {}: Extracted UMI tags {:?}",
+                rec.record.id(), new_umi_tags.clone()
+            );
+        }
+        rec.alignment_results.umi_tags.extend(new_umi_tags);
+    }
+
+    fn remove_barcode(&self, rec: &mut RecordInTransformation<SingeRecordDto>, best: &BarCodeAlignment) {
+        if self.barcode_keep { return; }
+        let (rel_start, rel_end) = get_trim_range(
+            rec.get_sequence().len(), &best.alignment, self.trim_end
+        );
+        let old_start = rec.alignment_results.seq_start;
+        rec.alignment_results.seq_start = old_start + rel_start;
+        rec.alignment_results.seq_end = old_start + rel_end;
+        if self.trace {
+            trace!(
+                "Barcode splitter on {} shortened sequence to:\n{}",
+                rec.record.id(), rec.get_sequence_as_str()
+            );
+        }
+    }
+
+    fn add_removal_tag(
+        &self,
+        rec: &mut RecordInTransformation<SingeRecordDto>,
+        best: &BarCodeAlignment
+    ) {
+        if !self.removal_tags { return; }
+        let tag = format!("Flexbar_removal_{}", best.barcode.id);
+        if self.trace {
+            trace!(
+                "Barcode splitter on {}: Added removal tag {}",
+                rec.record.id(), tag.clone()
+            );
+        }
+        rec.alignment_results.removal_tags.push(tag);
+    }
+
+    fn drop_record(rec: &mut RecordInTransformation<SingeRecordDto>) {
+        rec.stats.total_discarded_barcode += 1;
+        rec.alignment_results.record_dropped = true;
+        trace!("Barcode splitter on {}: no tag assigned and DROPPED.", rec.record.id());
     }
 }
 
