@@ -41,8 +41,8 @@ impl SingleBarcodeSplitter {
             TrimEnd::Any => (0, 0, 0, 0),
             TrimEnd::Left => (0, MIN_SCORE, MIN_SCORE, 0),
             TrimEnd::Right => (MIN_SCORE, 0, 0, MIN_SCORE),
-            TrimEnd::LTail => (0, MIN_SCORE, 0, 0),
-            TrimEnd::RTail => (MIN_SCORE, 0, 0, 0),
+            TrimEnd::LTail => (MIN_SCORE, MIN_SCORE, 0, 0),
+            TrimEnd::RTail => (MIN_SCORE, MIN_SCORE, 0, 0),
         };
 
         let max_barcode_len = barcodes.iter().map(|b| b.sequence.len())
@@ -151,7 +151,7 @@ impl SingleBarcodeSplitter {
 
         match best_alignment {
             Some(best) => {
-                if best.alignment.score > candidate.alignment.score {
+                if candidate.alignment.score > best.alignment.score {
                     *best_alignment = Some(candidate);
                 }
             },
@@ -257,6 +257,198 @@ mod tests {
         assert!(!res.alignment_results.record_dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_unassigned_".to_string()));
         assert_eq!(res.alignment_results.seq_end - res.alignment_results.seq_start, record.seq().len());
+    }
+
+    #[test]
+    fn test_barcode_trimming_right() {
+        let seq = b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA";
+        let qual = b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII";
+        let record = SingeRecordDto::with_attrs("read1", None, seq, qual);
+
+        // Barcode is TAGCTCTGTAGGCACCATCAA (21 bp)
+        // It's at the end of the sequence.
+        let barcode_seq = "TAGCTCTGTAGGCACCATCAA";
+        
+        let args = Args::parse_from(&[
+            "flexbar_rs", 
+            "--reads", "test.fq", 
+            "--barcode-trim-end", "RIGHT",
+            "--barcode-min-overlap", "10"
+        ]);
+        let config = Config::new(args);
+        let barcodes = vec![
+            SequenceWithId{ id: "bc1".to_string(), sequence: barcode_seq.to_string()}
+        ];
+        let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
+
+        let rec_in = record.get_record_in_transformation();
+        let res = splitter.apply(rec_in);
+        
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        // Current sequence length is 71.
+        // Barcode starts at 50.
+        // Trimming RIGHT should keep 0..50.
+        assert_eq!(res.alignment_results.seq_start, 0);
+        assert_eq!(res.alignment_results.seq_end, 50);
+        assert_eq!(res.get_sequence_as_str(), "CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCC");
+    }
+
+    #[test]
+    fn test_barcode_trimming_left() {
+        let seq = b"TAGCTCTGTAGGCACCATCAACATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCC";
+        let qual = b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII";
+        let record = SingeRecordDto::with_attrs("read1", None, seq, qual);
+
+        let barcode_seq = "TAGCTCTGTAGGCACCATCAA";
+        
+        let args = Args::parse_from(&[
+            "flexbar_rs", 
+            "--reads", "test.fq", 
+            "--barcode-trim-end", "LEFT",
+            "--barcode-min-overlap", "10"
+        ]);
+        let config = Config::new(args);
+        let barcodes = vec![
+            SequenceWithId{ id: "bc1".to_string(), sequence: barcode_seq.to_string()}
+        ];
+        let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
+
+        let rec_in = record.get_record_in_transformation();
+        let res = splitter.apply(rec_in);
+        
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        // Barcode is at the start (0..21).
+        // Trimming LEFT should keep 21..71.
+        assert_eq!(res.alignment_results.seq_start, 21);
+        assert_eq!(res.alignment_results.seq_end, 71);
+        assert_eq!(res.get_sequence_as_str(), "CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCC");
+    }
+
+    #[test]
+    fn test_barcode_trimming_any_right() {
+        let seq = b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA";
+        let qual = b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII";
+        let record = SingeRecordDto::with_attrs("read1", None, seq, qual);
+
+        let barcode_seq = "TAGCTCTGTAGGCACCATCAA";
+        
+        let args = Args::parse_from(&[
+            "flexbar_rs", 
+            "--reads", "test.fq", 
+            "--barcode-trim-end", "ANY",
+            "--barcode-min-overlap", "10"
+        ]);
+        let config = Config::new(args);
+        let barcodes = vec![
+            SequenceWithId{ id: "bc1".to_string(), sequence: barcode_seq.to_string()}
+        ];
+        let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
+
+        let rec_in = record.get_record_in_transformation();
+        let res = splitter.apply(rec_in);
+        
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        // Barcode is at the end. Trimming ANY should pick the side that removes less.
+        // Wait, current ANY logic:
+        // if alignment.ystart < len - alignment.yend { (alignment.yend, len) } else { (0, alignment.ystart) }
+        // ystart = 50. len = 71. yend = 71.
+        // 50 < 71 - 71 => 50 < 0 (false) => (0, 50)
+        assert_eq!(res.alignment_results.seq_start, 0);
+        assert_eq!(res.alignment_results.seq_end, 50);
+    }
+
+    #[test]
+    fn test_barcode_trimming_any_left() {
+        let seq = b"TAGCTCTGTAGGCACCATCAACATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCC";
+        let qual = b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII";
+        let record = SingeRecordDto::with_attrs("read1", None, seq, qual);
+
+        let barcode_seq = "TAGCTCTGTAGGCACCATCAA";
+        
+        let args = Args::parse_from(&[
+            "flexbar_rs", 
+            "--reads", "test.fq", 
+            "--barcode-trim-end", "ANY",
+            "--barcode-min-overlap", "10"
+        ]);
+        let config = Config::new(args);
+        let barcodes = vec![
+            SequenceWithId{ id: "bc1".to_string(), sequence: barcode_seq.to_string()}
+        ];
+        let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
+
+        let rec_in = record.get_record_in_transformation();
+        let res = splitter.apply(rec_in);
+        
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        // Barcode is at the start.
+        // ystart = 0. len = 71. yend = 21.
+        // 0 < 71 - 21 => 0 < 50 (true) => (21, 71)
+        assert_eq!(res.alignment_results.seq_start, 21);
+        assert_eq!(res.alignment_results.seq_end, 71);
+    }
+
+    #[test]
+    fn test_barcode_trimming_ltail() {
+        let seq = b"TAGCTCTGTAGGCACCATCAACATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCC";
+        let qual = b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII";
+        let record = SingeRecordDto::with_attrs("read1", None, seq, qual);
+
+        let barcode_seq = "TAGCTCTGTAGGCACCATCAA";
+        
+        let args = Args::parse_from(&[
+            "flexbar_rs", 
+            "--reads", "test.fq", 
+            "--barcode-trim-end", "LTAIL",
+            "--barcode-min-overlap", "10"
+        ]);
+        let config = Config::new(args);
+        let barcodes = vec![
+            SequenceWithId{ id: "bc1".to_string(), sequence: barcode_seq.to_string()}
+        ];
+        let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
+
+        let rec_in = record.get_record_in_transformation();
+        let res = splitter.apply(rec_in);
+        
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        // Barcode is at the start (0..21).
+        // LTAIL should keep 0..71 (it shouldn't really trim anything if it's perfectly at the start,
+        // but it removes the matched part of the barcode from the read).
+        // Actually LTAIL with (alignment.ystart, len) will keep (0, 71).
+        // Let's see what happens if barcode is slightly shifted.
+        assert_eq!(res.alignment_results.seq_start, 0);
+        assert_eq!(res.alignment_results.seq_end, 71);
+    }
+
+    #[test]
+    fn test_barcode_trimming_rtail() {
+        let seq = b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA";
+        let qual = b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII";
+        let record = SingeRecordDto::with_attrs("read1", None, seq, qual);
+
+        let barcode_seq = "TAGCTCTGTAGGCACCATCAA";
+        
+        let args = Args::parse_from(&[
+            "flexbar_rs", 
+            "--reads", "test.fq", 
+            "--barcode-trim-end", "RTAIL",
+            "--barcode-min-overlap", "10"
+        ]);
+        let config = Config::new(args);
+        let barcodes = vec![
+            SequenceWithId{ id: "bc1".to_string(), sequence: barcode_seq.to_string()}
+        ];
+        let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
+
+        let rec_in = record.get_record_in_transformation();
+        let res = splitter.apply(rec_in);
+        
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        // Barcode is at the end (50..71).
+        // RTAIL with (0, alignment.yend) will keep (0, 71).
+        assert_eq!(res.alignment_results.seq_start, 0);
+        assert_eq!(res.alignment_results.seq_end, 71);
     }
 
     #[test]

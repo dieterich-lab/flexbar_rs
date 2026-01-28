@@ -32,8 +32,8 @@ impl SingleAdapterRemover {
             TrimEnd::Any => (0, 0, 0, 0),
             TrimEnd::Left => (0, MIN_SCORE, MIN_SCORE, 0),
             TrimEnd::Right => (MIN_SCORE, 0, 0, MIN_SCORE),
-            TrimEnd::LTail => (0, MIN_SCORE, 0, 0),
-            TrimEnd::RTail => (MIN_SCORE, 0, 0, 0),
+            TrimEnd::LTail => (MIN_SCORE, MIN_SCORE, 0, 0),
+            TrimEnd::RTail => (MIN_SCORE, MIN_SCORE, 0, 0),
         };
 
         let max_adapter_len = adapters.iter().map(|a| a.len()).max().unwrap_or(0);

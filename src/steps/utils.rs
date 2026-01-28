@@ -44,14 +44,22 @@ pub fn get_trim_range(
     trim_end: TrimEnd,
 ) -> (usize, usize) {
     match trim_end {
-        TrimEnd::Right | TrimEnd::RTail => {
+        TrimEnd::Right => {
             (0, alignment.ystart)
         }
-        TrimEnd::Left | TrimEnd::LTail => {
+        TrimEnd::RTail => {
+            (0, alignment.yend)
+        }
+        TrimEnd::Left => {
             (alignment.yend, len)
         }
+        TrimEnd::LTail => {
+            (alignment.ystart, len)
+        }
         TrimEnd::Any => {
-            if alignment.ystart < len - alignment.yend {
+            let left_dist = alignment.ystart;
+            let right_dist = len - alignment.yend;
+            if left_dist <= right_dist {
                 (alignment.yend, len)
             } else {
                 (0, alignment.ystart)
