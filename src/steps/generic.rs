@@ -19,10 +19,12 @@ pub struct RecordInTransformation<RecordType> {
 }
 
 impl RecordInTransformation<SingeRecordDto> {
+    pub fn get_sequence(&self) -> &[u8] {
+        &self.record.seq()[self.alignment_results.seq_start..self.alignment_results.seq_end]
+    }
+    
     pub fn get_sequence_as_str(&self) -> String {
-        String::from_utf8_lossy(&self.record.seq()[
-            self.alignment_results.seq_start..self.alignment_results.seq_end
-        ]).to_string()
+        String::from_utf8_lossy(self.get_sequence()).to_string()
     }
 }
 
