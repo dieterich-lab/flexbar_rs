@@ -3,26 +3,19 @@ use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::utils::{extract_umi_tags, get_trim_range};
-use bio::alignment::pairwise::*;
 use bio::alignment::{Alignment, AlignmentOperation};
 use crate::context::SequenceWithId;
+use crate::utils::aligner::AlignerFactory;
 
 pub struct SingleBarcodeSplitter {
     barcodes: Vec<SequenceWithId>,
     trim_end: TrimEnd,
     min_overlap: usize,
     error_rate: f32,
-    gap_open: i32,
-    gap_extend: i32,
-    barcode_match: i32,
-    barcode_mismatch: i32,
+    aligner_factory: AlignerFactory,
     barcode_keep: bool,
     barcode_unassigned: bool,
     removal_tags: bool,
-    xclip_prefix: i32,
-    xclip_suffix: i32,
-    yclip_prefix: i32,
-    yclip_suffix: i32,
     umi_tags: bool,
     max_barcode_len: usize,
     trace: bool,
@@ -35,10 +28,9 @@ struct BarCodeAlignment<'a> {
 
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
-        let mut aligner = Aligner::with_capacity_and_scoring(
+        let mut aligner = self.aligner_factory.get(
             rec.get_sequence().len(),
             self.max_barcode_len,
-            self.get_scoring(),
         );
         let mut best_alignment: Option<BarCodeAlignment> = None;
         for barcode in &self.barcodes {
@@ -55,58 +47,33 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 
 impl SingleBarcodeSplitter {
     pub fn new(args: &Args, barcodes: &Vec<SequenceWithId>) -> Self {
-        let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix)
-            = match args.barcode_trim_end {
-            TrimEnd::Any => (0, 0, 0, 0),
-            TrimEnd::Left => (0, MIN_SCORE, MIN_SCORE, 0),
-            TrimEnd::Right => (MIN_SCORE, 0, 0, MIN_SCORE),
-            TrimEnd::LTail => (MIN_SCORE, MIN_SCORE, 0, 0),
-            TrimEnd::RTail => (MIN_SCORE, MIN_SCORE, 0, 0),
-        };
-
         let max_barcode_len = barcodes.iter().map(|b| b.sequence.len())
             .max().unwrap_or(0);
         let barcode_min_overlap = args.barcode_min_overlap.unwrap_or(max_barcode_len);
+
+        let aligner_factory = AlignerFactory::new(
+            args.barcode_trim_end,
+            args.barcode_match,
+            args.barcode_mismatch,
+            args.barcode_gap_open,
+            args.barcode_gap_extend,
+        );
 
         Self {
             barcodes: (*barcodes).clone(),
             trim_end: args.barcode_trim_end,
             min_overlap: barcode_min_overlap,
             error_rate: args.barcode_error_rate,
-            gap_open: args.barcode_gap_open,
-            gap_extend: args.barcode_gap_extend,
-            barcode_match: args.barcode_match,
-            barcode_mismatch: args.barcode_mismatch,
+            aligner_factory,
             barcode_keep: args.barcode_keep,
             barcode_unassigned: args.barcode_unassigned,
             removal_tags: args.removal_tags,
-            xclip_prefix,
-            xclip_suffix,
-            yclip_prefix,
-            yclip_suffix,
             umi_tags: args.umi_tags,
             max_barcode_len,
             trace: args.trace
         }
     }
 
-    fn get_scoring(&self) -> Scoring<impl Fn(u8, u8) -> i32> {
-        let m = self.barcode_match;
-        let mm = self.barcode_mismatch;
-        Scoring {
-            match_fn: move |a, b|
-                if a == b'N' || b == b'N' { 0 }
-                else if a == b { m }
-                else { mm },
-            match_scores: None,
-            gap_open: self.gap_open,
-            gap_extend: self.gap_extend,
-            xclip_prefix: self.xclip_prefix,
-            xclip_suffix: self.xclip_suffix,
-            yclip_prefix: self.yclip_prefix,
-            yclip_suffix: self.yclip_suffix,
-        }
-    }
 
     fn update_best_alignment<'a>(
         &self,
