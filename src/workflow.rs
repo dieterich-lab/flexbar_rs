@@ -1,5 +1,5 @@
 use rayon::prelude::*;
-use crate::config::Config;
+use crate::args::Args;
 use crate::context::Context;
 use crate::readers::fasta::SingleReaderFasta;
 use crate::readers::fastq::SingleReaderFastq;
@@ -13,28 +13,27 @@ use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
 use crate::logging::log_fatal;
 use log::{debug};
+use crate::context;
 
-pub fn do_it(config: Config) {
-    let mut context = Context::new();
-    context.load(&config.args, config.adapter_removal);
-
-    let reads_path = config.args.reads.as_ref().unwrap_or_else(|| {
+pub fn do_it(args: Args) {
+    let context = context::Context::new(&args);
+    let reads_path = args.reads.as_ref().unwrap_or_else(|| {
         log_fatal("No input reads provided");
     });
-    let output_prefix = config.args.output_reads.as_ref()
+    let output_prefix = args.output_reads.as_ref()
         .map(|p| p.to_string_lossy().into_owned())
-        .unwrap_or_else(|| config.args.target.clone());
+        .unwrap_or_else(|| args.target.clone());
 
-    let stats = process_single(&config, &context, reads_path, &output_prefix);
+    let stats = process_single(&args, &context, reads_path, &output_prefix);
     stats.print();
 }
 
-fn process_single(config: &Config, context: &Context, reads_path: &Path, output_prefix: &str) -> Statistics {
-    let mut reader = get_single_reader(reads_path, config.format, &config.args);
-    let compression = get_compression(&reader, &config.args);
-    let worker = SingleWorker::new(&config.args, context, config.corrected_qtrim_threshold);
-    let mut writer = get_single_writer(&config.args, output_prefix, compression);
-    let worker_stats = process_batch(&mut reader, &worker, &mut writer, config.args.batch_size, config.args.count);
+fn process_single(args: &Args, context: &Context, reads_path: &Path, output_prefix: &str) -> Statistics {
+    let mut reader = get_single_reader(reads_path, context.format, args);
+    let compression = get_compression(&reader, args);
+    let worker = SingleWorker::new(args, context, context.corrected_qtrim_threshold);
+    let mut writer = get_single_writer(args, output_prefix, compression);
+    let worker_stats = process_batch(&mut reader, &worker, &mut writer, args.batch_size, args.count);
 
     Statistics {
         reader: reader.statistics(),

@@ -1,5 +1,4 @@
 pub mod args;
-pub mod config;
 pub mod context;
 pub mod types;
 pub mod utils;
@@ -16,13 +15,9 @@ use log::info;
 
 fn main() {
     let args = args::Args::get_args();
-    let config = config::Config::new(args.clone());
-
     logging::setup_logging(&args);
-
     info!("Command line: {}", env::args().collect::<Vec<_>>().join(" "));
-
     let threads = args.threads;
     rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
-    workflow::do_it(config);
+    workflow::do_it(args);
 }

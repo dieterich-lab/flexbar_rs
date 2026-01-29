@@ -1,5 +1,6 @@
 use std::io::{self, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
+use crate::types::FileFormat;
 use std::fs::File;
 use flate2::read::MultiGzDecoder;
 use flate2::write::GzEncoder;
@@ -10,6 +11,21 @@ use zstd::stream::write::Encoder as ZstdEncoder;
 use crate::types::CompressionType;
 
 use crate::logging::log_fatal;
+
+pub fn get_file_type(path: Option<&PathBuf>) -> FileFormat {
+    path.as_ref().map_or(FileFormat::Fasta, |path| {
+        if path.to_string_lossy() == "-" {
+            return FileFormat::Fastq;
+        }
+        let ext = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase());
+        if let Some(e) = ext {
+            if e == "fasta" || e == "fa" {
+                return FileFormat::Fasta;
+            }
+        }
+        FileFormat::Fastq
+    })
+}
 
 pub fn get_raw_reader<P: AsRef<Path>>(path: P) -> io::Result<(BufReader<Box<dyn Read + Send>>, String, CompressionType)> {
     let path_ref = path.as_ref();
