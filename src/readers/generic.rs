@@ -5,7 +5,7 @@ use crate::readers::SequenceReader;
 use crate::types::{CompressionType, SingeRecordDto};
 use crate::logging::log_fatal;
 use crate::args::Args;
-use crate::utils::get_raw_reader;
+use crate::utils::io::get_raw_reader;
 
 pub trait GenericReaderBackend<R: BufRead + Send> {
     type Error: std::fmt::Display;

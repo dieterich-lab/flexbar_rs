@@ -3,7 +3,7 @@ use std::io;
 use std::io::Write;
 use log::trace;
 use crate::types::{CompressionType, SingeRecordDto};
-use crate::utils::{get_writer_from_path, get_writer_path};
+use crate::utils::io::{get_writer_from_path, get_writer_path};
 use crate::writers::Writer;
 
 pub trait GenericWriterBackend<'a>: Send {
