@@ -28,13 +28,11 @@ struct BarCodeAlignment<'a> {
 
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
-        let mut aligner = self.aligner_factory.get(
-            rec.get_sequence().len(),
-            self.max_barcode_len,
-        );
+        let mut aligner = self.aligner_factory.get(self.max_barcode_len, rec.get_sequence().len());
+
         let mut best_alignment: Option<BarCodeAlignment> = None;
         for barcode in &self.barcodes {
-            let alignment = aligner.semiglobal(
+            let alignment = aligner.custom(
                 barcode.sequence.as_bytes(), rec.get_sequence()
             );
             let candidate = BarCodeAlignment { alignment, barcode: &barcode };
@@ -70,10 +68,9 @@ impl SingleBarcodeSplitter {
             removal_tags: args.removal_tags,
             umi_tags: args.umi_tags,
             max_barcode_len,
-            trace: args.trace
+            trace: args.trace,
         }
     }
-
 
     fn update_best_alignment<'a>(
         &self,

@@ -45,18 +45,14 @@ impl SingleAdapterRemover {
         }
     }
 
-
     pub fn remove_adapters(&self, rec: &mut RecordInTransformation<SingeRecordDto>) {
         let current_seq = &rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
-        let mut aligner = self.aligner_factory.get(
-            current_seq.len(),
-            self.max_adapter_len,
-        );
+        let mut aligner = self.aligner_factory.get(self.max_adapter_len, current_seq.len());
 
         let mut best_alignment: Option<(Alignment, usize)> = None;
 
         for (i, adapter) in self.adapters.iter().enumerate() {
-            let alignment = aligner.semiglobal(adapter.as_bytes(), current_seq);
+            let alignment = aligner.custom(adapter.as_bytes(), current_seq);
             let overlap = alignment.yend - alignment.ystart;
             let adapter_overlap = alignment.xend - alignment.xstart;
             
