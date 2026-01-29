@@ -18,11 +18,11 @@ fn main() {
     let args = args::Args::get_args();
     let config = config::Config::new(args.clone());
 
-    logging::setup_logging(&config.args);
+    logging::setup_logging(&args);
 
     info!("Command line: {}", env::args().collect::<Vec<_>>().join(" "));
 
-    let threads = config.args.threads;
+    let threads = args.threads;
     rayon::ThreadPoolBuilder::new().num_threads(threads).build_global().unwrap();
     workflow::do_it(config);
 }

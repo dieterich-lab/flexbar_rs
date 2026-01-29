@@ -16,7 +16,7 @@ use log::{debug};
 
 pub fn do_it(config: Config) {
     let mut context = Context::new();
-    context.load(&config);
+    context.load(&config.args, config.adapter_removal);
 
     let reads_path = config.args.reads.as_ref().unwrap_or_else(|| {
         log_fatal("No input reads provided");
@@ -30,10 +30,10 @@ pub fn do_it(config: Config) {
 }
 
 fn process_single(config: &Config, context: &Context, reads_path: &Path, output_prefix: &str) -> Statistics {
-    let mut reader = get_single_reader(reads_path, config);
-    let compression = get_compression(&reader, config);
-    let worker = SingleWorker::new(config, context);
-    let mut writer = get_single_writer(config, output_prefix, compression);
+    let mut reader = get_single_reader(reads_path, config.format, &config.args);
+    let compression = get_compression(&reader, &config.args);
+    let worker = SingleWorker::new(&config.args, context, config.corrected_qtrim_threshold);
+    let mut writer = get_single_writer(&config.args, output_prefix, compression);
     let worker_stats = process_batch(&mut reader, &worker, &mut writer, config.args.batch_size, config.args.count);
 
     Statistics {
@@ -91,29 +91,29 @@ fn process_batch(
     worker_stats
 }
 
-fn get_single_reader(reads_path: &Path, config: &Config) -> Box<dyn SequenceReader + Send> {
-    match config.format {
-        FileFormat::Fasta => Box::new(SingleReaderFasta::create_form_args(reads_path, &config.args)
+fn get_single_reader(reads_path: &Path, format: FileFormat, args: &crate::args::Args) -> Box<dyn SequenceReader + Send> {
+    match format {
+        FileFormat::Fasta => Box::new(SingleReaderFasta::create_form_args(reads_path, args)
             .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA reader: {}", e)))),
-        FileFormat::Fastq => Box::new(SingleReaderFastq::create_form_args(reads_path, &config.args)
+        FileFormat::Fastq => Box::new(SingleReaderFastq::create_form_args(reads_path, args)
             .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ reader: {}", e)))),
     }
 }
 
-fn get_compression(reader: &Box<dyn SequenceReader + Send>, config: &Config) -> CompressionType {
-    match config.args.output_compression {
+fn get_compression(reader: &Box<dyn SequenceReader + Send>, args: &crate::args::Args) -> CompressionType {
+    match args.output_compression {
         Some(CompressionType::Keep) => reader.compression(),
         Some(c) => c,
         None => CompressionType::Uncompressed,
     }
 }
 
-fn get_single_writer(config: &Config, output_prefix: &str, compression: CompressionType) -> Box<dyn Writer> {
-    let p = match config.args.single_reads {
+fn get_single_writer(args: &crate::args::Args, output_prefix: &str, compression: CompressionType) -> Box<dyn Writer> {
+    let p = match args.single_reads {
         true => "-",
         false => output_prefix,
     };
-    if config.args.fasta_output {
+    if args.fasta_output {
         Box::new(SingleWriterFasta::new(p, compression)
             .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA writer: {}", e))))
     } else {

@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::args::Args;
 use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
@@ -25,9 +25,9 @@ pub struct SingleAdapterRemover {
 }
 
 impl SingleAdapterRemover {
-    pub fn new(config: &Config, adapters: &[String]) -> Self {
+    pub fn new(args: &Args, adapters: &[String]) -> Self {
         let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix)
-            = match config.args.adapter_trim_end {
+            = match args.adapter_trim_end {
             TrimEnd::Any => (0, 0, 0, 0),
             TrimEnd::Left => (0, MIN_SCORE, MIN_SCORE, 0),
             TrimEnd::Right => (MIN_SCORE, 0, 0, MIN_SCORE),
@@ -39,19 +39,19 @@ impl SingleAdapterRemover {
 
         Self {
             adapters: adapters.to_vec(),
-            adapter_trim_end: config.args.adapter_trim_end,
-            adapter_min_overlap: config.args.adapter_min_overlap,
-            adapter_error_rate: config.args.adapter_error_rate,
-            removal_tags: config.args.removal_tags,
-            adapter_match: config.args.adapter_match,
-            adapter_mismatch: config.args.adapter_mismatch,
-            adapter_gap_open: config.args.adapter_gap_open,
-            adapter_gap_extend: config.args.adapter_gap_extend,
+            adapter_trim_end: args.adapter_trim_end,
+            adapter_min_overlap: args.adapter_min_overlap,
+            adapter_error_rate: args.adapter_error_rate,
+            removal_tags: args.removal_tags,
+            adapter_match: args.adapter_match,
+            adapter_mismatch: args.adapter_mismatch,
+            adapter_gap_open: args.adapter_gap_open,
+            adapter_gap_extend: args.adapter_gap_extend,
             xclip_prefix,
             xclip_suffix,
             yclip_prefix,
             yclip_suffix,
-            umi_tags: config.args.umi_tags,
+            umi_tags: args.umi_tags,
             max_adapter_len,
         }
     }

@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::args::Args;
 use crate::types::{QualTrimType, SingeRecordDto};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
@@ -11,12 +11,12 @@ pub struct SingleQualityTrim {
 }
 
 impl SingleQualityTrim {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(args: &Args, corrected_qtrim_threshold: usize) -> Self {
         Self {
-            qtrim: config.args.qtrim,
-            threshold: config.corrected_qtrim_threshold,
-            win_size: config.args.qtrim_win_size,
-            trace: config.args.trace
+            qtrim: args.qtrim,
+            threshold: corrected_qtrim_threshold,
+            win_size: args.qtrim_win_size,
+            trace: args.trace
         }
     }
 

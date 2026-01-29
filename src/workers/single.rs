@@ -1,5 +1,5 @@
 use crate::context::Context;
-use crate::config::Config;
+use crate::args::Args;
 use crate::types::{SingeRecordDto, QualTrimType};
 use crate::steps::single_adapter_remover::SingleAdapterRemover;
 use crate::steps::single_uncalled_sequence_filter::SingleUncalledSequenceFilter;
@@ -15,67 +15,67 @@ use log::debug;
 pub struct SingleWorker (GenericWorker<SingeRecordDto> );
 
 impl SingleWorker {
-    pub fn new(config: &Config, context: &Context) -> Self {
+    pub fn new(args: &Args, context: &Context, corrected_qtrim_threshold: usize) -> Self {
         let mut steps: Vec<Arc<dyn GenericStep<SingeRecordDto>>> = Vec::new();
         debug!("Creating new single worker pipeline:");
 
-        if config.args.max_uncalled > 0 {
+        if args.max_uncalled > 0 {
             debug!(
-                "- Step SingleUncalledSequenceFilter (max_uncalled: {})", config.args.max_uncalled
+                "- Step SingleUncalledSequenceFilter (max_uncalled: {})", args.max_uncalled
             );
             steps.push(
-                Arc::new(SingleUncalledSequenceFilter::new(config))
+                Arc::new(SingleUncalledSequenceFilter::new(args))
             );
         }
-        if config.args.qtrim != QualTrimType::Off && !config.args.qtrim_post_removal {
+        if args.qtrim != QualTrimType::Off && !args.qtrim_post_removal {
             debug!(
                 "- Step SingleQualityTrim (mode {:?}, corrected threshold {}, window size {})",
-                config.args.qtrim,
-                config.corrected_qtrim_threshold,
-                config.args.qtrim_win_size
+                args.qtrim,
+                corrected_qtrim_threshold,
+                args.qtrim_win_size
             );
             steps.push(
-                Arc::new(SingleQualityTrim::new(config))
+                Arc::new(SingleQualityTrim::new(args, corrected_qtrim_threshold))
             );
         }
         if !context.barcodes.is_empty() {
             debug!(
                 "- Step SingleBarcodeSplitter (min overlap {:?}, err rate {}, trim end {:?}, keep: {})",
-                config.args.barcode_min_overlap,
-                config.args.barcode_error_rate,
-                config.args.barcode_trim_end,
-                config.args.barcode_keep
+                args.barcode_min_overlap,
+                args.barcode_error_rate,
+                args.barcode_trim_end,
+                args.barcode_keep
             );
             steps.push(
-                Arc::new(SingleBarcodeSplitter::new(config, &context.barcodes))
+                Arc::new(SingleBarcodeSplitter::new(args, &context.barcodes))
             );
         }
         if !context.adapters.is_empty() {
             debug!(
                 "- Step SingleAdapterRemover (min overlap {}, err rate {}, trim_end {:?}, , revcomp {:?})",
-                config.args.adapter_min_overlap,
-                config.args.adapter_error_rate,
-                config.args.adapter_trim_end,
-                config.args.adapter_revcomp,
+                args.adapter_min_overlap,
+                args.adapter_error_rate,
+                args.adapter_trim_end,
+                args.adapter_revcomp,
             );
             steps.push(
-                Arc::new(SingleAdapterRemover::new(config, &context.adapters))
+                Arc::new(SingleAdapterRemover::new(args, &context.adapters))
             );
         }
 
-        if config.args.qtrim != QualTrimType::Off && config.args.qtrim_post_removal {
+        if args.qtrim != QualTrimType::Off && args.qtrim_post_removal {
             debug!(
                 "- Step SingleQualityTrim (mode {:?}, corrected threshold {}, window size {})",
-                config.args.qtrim,
-                config.corrected_qtrim_threshold,
-                config.args.qtrim_win_size
+                args.qtrim,
+                corrected_qtrim_threshold,
+                args.qtrim_win_size
             );
             steps.push(
-                Arc::new(SingleQualityTrim::new(config))
+                Arc::new(SingleQualityTrim::new(args, corrected_qtrim_threshold))
             )
         }
 
-        steps.push(Arc::new(SingleFilterLength::new(config)));
+        steps.push(Arc::new(SingleFilterLength::new(args)));
         debug!("Single worker pipeline created.");
         Self (GenericWorker::new(steps, Arc::new(SingleFinalizeStep)))
     }
@@ -97,11 +97,11 @@ mod tests {
     #[test]
     fn test_process_right() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
         context.adapters.push("AGATCGGAAGAG".to_string());
         
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
         let (processed_opt, _, _stats) = worker.process(&record);
@@ -114,11 +114,11 @@ mod tests {
     #[test]
     fn test_process_left() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "LEFT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
         context.adapters.push("AGATCGGAAGAG".to_string());
         
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
         let (processed_opt, _, _stats) = worker.process(&record);
@@ -131,13 +131,13 @@ mod tests {
     #[test]
     fn test_process_barcode() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
         context.barcodes.push(
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         );
         
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
         
         // Barcode at start
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
@@ -153,9 +153,9 @@ mod tests {
     #[test]
     fn test_max_uncalled() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--max-uncalled", "2"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let context = Context::new();
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
 
         // 2 'N's - should keep
         let record = SingeRecordDto::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
@@ -171,13 +171,13 @@ mod tests {
     #[test]
     fn test_removal_tags_barcode() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--removal-tags", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
         context.barcodes.push(
             SequenceWithId { id: "bc1".to_string(), sequence: "GGGG".to_string() }
         );
         
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -190,11 +190,11 @@ mod tests {
     #[test]
     fn test_removal_tags_adapter() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--removal-tags", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
         context.adapters.push("AGATCGGAAGAG".to_string());
         
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -210,14 +210,14 @@ mod tests {
             "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4",
             "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5",
             "--removal-tags", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
         context.barcodes.push(
             SequenceWithId { id: "bc1".to_string(), sequence: "GGGG".to_string() }
         );
         context.adapters.push("AGATCGGAAGAG".to_string());
         
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -232,9 +232,9 @@ mod tests {
     #[test]
     fn test_quality_trim_tail() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "TAIL", "--qtrim-threshold", "20", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let context = Context::new();
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
 
         // Threshold 20 + 33 (sanger) = 53 ('5')
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
@@ -248,9 +248,9 @@ mod tests {
     #[test]
     fn test_quality_trim_win() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "WIN", "--qtrim-threshold", "20", "--qtrim-win-size", "5", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let context = Context::new();
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
 
         // Threshold 53. Window size 5.
         // "IIIII" sum = 5 * 73 = 365. Threshold sum = 5 * 53 = 265.
@@ -265,9 +265,9 @@ mod tests {
     #[test]
     fn test_quality_trim_bwa() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "BWA", "--qtrim-threshold", "20", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let context = Context::new();
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
 
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
         let (processed_opt, _, _) = worker.process(&record);
@@ -279,13 +279,13 @@ mod tests {
     #[test]
     fn test_umi_tags_barcode() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--umi-tags", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
         context.barcodes.push(
             SequenceWithId { id: "bc1".to_string(), sequence: "NNGGGGNN".to_string() }
         );
 
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
         
         // Barcode NNGGGGNN matches AAGGGGTT
         let record = SingeRecordDto::with_attrs("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
@@ -301,11 +301,11 @@ mod tests {
     #[test]
     fn test_umi_tags_adapter() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATNNNN", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "4", "--umi-tags", "--min-read-length", "0"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
         context.adapters.push("AGATNNNN".to_string());
         
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCCCC", b"IIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -319,9 +319,9 @@ mod tests {
     #[test]
     fn test_min_read_length() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let context = Context::new();
-        let worker = SingleWorker::new(&config, &context);
+        let worker = SingleWorker::new(&args, &context, config.corrected_qtrim_threshold);
 
         // Length 10 - should keep
         let record = SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");

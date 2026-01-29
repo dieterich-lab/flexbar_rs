@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::args::Args;
 use crate::types::SingeRecordDto;
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
@@ -8,9 +8,9 @@ pub struct SingleFilterLength {
 }
 
 impl SingleFilterLength {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(args: &Args) -> Self {
         Self {
-            min_read_length: config.args.min_read_length,
+            min_read_length: args.min_read_length,
         }
     }
 }
@@ -40,8 +40,7 @@ mod tests {
     #[test]
     fn test_length_filter_keep() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
-        let config = Config::new(args);
-        let filter = SingleFilterLength::new(&config);
+        let filter = SingleFilterLength::new(&args);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");
         let rec_in = RecordInTransformation {
@@ -62,8 +61,7 @@ mod tests {
     #[test]
     fn test_length_filter_drop() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
-        let config = Config::new(args);
-        let filter = SingleFilterLength::new(&config);
+        let filter = SingleFilterLength::new(&args);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII");
         let rec_in = RecordInTransformation {
@@ -84,8 +82,7 @@ mod tests {
     #[test]
     fn test_length_filter_disabled() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "0"]);
-        let config = Config::new(args);
-        let filter = SingleFilterLength::new(&config);
+        let filter = SingleFilterLength::new(&args);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"A", b"I");
         let rec_in = RecordInTransformation {

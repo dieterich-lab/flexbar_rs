@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::args::Args;
 use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
@@ -54,9 +54,9 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 }
 
 impl SingleBarcodeSplitter {
-    pub fn new(config: &Config, barcodes: &Vec<SequenceWithId>) -> Self {
+    pub fn new(args: &Args, barcodes: &Vec<SequenceWithId>) -> Self {
         let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix)
-            = match config.args.barcode_trim_end {
+            = match args.barcode_trim_end {
             TrimEnd::Any => (0, 0, 0, 0),
             TrimEnd::Left => (0, MIN_SCORE, MIN_SCORE, 0),
             TrimEnd::Right => (MIN_SCORE, 0, 0, MIN_SCORE),
@@ -66,27 +66,27 @@ impl SingleBarcodeSplitter {
 
         let max_barcode_len = barcodes.iter().map(|b| b.sequence.len())
             .max().unwrap_or(0);
-        let barcode_min_overlap = config.args.barcode_min_overlap.unwrap_or(max_barcode_len);
+        let barcode_min_overlap = args.barcode_min_overlap.unwrap_or(max_barcode_len);
 
         Self {
             barcodes: (*barcodes).clone(),
-            trim_end: config.args.barcode_trim_end,
+            trim_end: args.barcode_trim_end,
             min_overlap: barcode_min_overlap,
-            error_rate: config.args.barcode_error_rate,
-            gap_open: config.args.barcode_gap_open,
-            gap_extend: config.args.barcode_gap_extend,
-            barcode_match: config.args.barcode_match,
-            barcode_mismatch: config.args.barcode_mismatch,
-            barcode_keep: config.args.barcode_keep,
-            barcode_unassigned: config.args.barcode_unassigned,
-            removal_tags: config.args.removal_tags,
+            error_rate: args.barcode_error_rate,
+            gap_open: args.barcode_gap_open,
+            gap_extend: args.barcode_gap_extend,
+            barcode_match: args.barcode_match,
+            barcode_mismatch: args.barcode_mismatch,
+            barcode_keep: args.barcode_keep,
+            barcode_unassigned: args.barcode_unassigned,
+            removal_tags: args.removal_tags,
             xclip_prefix,
             xclip_suffix,
             yclip_prefix,
             yclip_suffix,
-            umi_tags: config.args.umi_tags,
+            umi_tags: args.umi_tags,
             max_barcode_len,
-            trace: config.args.trace
+            trace: args.trace
         }
     }
 
@@ -262,14 +262,13 @@ mod tests {
 
     fn process_record(record: SingeRecordDto, args: Args) -> RecordInTransformation<SingeRecordDto>
     {
-        let config = Config::new(args);
         let barcodes = vec![
             SequenceWithId {
                 id: "bc1".to_string(),
                 sequence: "NNNNNNTAGCTCTGTAGGCACCATCAAT".to_string()
             }
         ];
-        let splitter = SingleBarcodeSplitter::new(&config, &barcodes);
+        let splitter = SingleBarcodeSplitter::new(&args, &barcodes);
         splitter.apply(
             record.get_record_in_transformation()
         )

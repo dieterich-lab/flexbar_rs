@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::args::Args;
 use crate::types::SingeRecordDto;
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
@@ -8,9 +8,9 @@ pub struct SingleUncalledSequenceFilter {
 }
 
 impl SingleUncalledSequenceFilter {
-    pub fn new(config: &Config) -> Self {
+    pub fn new(args: &Args) -> Self {
         Self {
-            max_uncalled: config.args.max_uncalled,
+            max_uncalled: args.max_uncalled,
         }
     }
 }

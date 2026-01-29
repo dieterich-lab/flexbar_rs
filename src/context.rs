@@ -1,4 +1,4 @@
-use crate::config::Config;
+use crate::args::Args;
 use crate::types::{AdapterPreset, AdapterRemoval, RevCompMode};
 use bio::io::fasta;
 use bio::alphabets::dna::revcomp;
@@ -31,9 +31,7 @@ impl Context {
         }
     }
 
-    pub fn load(&mut self, config: &Config) {
-        let args = &config.args;
-
+    pub fn load(&mut self, args: &Args, adapter_removal: AdapterRemoval) {
         if let Some(preset) = &args.adapter_preset {
             if matches!(preset, AdapterPreset::Off) {
                 return;
@@ -53,7 +51,7 @@ impl Context {
             self.adapters.append(&mut new_items);
         }
 
-        if config.adapter_removal == AdapterRemoval::Normal2 {
+        if adapter_removal == AdapterRemoval::Normal2 {
             if let Some(adapter_file2) = &args.adapters2 {
                 self.adapters2 = self.load_fasta_file(adapter_file2)
                     .into_iter()
@@ -189,6 +187,7 @@ impl Context {
 mod tests {
     use super::*;
     use crate::args::Args;
+    use crate::config::Config;
     use std::io::Write;
     use tempfile::NamedTempFile;
 
@@ -196,9 +195,9 @@ mod tests {
     fn test_context_load_preset() {
         let mut args = Args::default();
         args.adapter_preset = Some(AdapterPreset::TruSeq);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
-        context.load(&config);
+        context.load(&args, config.adapter_removal);
         assert!(!context.adapters.is_empty());
         assert!(!context.adapters2.is_empty());
         assert_eq!(context.adapters[0], "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC");
@@ -212,9 +211,9 @@ mod tests {
 
         let mut args = Args::default();
         args.adapters = Some(path);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
-        context.load(&config);
+        context.load(&args, config.adapter_removal);
         assert_eq!(context.adapters.len(), 1);
         assert_eq!(context.adapters[0], "ACGT");
     }
@@ -227,9 +226,9 @@ mod tests {
 
         let mut args = Args::default();
         args.barcodes = Some(path);
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
-        context.load(&config);
+        context.load(&args, config.adapter_removal);
         assert_eq!(context.barcodes.len(), 1);
         assert_eq!(context.barcodes[0].id, "bc1");
         assert_eq!(context.barcodes[0].sequence, "GGGG");
@@ -240,9 +239,9 @@ mod tests {
         let mut args = Args::default();
         args.adapter_seq = Some("ACGT".to_string());
         args.adapter_revcomp = RevCompMode::On;
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
-        context.load(&config);
+        context.load(&args, config.adapter_removal);
         assert_eq!(context.adapters.len(), 2);
         assert_eq!(context.adapters[0], "ACGT");
         assert_eq!(context.adapters[1], "ACGT"); // RC of ACGT is ACGT
@@ -250,9 +249,9 @@ mod tests {
         let mut args = Args::default();
         args.adapter_seq = Some("AAAA".to_string());
         args.adapter_revcomp = RevCompMode::Only;
-        let config = Config::new(args);
+        let config = Config::new(args.clone());
         let mut context = Context::new();
-        context.load(&config);
+        context.load(&args, config.adapter_removal);
         assert_eq!(context.adapters.len(), 1);
         assert_eq!(context.adapters[0], "TTTT");
     }
