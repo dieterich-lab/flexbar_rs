@@ -4,18 +4,12 @@ use crate::types::*;
 
 #[derive(Debug, Clone)]
 pub struct Config {
-    pub log_stdout: bool,
     pub use_rc_trim_end: bool,
     pub corrected_qtrim_threshold: usize,
-
     pub format: FileFormat,
     pub run_type: RunType,
     pub bar_detect: BarcodeDetect,
     pub adapter_removal: AdapterRemoval,
-    pub a_trimmed: AdapterTrimmed,
-
-    pub batch_size: usize,
-
     pub args: Args,
 }
 
@@ -24,19 +18,15 @@ impl Config {
         let has_adapters = Self::determine_has_adapters(&args);
         let format = Self::determine_file_format(&args);
         let bar_detect = Self::determine_barcode_detection(&args);
-        let a_trimmed = args.adapter_trimmed_out.unwrap_or(AdapterTrimmed::On);
 
         let raw_config = Config {
             args: args.clone(),
-            log_stdout: args.stderr_log && !args.stdout_reads,
             use_rc_trim_end: Self::determine_use_rc_trim_end(&args),
             corrected_qtrim_threshold: Self::determine_qtrim_threshold(&args, format),
             format,
             run_type: Self::determine_run_type(&args),
             bar_detect,
             adapter_removal: Self::determine_adapter_removal(&args, has_adapters),
-            a_trimmed,
-            batch_size: args.batch_size,
         };
         let config = Self::sanitize_config(raw_config, has_adapters);
         debug!("{:#?}", config);
@@ -153,13 +143,7 @@ impl Config {
 
     fn sanitize_config(raw_config: Config, has_adapters: bool) -> Config {
         let mut config = raw_config.clone();
-
-        if config.batch_size == 0 {
-            config.batch_size = 256;
-        }
-
         let is_paired = raw_config.args.reads2.is_some();
-
         match raw_config.args.adapter_preset {
             Some(AdapterPreset::NexteraMp) => {
                 if config.args.adapter_cycles < 3 {

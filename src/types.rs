@@ -232,7 +232,7 @@ impl FromStr for AdapterPreset {
             "Ribo" => Ok(AdapterPreset::Ribo),
             "Nextera" => Ok(AdapterPreset::Nextera),
             "NexteraMP" => Ok(AdapterPreset::NexteraMp),
-            _ => Ok(AdapterPreset::Off),
+            _ => Err(format!("Unknown adapter preset: {}", s)),
         }
     }
 }
@@ -248,9 +248,10 @@ impl FromStr for AdapterTrimmed {
     type Err = String;
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_uppercase().as_str() {
+            "ON" => Ok(AdapterTrimmed::On),
             "OFF" => Ok(AdapterTrimmed::Off),
             "ONLY" => Ok(AdapterTrimmed::Only),
-            _ => Ok(AdapterTrimmed::On),
+            _ => Err(format!("Unknown adapter trimmed out mode: {}", s)),
         }
     }
 }

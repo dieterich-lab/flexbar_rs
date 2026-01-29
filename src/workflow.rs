@@ -34,7 +34,7 @@ fn process_single(config: &Config, context: &Context, reads_path: &Path, output_
     let compression = get_compression(&reader, config);
     let worker = SingleWorker::new(config, context);
     let mut writer = get_single_writer(config, output_prefix, compression);
-    let worker_stats = process_batch(&mut reader, &worker, &mut writer, config.batch_size, config.args.count);
+    let worker_stats = process_batch(&mut reader, &worker, &mut writer, config.args.batch_size, config.args.count);
 
     Statistics {
         reader: reader.statistics(),

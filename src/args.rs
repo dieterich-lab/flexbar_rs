@@ -150,8 +150,8 @@ pub struct Args {
     pub adapter_read_set: AdapterReadset,
 
     /// Modify that trimmed reads are kept: OFF, ONLY
-    #[arg(long = "adapter-trimmed-out", alias = "ak")]
-    pub adapter_trimmed_out: Option<AdapterTrimmed>,
+    #[arg(long = "adapter-trimmed-out", alias = "ak", default_value = "on")]
+    pub adapter_trimmed_out: AdapterTrimmed,
 
     /// Number of adapter removal cycles
     #[arg(long = "adapter-cycles", alias = "ay", default_value_t = 1)]
