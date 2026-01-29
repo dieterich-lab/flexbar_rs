@@ -31,7 +31,7 @@ pub fn do_it(args: Args) {
 fn process_single(args: &Args, context: &Context, reads_path: &Path, output_prefix: &str) -> Statistics {
     let mut reader = get_single_reader(reads_path, context.format, args);
     let compression = get_compression(&reader, args);
-    let worker = SingleWorker::new(args, context, context.corrected_qtrim_threshold);
+    let worker = SingleWorker::new(args, context);
     let mut writer = get_single_writer(args, output_prefix, compression);
     let worker_stats = process_batch(&mut reader, &worker, &mut writer, args.batch_size, args.count);
 

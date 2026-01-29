@@ -1,5 +1,5 @@
 use crate::args::Args;
-use crate::types::{QualTrimType, SingeRecordDto};
+use crate::types::{FileFormat, QualTrimType, QualityType, SingeRecordDto};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 
@@ -11,10 +11,21 @@ pub struct SingleQualityTrim {
 }
 
 impl SingleQualityTrim {
-    pub fn new(args: &Args, corrected_qtrim_threshold: usize) -> Self {
+    pub fn new(args: &Args, format: FileFormat) -> Self {
+        let threshold = if format == FileFormat::Fastq {
+            args.qtrim_threshold
+                + match args.qtrim_format {
+                    QualityType::Sanger => 33,
+                    QualityType::Solexa => 59,
+                    QualityType::Illumina => 64,
+                }
+        } else {
+            args.qtrim_threshold
+        };
+
         Self {
             qtrim: args.qtrim,
-            threshold: corrected_qtrim_threshold,
+            threshold,
             win_size: args.qtrim_win_size,
             trace: args.trace
         }
@@ -98,5 +109,40 @@ impl GenericStep<SingeRecordDto> for SingleQualityTrim {
             }
         }
         rec
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::args::Args;
+    use clap::Parser;
+
+    #[test]
+    fn test_qtrim_threshold_calculation() {
+        let args = Args::parse_from(&[
+            "flexbar_rs",
+            "--reads", "test.fq",
+            "--qtrim", "TAIL",
+            "--qtrim-format", "sanger",
+            "--qtrim-threshold", "20"
+        ]);
+        
+        // Fastq format should add quality offset
+        let qtrim_fastq = SingleQualityTrim::new(&args, FileFormat::Fastq);
+        assert_eq!(qtrim_fastq.threshold, 20 + 33);
+
+        // Fasta format should NOT add quality offset
+        let qtrim_fasta = SingleQualityTrim::new(&args, FileFormat::Fasta);
+        assert_eq!(qtrim_fasta.threshold, 20);
+
+        // Test other quality formats
+        let args_solexa = Args::parse_from(&["flexbar_rs", "--qtrim-format", "solexa", "--qtrim-threshold", "20"]);
+        let qtrim_solexa = SingleQualityTrim::new(&args_solexa, FileFormat::Fastq);
+        assert_eq!(qtrim_solexa.threshold, 20 + 59);
+
+        let args_illumina = Args::parse_from(&["flexbar_rs", "--qtrim-format", "i1.3", "--qtrim-threshold", "20"]);
+        let qtrim_illumina = SingleQualityTrim::new(&args_illumina, FileFormat::Fastq);
+        assert_eq!(qtrim_illumina.threshold, 20 + 64);
     }
 }

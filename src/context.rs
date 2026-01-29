@@ -1,12 +1,11 @@
 use crate::args::Args;
-use crate::types::{AdapterPreset, AdapterReadset, AdapterRemoval, BarcodeDetect, FileFormat, PairOverlapMode, QualTrimType, QualityType, RevCompMode, RunType, TrimEnd};
+use crate::types::{AdapterPreset, AdapterReadset, AdapterRemoval, BarcodeDetect, FileFormat, PairOverlapMode, RevCompMode, RunType, TrimEnd};
 use crate::utils::io::get_file_type;
 use bio::io::fasta;
 use bio::alphabets::dna::revcomp;
 use log::{debug, info, warn};
 use std::fs::File;
 use std::io::BufReader;
-use std::path::PathBuf;
 use crate::logging::log_fatal;
 
 
@@ -22,7 +21,6 @@ pub struct Context {
     pub barcodes: Vec<SequenceWithId>,
     pub barcodes2: Vec<SequenceWithId>,
     pub use_rc_trim_end: bool,
-    pub corrected_qtrim_threshold: usize,
     pub format: FileFormat,
     pub run_type: RunType,
     pub bar_detect: BarcodeDetect,
@@ -41,7 +39,6 @@ impl Context {
             barcodes: Vec::new(),
             barcodes2: Vec::new(),
             use_rc_trim_end: Self::determine_use_rc_trim_end(args),
-            corrected_qtrim_threshold: Self::determine_qtrim_threshold(args, format),
             format,
             run_type: Self::determine_run_type(args),
             bar_detect,
@@ -141,33 +138,30 @@ impl Context {
     }
 
     fn is_paired_adapter_removal(args: &Args) -> bool {
+        let has_adapters2 = args.adapters2.is_some();
         if args.reads2.is_none() {
+            if has_adapters2 {
+                warn!("WARNING: No paired reads - ignoring --adapter2.");
+            }
             return false;
         }
         match args.adapter_preset {
             Some(AdapterPreset::TruSeq) => return true,
             Some(AdapterPreset::NexteraMp) => return true,
             Some(AdapterPreset::Methyl) => return true,
-            Some(_) => return false,
+            Some(preset) => {
+                if has_adapters2 {
+                    warn!("WARNING: Adapter preset {:?} does not use a second set of adapters - ignoring --adapters2",
+                        preset
+                    );
+                }
+            }
             _ => (),
         }
         if args.adapters2.is_some() && args.reads2.is_some() {
             return true;
         }
         false
-    }
-
-    fn determine_qtrim_threshold(args: &Args, format: FileFormat) -> usize {
-        if format == FileFormat::Fastq {
-            args.qtrim_threshold
-                + match args.qtrim_format {
-                    QualityType::Sanger => 33,
-                    QualityType::Solexa => 59,
-                    QualityType::Illumina => 64,
-                }
-        } else {
-            args.qtrim_threshold
-        }
     }
 
     fn sanitize(&mut self, args: &Args, has_adapters: bool) {
@@ -208,7 +202,6 @@ impl Context {
     }
 
     pub fn load(&mut self, args: &Args) {
-        let adapter_removal = self.adapter_removal;
         if let Some(preset) = &args.adapter_preset {
             if matches!(preset, AdapterPreset::Off) {
                 return;
@@ -228,13 +221,13 @@ impl Context {
             self.adapters.append(&mut new_items);
         }
 
-        if adapter_removal == AdapterRemoval::Normal2 {
-            if let Some(adapter_file2) = &args.adapters2 {
-                self.adapters2 = self.load_fasta_file(adapter_file2)
-                    .into_iter()
-                    .map(|item| item.sequence)
-                    .collect();
-            }
+        if let Some(adapter_file2) = &args.adapters2
+            && self.adapter_removal == AdapterRemoval::Normal2
+        {
+            self.adapters2 = self.load_fasta_file(adapter_file2)
+                .into_iter()
+                .map(|item| item.sequence)
+                .collect();
         }
 
         if let Some(barcode_file) = &args.barcodes {
@@ -363,6 +356,7 @@ impl Context {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
     use crate::args::Args;
     use std::io::Write;
     use clap::Parser;
@@ -446,18 +440,6 @@ mod tests {
         assert_eq!(context.run_type, RunType::Paired);
     }
 
-    #[test]
-    fn test_context_qtrim_thresh() {
-        let args = Args {
-            reads: Some(PathBuf::from("reads.fastq")),
-            qtrim: QualTrimType::Tail,
-            qtrim_format: QualityType::Sanger,
-            qtrim_threshold: 20,
-            ..Args::parse_from(["flexbar"])
-        };
-        let context = Context::new(&args);
-        assert_eq!(context.corrected_qtrim_threshold, 20 + 33);
-    }
 
     #[test]
     fn test_context_adapter_preset() {

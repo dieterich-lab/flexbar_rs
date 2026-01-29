@@ -15,7 +15,7 @@ use log::debug;
 pub struct SingleWorker (GenericWorker<SingeRecordDto> );
 
 impl SingleWorker {
-    pub fn new(args: &Args, context: &Context, corrected_qtrim_threshold: usize) -> Self {
+    pub fn new(args: &Args, context: &Context) -> Self {
         let mut steps: Vec<Arc<dyn GenericStep<SingeRecordDto>>> = Vec::new();
         debug!("Creating new single worker pipeline:");
 
@@ -29,13 +29,13 @@ impl SingleWorker {
         }
         if args.qtrim != QualTrimType::Off && !args.qtrim_post_removal {
             debug!(
-                "- Step SingleQualityTrim (mode {:?}, corrected threshold {}, window size {})",
+                "- Step SingleQualityTrim (mode {:?}, format {:?}, window size {})",
                 args.qtrim,
-                corrected_qtrim_threshold,
+                context.format,
                 args.qtrim_win_size
             );
             steps.push(
-                Arc::new(SingleQualityTrim::new(args, corrected_qtrim_threshold))
+                Arc::new(SingleQualityTrim::new(args, context.format))
             );
         }
         if !context.barcodes.is_empty() {
@@ -65,13 +65,13 @@ impl SingleWorker {
 
         if args.qtrim != QualTrimType::Off && args.qtrim_post_removal {
             debug!(
-                "- Step SingleQualityTrim (mode {:?}, corrected threshold {}, window size {})",
+                "- Step SingleQualityTrim (mode {:?}, format {:?}, window size {})",
                 args.qtrim,
-                corrected_qtrim_threshold,
+                context.format,
                 args.qtrim_win_size
             );
             steps.push(
-                Arc::new(SingleQualityTrim::new(args, corrected_qtrim_threshold))
+                Arc::new(SingleQualityTrim::new(args, context.format))
             )
         }
 
@@ -98,7 +98,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
         let context = Context::new(&args);
         
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
         let (processed_opt, _, _stats) = worker.process(&record);
@@ -115,7 +115,7 @@ mod tests {
          
          
         
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
         let (processed_opt, _, _stats) = worker.process(&record);
@@ -133,7 +133,7 @@ mod tests {
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         );
         
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
         
         // Barcode at start
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
@@ -151,7 +151,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--max-uncalled", "2"]);
         let context = Context::new(&args);
          
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
 
         // 2 'N's - should keep
         let record = SingeRecordDto::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
@@ -172,7 +172,7 @@ mod tests {
             SequenceWithId { id: "bc1".to_string(), sequence: "GGGG".to_string() }
         );
         
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -188,7 +188,7 @@ mod tests {
         let mut context = Context::new(&args);
         context.adapters.push("AGATCGGAAGAG".to_string());
         
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -210,7 +210,7 @@ mod tests {
         );
         context.adapters.push("AGATCGGAAGAG".to_string());
         
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -227,7 +227,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "TAIL", "--qtrim-threshold", "20", "--min-read-length", "0"]);
         let context = Context::new(&args);
          
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
 
         // Threshold 20 + 33 (sanger) = 53 ('5')
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
@@ -243,7 +243,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "WIN", "--qtrim-threshold", "20", "--qtrim-win-size", "5", "--min-read-length", "0"]);
         let context = Context::new(&args);
          
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
 
         // Threshold 53. Window size 5.
         // "IIIII" sum = 5 * 73 = 365. Threshold sum = 5 * 53 = 265.
@@ -260,7 +260,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "BWA", "--qtrim-threshold", "20", "--min-read-length", "0"]);
         let context = Context::new(&args);
          
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
 
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
         let (processed_opt, _, _) = worker.process(&record);
@@ -277,7 +277,7 @@ mod tests {
             SequenceWithId { id: "bc1".to_string(), sequence: "NNGGGGNN".to_string() }
         );
 
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
         
         // Barcode NNGGGGNN matches AAGGGGTT
         let record = SingeRecordDto::with_attrs("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
@@ -296,7 +296,7 @@ mod tests {
         let mut context = Context::new(&args);
         context.adapters.push("AGATNNNN".to_string());
         
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCCCC", b"IIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -312,7 +312,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
         let context = Context::new(&args);
          
-        let worker = SingleWorker::new(&args, &context, context.corrected_qtrim_threshold);
+        let worker = SingleWorker::new(&args, &context);
 
         // Length 10 - should keep
         let record = SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");
