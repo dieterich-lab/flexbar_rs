@@ -1,4 +1,6 @@
+use bio::alignment::Alignment;
 use bio::alignment::pairwise::*;
+use log::trace;
 use crate::types::TrimEnd;
 
 
@@ -34,10 +36,10 @@ impl AlignerFactory {
     ) -> Self {
         let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix) = match trim_end {
             TrimEnd::Any => (0, 0, 0, 0),
-            TrimEnd::Left => (0, MIN_SCORE, 0, 0),
-            TrimEnd::Right => (MIN_SCORE, 0, 0, 0),
-            TrimEnd::LTail => (0, MIN_SCORE, MIN_SCORE, 0),
-            TrimEnd::RTail => (MIN_SCORE, 0, 0, MIN_SCORE),
+            TrimEnd::Left => (MIN_SCORE, MIN_SCORE, 0, 0),
+            TrimEnd::Right => (MIN_SCORE, MIN_SCORE, 0, 0),
+            TrimEnd::LTail => (MIN_SCORE, MIN_SCORE, MIN_SCORE, 0),
+            TrimEnd::RTail => (MIN_SCORE, MIN_SCORE, 0, MIN_SCORE),
         };
 
         Self {
@@ -113,4 +115,11 @@ impl AlignerFactory {
         let aligner = Aligner::with_capacity_and_scoring(capacity.m, capacity.n, scoring);
         CachedAligner { aligner, capacity }
     }
+}
+
+pub fn trace_alignment(alignment: &Alignment, x: &[u8], y: &[u8]) {
+    trace!(
+        "Alignment with score {}:\n{}",
+        alignment.score, alignment.pretty(x, y, 80)
+    );
 }

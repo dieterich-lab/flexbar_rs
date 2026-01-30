@@ -5,7 +5,7 @@ use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::utils::{extract_umi_tags, get_trim_range};
 use bio::alignment::{Alignment, AlignmentOperation};
 use crate::context::SequenceWithId;
-use crate::utils::aligner::AlignerFactory;
+use crate::utils::aligner::{trace_alignment, AlignerFactory};
 
 pub struct SingleBarcodeSplitter {
     barcodes: Vec<SequenceWithId>,
@@ -35,6 +35,9 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
             let alignment = aligner.custom(
                 barcode.sequence.as_bytes(), rec.get_sequence()
             );
+            if self.trace {
+                trace_alignment(&alignment, barcode.sequence.as_bytes(), rec.get_sequence());
+            }
             let candidate = BarCodeAlignment { alignment, barcode: &barcode };
             self.update_best_alignment(&mut best_alignment, candidate);
         }
@@ -79,14 +82,20 @@ impl SingleBarcodeSplitter {
     ) {
         let overlap = candidate.alignment.yend - candidate.alignment.ystart;
         let barcode_overlap = candidate.alignment.xend - candidate.alignment.xstart;
-        if overlap < self.min_overlap || barcode_overlap < self.min_overlap { return; }
+        if overlap < self.min_overlap || barcode_overlap < self.min_overlap {
+            if self.trace { trace!("Skipping alignment: Overlap to short.") }
+            return;
+        }
         let allowed_errors = (overlap as f32 * self.error_rate) as usize;
         if !self.check_match(
             &candidate.alignment,
             candidate.barcode.sequence.as_ref(),
             overlap,
             allowed_errors
-        ) { return; }
+        ) {
+            if self.trace { trace!("Skipping alignment: Too many errors.") }
+            return; 
+        }
 
         match best_alignment {
             Some(best) => {
@@ -438,6 +447,34 @@ mod tests {
             b"GACGATCACGGGGCGACGCCTGTCTGAGCGTCGCTCCCTGGTAGCTCTGAGGCACCATCAATAGATCGGAA",
             b"99I999-99-9III--I9IIIIIIIIIIIIIII9IIIIIIIIIIII9IIIIIIIII9III-IIIII9II9I"
         )
+    }
+
+    fn get_problematic_record() -> SingeRecordDto {
+        // @VH00748:119:AAGJ22MM5:1:1101:39591:1000 1:N:0:TACGGTCT+GCAATGGA
+        // GATAGCAACTCTAGCATCACCAGTATTAGAGGCTTTCTGTAGCTCTGTAGGCACATCAATAGATCGGAAGA
+        // +
+        // I9I9III9IIIIIIIIIIII9IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
+        SingeRecordDto::with_attrs(
+            "VH00748:119:AAGJ22MM5:1:1101:39591:1000",
+            Some("1:N:0:TACGGTCT+GCAATGGA"),
+            b"GATAGCAACTCTAGCATCACCAGTATTAGAGGCTTTCTGTAGCTCTGTAGGCACATCAATAGATCGGAAGA",
+            b"I9I9III9IIIIIIIIIIII9IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"
+        )
+    }
+
+    #[test]
+    fn test_record_problematic_no_tolerance() {
+        let res = process_record(
+            get_problematic_record(),
+            Args::parse_from(&[
+                "flexbar_rs",
+                "--reads", "test.fq",
+                "--barcode-trim-end", "RIGHT",
+                "--barcode-min-overlap", "11",
+                "--umi-tags"
+            ])
+        );
+        assert!(res.alignment_results.record_dropped);
     }
 
     #[test]
