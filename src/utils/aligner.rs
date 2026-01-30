@@ -34,13 +34,18 @@ impl AlignerFactory {
         gap_open: i32,
         gap_extend: i32,
     ) -> Self {
-        let (xclip_prefix, xclip_suffix, yclip_prefix, yclip_suffix) = match trim_end {
-            TrimEnd::Any => (0, 0, 0, 0),
-            TrimEnd::Left => (MIN_SCORE, MIN_SCORE, 0, 0),
-            TrimEnd::Right => (MIN_SCORE, MIN_SCORE, 0, 0),
-            TrimEnd::LTail => (MIN_SCORE, MIN_SCORE, MIN_SCORE, 0),
-            TrimEnd::RTail => (MIN_SCORE, MIN_SCORE, 0, MIN_SCORE),
+        let xclip_prefix = match trim_end {
+            TrimEnd::Right => MIN_SCORE,
+            TrimEnd::RTail => MIN_SCORE,
+            _ => 0,
         };
+        let xclip_suffix = match trim_end {
+            TrimEnd::Left => MIN_SCORE,
+            TrimEnd::LTail => MIN_SCORE,
+            _ => 0,
+        };
+        let yclip_prefix = 0;
+        let yclip_suffix = 0;
 
         Self {
             match_score,

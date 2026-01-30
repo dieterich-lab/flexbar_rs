@@ -1,3 +1,4 @@
+use std::cmp::min;
 use crate::args::Args;
 use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
@@ -32,14 +33,14 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 
         let mut best_alignment: Option<BarCodeAlignment> = None;
         for barcode in &self.barcodes {
-            let alignment = aligner.custom(
-                barcode.sequence.as_bytes(), rec.get_sequence()
-            );
+            let b_seq = barcode.sequence.as_bytes();
+            let r_seq = rec.get_sequence();
+            let alignment = aligner.custom(b_seq, r_seq);
             if self.trace {
-                trace_alignment(&alignment, barcode.sequence.as_bytes(), rec.get_sequence());
+                trace_alignment(&alignment, b_seq, r_seq);
             }
-            let candidate = BarCodeAlignment { alignment, barcode: &barcode };
-            self.update_best_alignment(&mut best_alignment, candidate);
+            let candidate = BarCodeAlignment { alignment, barcode: &barcode,  };
+            self.update_best_alignment(&mut best_alignment, candidate, r_seq.len());
         }
         self.apply_best_alignment(&mut rec, &mut best_alignment);
         rec
@@ -79,22 +80,27 @@ impl SingleBarcodeSplitter {
         &self,
         best_alignment: &mut Option<BarCodeAlignment<'a>>,
         candidate: BarCodeAlignment<'a>,
+        sequence_len: usize,
     ) {
         let overlap = candidate.alignment.yend - candidate.alignment.ystart;
         let barcode_overlap = candidate.alignment.xend - candidate.alignment.xstart;
         if overlap < self.min_overlap || barcode_overlap < self.min_overlap {
-            if self.trace { trace!("Skipping alignment: Overlap to short.") }
+            if self.trace { trace!("Skipping alignment: Overlap too short.") }
             return;
         }
         let allowed_errors = (overlap as f32 * self.error_rate) as usize;
+        let required_overlap = min(
+            sequence_len - candidate.alignment.ystart,
+            candidate.barcode.sequence.len()
+        );
         if !self.check_match(
             &candidate.alignment,
             candidate.barcode.sequence.as_ref(),
-            overlap,
+            required_overlap,
             allowed_errors
         ) {
             if self.trace { trace!("Skipping alignment: Too many errors.") }
-            return; 
+            return;
         }
 
         match best_alignment {
@@ -147,7 +153,7 @@ impl SingleBarcodeSplitter {
                 return true
             }
         }
-        false
+        bases_to_check <= free_errors as usize
     }
 
     fn apply_best_alignment(
@@ -425,16 +431,33 @@ mod tests {
         assert_eq!(res.get_sequence(), b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
     }
 
-    fn get_record_with_with_11_bases_barcode_overlap() -> SingeRecordDto {
+    fn get_record_with_with_13_bases_barcode_overlap() -> SingeRecordDto {
         // Scenario: Barcode matches with an overlap of 11 bases.
         // Sequence: CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCT
         // Barcode:                                              NNNNNNTAGCTCTGTAGGCACCATCAAT
         SingeRecordDto::with_attrs(
-            "VH00748:119:AAGJ22MM5:1:1101:28608:1038",
+            "generic",
             Some("1:N:0:TACGGTCT+GCAATGGA"),
             b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCT",
-            b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII"
+            b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIII"
         )
+    }
+
+    #[test]
+    fn test_record_with_with_13_bases_barcode_overlap() {
+        let res = process_record(
+            get_record_with_with_13_bases_barcode_overlap(),
+            Args::parse_from(&[
+                "flexbar_rs",
+                "--reads", "test.fq",
+                "--barcode-trim-end", "RIGHT",
+                "--barcode-min-overlap", "11",
+                "--umi-tags",
+            ])
+        );
+        assert!(!res.alignment_results.record_dropped);
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.get_sequence(), b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
     }
 
     fn get_record_with_a_deletion_in_the_barcode() -> SingeRecordDto {
@@ -447,34 +470,6 @@ mod tests {
             b"GACGATCACGGGGCGACGCCTGTCTGAGCGTCGCTCCCTGGTAGCTCTGAGGCACCATCAATAGATCGGAA",
             b"99I999-99-9III--I9IIIIIIIIIIIIIII9IIIIIIIIIIII9IIIIIIIII9III-IIIII9II9I"
         )
-    }
-
-    fn get_problematic_record() -> SingeRecordDto {
-        // @VH00748:119:AAGJ22MM5:1:1101:39591:1000 1:N:0:TACGGTCT+GCAATGGA
-        // GATAGCAACTCTAGCATCACCAGTATTAGAGGCTTTCTGTAGCTCTGTAGGCACATCAATAGATCGGAAGA
-        // +
-        // I9I9III9IIIIIIIIIIII9IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII
-        SingeRecordDto::with_attrs(
-            "VH00748:119:AAGJ22MM5:1:1101:39591:1000",
-            Some("1:N:0:TACGGTCT+GCAATGGA"),
-            b"GATAGCAACTCTAGCATCACCAGTATTAGAGGCTTTCTGTAGCTCTGTAGGCACATCAATAGATCGGAAGA",
-            b"I9I9III9IIIIIIIIIIII9IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"
-        )
-    }
-
-    #[test]
-    fn test_record_problematic_no_tolerance() {
-        let res = process_record(
-            get_problematic_record(),
-            Args::parse_from(&[
-                "flexbar_rs",
-                "--reads", "test.fq",
-                "--barcode-trim-end", "RIGHT",
-                "--barcode-min-overlap", "11",
-                "--umi-tags"
-            ])
-        );
-        assert!(res.alignment_results.record_dropped);
     }
 
     #[test]
@@ -508,5 +503,35 @@ mod tests {
         assert!(!res.alignment_results.record_dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
         assert_eq!(res.get_sequence(), b"GACGATCACGGGGCGACGCCTGTCTGAGCGTCGCT");
+    }
+
+    fn get_partial_overlap_record() -> SingeRecordDto {
+        // Scenario: Barcode matches with more than "barcode-min-overlap" bases (11),
+        // but has a deletion later in the sequence.
+        // Seq:     GATAGCAACTCTAGCATCACCAGTATTAGAGGCTTTCTGTAGCTCTGTAGGCAC-ATCAATAGATCGGAAGA
+        // W/o bar: GATAGCAACTCTAGCATCACCAGTATTAGAGGC
+        // Matching:                                 |||||||||||||||||||||-||||||
+        // Barcode:                                  NNNNNNTAGCTCTGTAGGCACCATCAAT
+        SingeRecordDto::with_attrs(
+            "VH00748:119:AAGJ22MM5:1:1101:39591:1000",
+            Some("1:N:0:TACGGTCT+GCAATGGA"),
+            b"GATAGCAACTCTAGCATCACCAGTATTAGAGGCTTTCTGTAGCTCTGTAGGCACATCAATAGATCGGAAGA",
+            b"I9I9III9IIIIIIIIIIII9IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"
+        )
+    }
+
+    #[test]
+    fn test_partial_overlap_record_no_tolerance() {
+        let res = process_record(
+            get_partial_overlap_record(),
+            Args::parse_from(&[
+                "flexbar_rs",
+                "--reads", "test.fq",
+                "--barcode-trim-end", "RIGHT",
+                "--barcode-min-overlap", "11",
+                "--umi-tags"
+            ])
+        );
+        assert!(res.alignment_results.record_dropped);
     }
 }
