@@ -47,14 +47,14 @@ impl SingleAdapterRemover {
 
     pub fn remove_adapters(&self, rec: &mut RecordInTransformation<SingeRecordDto>) {
         let current_seq = &rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
-        let mut aligner = self.aligner_factory.get(self.max_adapter_len, current_seq.len());
+        let mut aligner = self.aligner_factory.get(current_seq.len(), self.max_adapter_len);
 
         let mut best_alignment: Option<(Alignment, usize)> = None;
 
         for (i, adapter) in self.adapters.iter().enumerate() {
-            let alignment = aligner.custom(adapter.as_bytes(), current_seq);
-            let overlap = alignment.yend - alignment.ystart;
-            let adapter_overlap = alignment.xend - alignment.xstart;
+            let alignment = aligner.custom(current_seq, adapter.as_bytes());
+            let overlap = alignment.xend - alignment.xstart;
+            let adapter_overlap = alignment.yend - alignment.ystart;
             
             if overlap >= self.adapter_min_overlap && adapter_overlap >= self.adapter_min_overlap {
                 let matches = (alignment.score - overlap as i32 * self.adapter_mismatch) / (self.adapter_match - self.adapter_mismatch);

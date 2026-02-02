@@ -29,17 +29,17 @@ struct BarCodeAlignment<'a> {
 
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
-        let mut aligner = self.aligner_factory.get(self.max_barcode_len, rec.get_sequence().len());
+        let mut aligner = self.aligner_factory.get(rec.get_sequence().len(), self.max_barcode_len);
 
         let mut best_alignment: Option<BarCodeAlignment> = None;
+        let r_seq = rec.get_sequence();
         for barcode in &self.barcodes {
             let b_seq = barcode.sequence.as_bytes();
-            let r_seq = rec.get_sequence();
-            let alignment = aligner.custom(b_seq, r_seq);
+            let alignment = aligner.custom(r_seq, b_seq);
             if self.trace {
-                trace_alignment(&alignment, b_seq, r_seq);
+                trace_alignment(&alignment, r_seq, b_seq);
             }
-            let candidate = BarCodeAlignment { alignment, barcode: &barcode,  };
+            let candidate = BarCodeAlignment { alignment, barcode: &barcode};
             self.update_best_alignment(&mut best_alignment, candidate, r_seq.len());
         }
         self.apply_best_alignment(&mut rec, &mut best_alignment);
@@ -82,15 +82,15 @@ impl SingleBarcodeSplitter {
         candidate: BarCodeAlignment<'a>,
         sequence_len: usize,
     ) {
-        let overlap = candidate.alignment.yend - candidate.alignment.ystart;
-        let barcode_overlap = candidate.alignment.xend - candidate.alignment.xstart;
+        let overlap = candidate.alignment.xend - candidate.alignment.xstart;
+        let barcode_overlap = candidate.alignment.yend - candidate.alignment.ystart;
         if overlap < self.min_overlap || barcode_overlap < self.min_overlap {
             if self.trace { trace!("Skipping alignment: Overlap too short.") }
             return;
         }
         let allowed_errors = (overlap as f32 * self.error_rate) as usize;
         let required_overlap = min(
-            sequence_len - candidate.alignment.ystart,
+            sequence_len - candidate.alignment.xstart,
             candidate.barcode.sequence.len()
         );
         if !self.check_match(
@@ -119,7 +119,7 @@ impl SingleBarcodeSplitter {
         overlap: usize,
         allowed_errors: usize
     ) -> bool {
-        let mut barcode_pos = alignment.xstart;
+        let mut barcode_pos = alignment.ystart;
         let mut bases_to_check = overlap;
         let mut free_errors: i32 = allowed_errors as i32;
 
@@ -137,11 +137,11 @@ impl SingleBarcodeSplitter {
                     bases_to_check -= 1;
                 }
                 AlignmentOperation::Ins => {
-                    barcode_pos += 1;
+                    bases_to_check -= 1;
                     free_errors -= 1;
                 }
                 AlignmentOperation::Del => {
-                    bases_to_check -= 1;
+                    barcode_pos += 1;
                     free_errors -= 1;
                 }
                 _ => {}

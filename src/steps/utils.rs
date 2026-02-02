@@ -14,8 +14,8 @@ pub fn extract_umi_tags(
     for op in &alignment.operations {
         match op {
             AlignmentOperation::Match | AlignmentOperation::Subst => {
-                if reference[x] == b'N' {
-                    umi.push(read[y] as char);
+                if reference[y] == b'N' {
+                    umi.push(read[x] as char);
                 } else if !umi.is_empty() {
                     umi_tags.push(umi);
                     umi = String::new();
@@ -45,24 +45,24 @@ pub fn get_trim_range(
 ) -> (usize, usize) {
     match trim_end {
         TrimEnd::Right => {
-            (0, alignment.ystart)
+            (0, alignment.xstart)
         }
         TrimEnd::RTail => {
-            (0, alignment.yend)
+            (0, alignment.xend)
         }
         TrimEnd::Left => {
-            (alignment.yend, len)
+            (alignment.xend, len)
         }
         TrimEnd::LTail => {
-            (alignment.ystart, len)
+            (alignment.xstart, len)
         }
         TrimEnd::Any => {
-            let left_dist = alignment.ystart;
-            let right_dist = len - alignment.yend;
+            let left_dist = alignment.xstart;
+            let right_dist = len - alignment.xend;
             if left_dist <= right_dist {
-                (alignment.yend, len)
+                (alignment.xend, len)
             } else {
-                (0, alignment.ystart)
+                (0, alignment.xstart)
             }
         }
     }
