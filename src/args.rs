@@ -169,7 +169,7 @@ pub struct Args {
     #[arg(long = "adapter-gap-open", default_value_t = -6)]
     pub adapter_gap_open: i32,
 
-    /// Alignment gap extend score for adapters (default -6)
+    /// Alignment gap extend score for adapters (default -1)
     #[arg(long = "adapter-gap-extend", default_value_t = -1)]
     pub adapter_gap_extend: i32,
 
