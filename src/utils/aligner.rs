@@ -34,17 +34,23 @@ impl AlignerFactory {
         gap_open: i32,
         gap_extend: i32,
     ) -> Self {
-        let xclip_prefix = 0;
-        let xclip_suffix = 0;
+        let xclip_prefix = match trim_end {
+            TrimEnd::LTail => MIN_SCORE,
+            _ => 0,
+        };
+        let xclip_suffix = match trim_end {
+            TrimEnd::RTail => MIN_SCORE,
+            _ => 0,
+        };
         let yclip_prefix = match trim_end {
             TrimEnd::Right => MIN_SCORE,
             TrimEnd::RTail => MIN_SCORE,
             _ => 0,
         };
-         let yclip_suffix = match trim_end {
-             TrimEnd::Left => MIN_SCORE,
-             TrimEnd::LTail => MIN_SCORE,
-             _ => 0,
+        let yclip_suffix= match trim_end {
+            TrimEnd::Left => MIN_SCORE,
+            TrimEnd::LTail => MIN_SCORE,
+            _ => 0,
         };
 
         Self {
@@ -166,8 +172,23 @@ mod tests {
     fn test_aligner_right_overhang() {
         let alignment = run_alignment(
             TrimEnd::Right, 1, -1, -1, -1,
+            b"AAAAATTT", b"NNNTTTTCCC"
+        );
+        // Matching prefix NNNTTT at position 2
+        assert_eq!(alignment.score, 6);
+        assert_eq!(alignment.xstart, 2);
+        assert_eq!(alignment.xend, 8);
+        assert_eq!(alignment.ystart, 0);
+        assert_eq!(alignment.yend, 6);
+    }
+
+    #[test]
+    fn test_aligner_right_overhang_ambiguous() {
+        let alignment = run_alignment(
+            TrimEnd::Right, 1, -1, -1, -1,
             b"AAAAATTT", b"TTTT"
         );
+        // Matching prefix TTT at position 5
         assert_eq!(alignment.score, 3);
         assert_eq!(alignment.xstart, 5);
         assert_eq!(alignment.xend, 8);
@@ -181,6 +202,7 @@ mod tests {
             TrimEnd::Right, 1, -1, -1, -1,
             b"AAAAATTATT", b"TTTTTTT"
         );
+        // Matching prefix TTxTT with an error starting at x[5]
         assert_eq!(alignment.score, 3);
         assert_eq!(alignment.xstart, 5);
         assert_eq!(alignment.xend, 10);
@@ -194,6 +216,7 @@ mod tests {
             TrimEnd::Right, 1, -1, -1, -1,
             b"AAAAATTTTTAAA", b"TTTTT"
         );
+        // Prefect match att position 5
         assert_eq!(alignment.score, 5);
         assert_eq!(alignment.xstart, 5);
         assert_eq!(alignment.xend, 10);
@@ -207,6 +230,7 @@ mod tests {
             TrimEnd::Right, 1, -1, -1, -1,
             b"AAAAATTATTAAA", b"TTTTT"
         );
+        // Match with error TTxTT at position 5
         assert_eq!(alignment.score, 3);
         assert_eq!(alignment.xstart, 5);
         assert_eq!(alignment.xend, 10);
@@ -220,6 +244,7 @@ mod tests {
             TrimEnd::Right, 1, -1, -1, -1,
             b"AAAAATTATTAAA", b"TTNTT"
         );
+        // Matching TTNTT at position 5
         assert_eq!(alignment.score, 5);
         assert_eq!(alignment.xstart, 5);
         assert_eq!(alignment.xend, 10);
@@ -233,6 +258,7 @@ mod tests {
             TrimEnd::Right, 1, -1, -1, -1,
             b"TTTAAAA", b"TTTT"
         );
+        // Match TTT (prefix) starting x[0]
         assert_eq!(alignment.score, 3);
         assert_eq!(alignment.xstart, 0);
         assert_eq!(alignment.xend, 3);
@@ -242,15 +268,20 @@ mod tests {
 
     #[test]
     fn test_aligner_right_partial_embedded() {
+        // This a strange case: The aligner will score an invalid barcode match
+        // in the middle of the string higher than an exact prefix match at the end.
+        // So the same read may be mapped to a barcode with TrimEnd::RTail but not
+        // with TrimEnd::Right.
         let alignment = run_alignment(
             TrimEnd::Right, 1, -1, -1, -1,
             b"AAAAATTTTTAAATTT", b"NNNTTTTTCCCC"
         );
-        assert_eq!(alignment.score, 6);
-        assert_eq!(alignment.xstart, 10);
-        assert_eq!(alignment.xend, 16);
+        // Matching NNNTTTTTT (prefix) at position 2
+        assert_eq!(alignment.score, 8);
+        assert_eq!(alignment.xstart, 2);
+        assert_eq!(alignment.xend, 10);
         assert_eq!(alignment.ystart, 0);
-        assert_eq!(alignment.yend, 6);
+        assert_eq!(alignment.yend, 8);
     }
 
     #[test]
@@ -259,10 +290,26 @@ mod tests {
             TrimEnd::Left, 1, -1, -1, -1,
             b"TTTAAAAA", b"TTTT"
         );
+        // Match TTT (suffix) starting x[0]
         assert_eq!(alignment.score, 3);
         assert_eq!(alignment.xstart, 0);
         assert_eq!(alignment.xend, 3);
         assert_eq!(alignment.ystart, 1);
         assert_eq!(alignment.yend, 4);
+    }
+
+    #[test]
+    fn test_aliagner_rtail_overhang() {
+        // See also: test_aligner_right_partial_embedded()!!!
+        let alignment = run_alignment(
+            TrimEnd::RTail, 1, -1, -1, -1,
+            b"AAAAATTTTTAAATTT", b"NNNTTTTTCCCC"
+        );
+        // Match NNNTTT starting x[10]
+        assert_eq!(alignment.score, 6);
+        assert_eq!(alignment.xstart, 10);
+        assert_eq!(alignment.xend, 16);
+        assert_eq!(alignment.ystart, 0);
+        assert_eq!(alignment.yend, 6);
     }
 }
