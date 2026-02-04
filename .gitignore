@@ -1,2 +1,8 @@
 /target
 .idea/
+/perf_test/EV19002.R1_short.fastq.gz
+/perf_test/out/
+/flamegraph.svg
+/perf.data
+/perf.data.old
+/perf_test/EV19002.R1_10000.fastq.gz
