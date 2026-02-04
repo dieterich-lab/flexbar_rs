@@ -1,3 +1,4 @@
+use std::cell::RefMut;
 use std::cmp::min;
 use crate::args::Args;
 use crate::types::{TrimEnd, SingeRecordDto};
@@ -5,6 +6,7 @@ use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::utils::{extract_umi_tags, get_trim_range};
 use bio::alignment::{Alignment, AlignmentOperation};
+use bio::alignment::pairwise::Aligner;
 use crate::context::SequenceWithId;
 use crate::utils::aligner::{trace_alignment, AlignerFactory};
 
@@ -14,6 +16,7 @@ pub struct SingleBarcodeSplitter {
     min_overlap: usize,
     error_rate: f32,
     aligner_factory: AlignerFactory,
+    tail_aligner_factory: Option<AlignerFactory>,
     barcode_keep: bool,
     barcode_unassigned: bool,
     removal_tags: bool,
@@ -27,21 +30,31 @@ struct BarCodeAlignment<'a> {
     barcode: &'a SequenceWithId,
 }
 
+type BoxedAligner<'a> = RefMut<'a, Aligner<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>>;
+
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
-        let mut aligner = self.aligner_factory.get(rec.get_sequence().len(), self.max_barcode_len);
-
         let mut best_alignment: Option<BarCodeAlignment> = None;
         let r_seq = rec.get_sequence();
+        let seq_len = r_seq.len();
+        let mut aligners = self.build_aligners(seq_len);
+
         for barcode in &self.barcodes {
-            let b_seq = barcode.sequence.as_bytes();
-            let alignment = aligner.custom(r_seq, b_seq);
-            if self.trace {
-                trace_alignment(&alignment, r_seq, b_seq);
+            match self.try_alignment(&mut aligners, r_seq, barcode) {
+                Some(candidate) => {
+                    match best_alignment {
+                        Some(ref best) => {
+                            if candidate.alignment.score > best.alignment.score {
+                                best_alignment = Some(candidate);
+                            }
+                        },
+                        None => { best_alignment = Some(candidate); }
+                    }
+                }
+                None => ()
             }
-            let candidate = BarCodeAlignment { alignment, barcode: &barcode};
-            self.update_best_alignment(&mut best_alignment, candidate, r_seq.len());
         }
+
         self.apply_best_alignment(&mut rec, &mut best_alignment);
         rec
     }
@@ -61,12 +74,36 @@ impl SingleBarcodeSplitter {
             args.barcode_gap_extend,
         );
 
+        // In the case of a trim end of RIGHT or LEFT, we might find an alignment
+        // in the middle of the sequence, which has a good score but is invalid.
+        // That may prevent the aligner from finding a valid alignment at the end
+        // with the same or a lower score. To prevent that, we check again with
+        // the 'TAIL' version of the aligner specifically for alignments at the end.
+        let tail_aligner_factory = match args.barcode_trim_end {
+            TrimEnd::Right => Some(AlignerFactory::new(
+                TrimEnd::RTail,
+                args.barcode_match,
+                args.barcode_mismatch,
+                args.barcode_gap_open,
+                args.barcode_gap_extend,
+            )),
+            TrimEnd::Left => Some(AlignerFactory::new(
+                TrimEnd::LTail,
+                args.barcode_match,
+                args.barcode_mismatch,
+                args.barcode_gap_open,
+                args.barcode_gap_extend,
+            )),
+            _ => None,
+        };
+
         Self {
             barcodes: (*barcodes).clone(),
             trim_end: args.barcode_trim_end,
             min_overlap: barcode_min_overlap,
             error_rate: args.barcode_error_rate,
             aligner_factory,
+            tail_aligner_factory,
             barcode_keep: args.barcode_keep,
             barcode_unassigned: args.barcode_unassigned,
             removal_tags: args.removal_tags,
@@ -76,41 +113,64 @@ impl SingleBarcodeSplitter {
         }
     }
 
-    fn update_best_alignment<'a>(
+    fn build_aligners(&self, sequence_len: usize)
+        -> Vec<RefMut<Aligner<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>>>
+    {
+        let aligner = self.aligner_factory.get(sequence_len, self.max_barcode_len);
+        let tail_aligner = self.tail_aligner_factory.as_ref().map(
+            |f| f.get(sequence_len, self.max_barcode_len)
+        );
+        match tail_aligner {
+            None => return vec![aligner],
+            Some(extra) => vec![aligner, extra],
+        }
+    }
+
+    fn try_alignment<'a>(
         &self,
-        best_alignment: &mut Option<BarCodeAlignment<'a>>,
-        candidate: BarCodeAlignment<'a>,
+        aligners: &mut [BoxedAligner],
+        r_seq: &[u8],
+        barcode: &'a SequenceWithId
+    )
+        -> Option<BarCodeAlignment<'a>> 
+    {
+        let b_seq = barcode.sequence.as_bytes();
+        for aligner in aligners.iter_mut() {
+            let alignment = aligner.custom(r_seq, b_seq);
+            if self.validate_alignment(&alignment, barcode, r_seq.len()) {
+                return Some(BarCodeAlignment { alignment, barcode });
+            }
+        }
+        None
+    }
+
+    fn validate_alignment(
+        &self,
+        alignment: &Alignment,
+        barcode: &SequenceWithId,
         sequence_len: usize,
-    ) {
-        let overlap = candidate.alignment.xend - candidate.alignment.xstart;
-        let barcode_overlap = candidate.alignment.yend - candidate.alignment.ystart;
+    ) -> bool {
+        let overlap = alignment.xend - alignment.xstart;
+        let barcode_overlap = alignment.yend - alignment.ystart;
         if overlap < self.min_overlap || barcode_overlap < self.min_overlap {
             if self.trace { trace!("Skipping alignment: Overlap too short.") }
-            return;
+            return false;
         }
         let allowed_errors = (overlap as f32 * self.error_rate) as usize;
         let required_overlap = min(
-            sequence_len - candidate.alignment.xstart,
-            candidate.barcode.sequence.len()
+            sequence_len - alignment.xstart,
+            barcode.sequence.len()
         );
         if !self.check_match(
-            &candidate.alignment,
-            candidate.barcode.sequence.as_ref(),
+            alignment,
+            barcode.sequence.as_ref(),
             required_overlap,
             allowed_errors
         ) {
             if self.trace { trace!("Skipping alignment: Too many errors.") }
-            return;
+            return false;
         }
-
-        match best_alignment {
-            Some(best) => {
-                if candidate.alignment.score > best.alignment.score {
-                    *best_alignment = Some(candidate);
-                }
-            },
-            None => { *best_alignment = Some(candidate); }
-        }
+        true
     }
 
     fn check_match(
@@ -163,6 +223,15 @@ impl SingleBarcodeSplitter {
     ) {
         match best_alignment {
             Some(best) => {
+                if self.trace {
+                    trace!(
+                            "Barcode splitter on {} selected the following alignment:", 
+                            rec.record.id()
+                        );
+                    trace_alignment(
+                        &best.alignment, rec.get_sequence(),best.barcode.sequence.as_bytes()
+                    );
+                }
                 self.assign_barcode_tag(rec, format!("barcode_{}", best.barcode.id));
                 self.handle_umi_tags(rec, &best);
                 self.remove_barcode(rec, &best);
@@ -533,5 +602,68 @@ mod tests {
             ])
         );
         assert!(res.alignment_results.record_dropped);
+    }
+
+    #[test]
+    fn test_two_pass_alignment_fallback() {
+        // This test specifically targets the case where RIGHT fails check_match
+        // but RTAIL might succeed.
+        
+        // Sequence: GATAGCAACTCTAGCATCACCAGTATTAGAGGCTTTCTGTAGCTCTGTAGGCACATCAATAGATCGGAAGA
+        // Barcode:                                  NNNNNNTAGCTCTGTAGGCACCATCAAT
+        
+        // With RIGHT, it might find a high scoring alignment that is NOT at the end,
+        // but if it's invalid (e.g. because of check_match), it should fall back to RTAIL.
+        
+        // Let's use a case where there is a good-ish match in the middle but it fails check_match,
+        // and an exact match at the end that RTAIL will find.
+        
+        // Actually, the existing test_partial_overlap_record_no_tolerance fails because
+        // the alignment found by RIGHT (which includes the mismatch/deletion) is invalid.
+        // If our fix works, it should now PASS if RTAIL can find a valid alignment.
+        // Wait, in get_partial_overlap_record():
+        // Seq:     GATAGCAACTCTAGCATCACCAGTATTAGAGGCTTTCTGTAGCTCTGTAGGCAC-ATCAATAGATCGGAAGA
+        // Barcode:                                  NNNNNNTAGCTCTGTAGGCACCATCAAT
+        // There is a '-' (deletion) in the sequence relative to barcode.
+        // If we use RIGHT, it finds this alignment. check_match fails.
+        // Then we try RTAIL. RTAIL also finds the same alignment because it's at the end anyway.
+        // So it still fails.
+        
+        // To test the fallback, we need a case where RIGHT finds a DIFFERENT (invalid) alignment
+        // than RTAIL (which finds a valid one).
+        
+        let barcodes = vec![
+            SequenceWithId {
+                id: "bc1".to_string(),
+                sequence: "NNNTTTTTCCCC".to_string()
+            }
+        ];
+        let splitter = SingleBarcodeSplitter::new(&Args::parse_from(&[
+            "flexbar_rs", "--reads", "test.fq", 
+            "--barcode-trim-end", "RIGHT", 
+            "--barcode-min-overlap", "6"
+        ]), &barcodes);
+        
+        let rec = SingeRecordDto::with_attrs("read1", None, b"AAAAATTTTTAAATTT", b"IIIIIIIIIIIIIIII");
+        let res = splitter.apply(rec.get_record_in_transformation());
+        
+        // In this case:
+        // Primary aligner (RIGHT) finds:
+        // AAAAATTTTTAAATTT
+        //   ||||||||
+        //   NNNTTTTTCCCC
+        // overlap = 8 (TTTTTAAA vs TTTTTCCC) -> 3 mismatches.
+        // allowed_errors (error_rate=0.1) = 0.
+        // check_match fails.
+        
+        // Tail aligner (RTAIL) finds:
+        // AAAAATTTTTAAATTT
+        //           ||||||
+        //           NNNTTTTTCCCC
+        // overlap = 6 (TTT vs NNN) -> 0 errors (N matches anything).
+        // check_match succeeds!
+        
+        assert!(!res.alignment_results.record_dropped);
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
     }
 }
