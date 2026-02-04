@@ -29,7 +29,7 @@ Dropped features:
 
 ## Building
 
-To create an optimised production binary, run:
+To create an optimized production binary, run:
 ```bash
 cargo +nightly multivers
 ```
