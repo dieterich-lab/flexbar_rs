@@ -1,4 +1,4 @@
-use bio::alignment::Alignment;
+use bio::alignment::{Alignment, AlignmentOperation};
 use bio::alignment::pairwise::*;
 use log::trace;
 use crate::types::TrimEnd;
@@ -128,16 +128,88 @@ impl AlignerFactory {
     }
 }
 
+pub fn format_alignment(alignment: &Alignment, x: &[u8], y: &[u8]) -> (String, String, String) {
+    let mut line1 = String::new();
+    let mut line2 = String::new();
+    let mut line3 = String::new();
+
+    let mut x_pos = 0;
+    let mut y_pos = 0;
+
+    for op in &alignment.operations {
+        match op {
+            AlignmentOperation::Match => {
+                let x_char = x[x_pos];
+                let y_char = y[y_pos];
+                line1.push(x_char as char);
+                line3.push(y_char as char);
+                if x_char == b'N' || y_char == b'N' {
+                    line2.push('.');
+                } else {
+                    line2.push('|');
+                }
+                x_pos += 1;
+                y_pos += 1;
+            }
+            AlignmentOperation::Subst => {
+                let x_char = x[x_pos];
+                let y_char = y[y_pos];
+                line1.push(x_char as char);
+                line3.push(y_char as char);
+                if x_char == b'N' || y_char == b'N' {
+                    line2.push('.');
+                } else {
+                    line2.push('\\');
+                }
+                x_pos += 1;
+                y_pos += 1;
+            }
+            AlignmentOperation::Ins => {
+                line1.push(x[x_pos] as char);
+                line2.push(' ');
+                line3.push(' ');
+                x_pos += 1;
+            }
+            AlignmentOperation::Del => {
+                line1.push(' ');
+                line2.push(' ');
+                line3.push(y[y_pos] as char);
+                y_pos += 1;
+            }
+            AlignmentOperation::Xclip(len) => {
+                for _ in 0..*len {
+                    line1.push(x[x_pos] as char);
+                    line2.push(' ');
+                    line3.push(' ');
+                    x_pos += 1;
+                }
+            }
+            AlignmentOperation::Yclip(len) => {
+                for _ in 0..*len {
+                    line1.push(' ');
+                    line2.push(' ');
+                    line3.push(y[y_pos] as char);
+                    y_pos += 1;
+                }
+            }
+        }
+    }
+    (line1, line2, line3)
+}
+
 pub fn trace_alignment(alignment: &Alignment, x: &[u8], y: &[u8]) {
+    let (line1, line2, line3) = format_alignment(alignment, x, y);
+
     trace!(
-        "Alignment with score {}:\n{}",
-        alignment.score, alignment.pretty(x, y, 80)
+        "Alignment with score {}:\n  {}\n  {}\n  {}",
+        alignment.score, line1, line2, line3
     );
 }
 
 mod tests {
     use bio::alignment::Alignment;
     use crate::types::TrimEnd;
+    use super::format_alignment;
 
     fn run_alignment(
         trim_end: TrimEnd,
@@ -311,5 +383,117 @@ mod tests {
         assert_eq!(alignment.xend, 16);
         assert_eq!(alignment.ystart, 0);
         assert_eq!(alignment.yend, 6);
+    }
+
+    #[test]
+    fn test_format_alignment_wildcard() {
+        let x = b"ACGTNTCG";
+        let y = b"ACGTATCG";
+        let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
+        let (l1, l2, l3) = format_alignment(&alignment, x, y);
+        assert_eq!(l1, "ACGTNTCG");
+        assert_eq!(l2, "||||.|||");
+        assert_eq!(l3, "ACGTATCG");
+    }
+
+    #[test]
+    fn test_format_alignment_embedded() {
+        let x = b"AAAAACCCCTTTTT";
+        let y = b"CCCC";
+        let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
+        let (l1, l2, l3) = format_alignment(&alignment, x, y);
+        // Expected alignment:
+        // AAAAACCCCTTTTT
+        //      ||||
+        //      CCCC
+        // Note: Global alignment with Any might include clips.
+        // Actually run_alignment with TrimEnd::Any uses 0 for all clips.
+        
+        // Let's check what actually happens.
+        assert_eq!(l1, "AAAAACCCCTTTTT");
+        assert_eq!(l2, "     ||||     ");
+        assert_eq!(l3, "     CCCC     ");
+    }
+
+    #[test]
+    fn test_format_alignment_prefix_suffix() {
+        let x = b"AAACCC";
+        let y = b"CCCGGG";
+        // To get a prefix of y aligned to suffix of x, we might need TrimEnd::Any
+        // or a specific mode. TrimEnd::Any sets all clips to 0.
+        let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
+        let (l1, l2, l3) = format_alignment(&alignment, x, y);
+        
+        // AAACCC---
+        //    |||
+        // ---CCCGGG
+        
+        assert_eq!(l1, "AAACCC   ");
+        assert_eq!(l2, "   |||   ");
+        assert_eq!(l3, "   CCCGGG");
+    }
+
+    #[test]
+    fn test_format_alignment_suffix_prefix() {
+        let x = b"CCCGGG";
+        let y = b"AAACCC";
+        let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
+        let (l1, l2, l3) = format_alignment(&alignment, x, y);
+        
+        // ---CCCGGG
+        //    |||
+        // AAACCC---
+
+        assert_eq!(l1, "   CCCGGG");
+        assert_eq!(l2, "   |||   ");
+        assert_eq!(l3, "AAACCC   ");
+    }
+
+    #[test]
+    fn test_format_alignment_partial_with_error() {
+        let x = b"CCCCCGGG";
+        let y = b"AAACCACC";
+        let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
+        let (l1, l2, l3) = format_alignment(&alignment, x, y);
+
+        // ---CCCGGG
+        //    |||
+        // AAACCC---
+
+        assert_eq!(l1, "   CCCCCGGG");
+        assert_eq!(l2, "   ||\\||   ");
+        assert_eq!(l3, "AAACCACC   ");
+    }
+
+    #[test]
+    fn test_format_alignment_partial_with_deletion() {
+        let x = b"CAATCCTTTT";
+        let y = b"CCCCAACCT";
+        let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
+        let (l1, l2, l3) = format_alignment(&alignment, x, y);
+
+        // ---CCCGGG
+        //    |||
+        // AAACCC---
+
+        assert_eq!(l1, "   CAATCCTTTT");
+        assert_eq!(l2, "   ||| |||   ");
+        assert_eq!(l3, "CCCCAA CCT   ");
+    }
+
+    #[test]
+    fn test_format_alignment_partial_with_insertion() {
+        let x = b"CAACCTTTT";
+        let y = b"CCCCAATCCT";
+        let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
+        let (l1, l2, l3) = format_alignment(&alignment, x, y);
+
+        // ---CCCGGG
+        //    |||
+        // AAACCC---
+
+        assert_eq!(l1, "   CAA CCTTTT");
+        assert_eq!(l2, "   ||| |||   ");
+        assert_eq!(l3, "CCCCAATCCT   ");
     }
 }
