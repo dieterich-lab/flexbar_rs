@@ -1,14 +1,14 @@
 use crate::steps::generic::{GenericStep, FinalizeStep, Transformable};
 use crate::statistics::WorkerStatistics;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 pub struct GenericWorker<RecordType: Transformable> {
-    pub steps: Vec<Arc<dyn GenericStep<RecordType>>>,
-    pub finalize_step: Arc<dyn FinalizeStep<RecordType>>,
+    pub steps: Vec<Arc<Mutex<dyn GenericStep<RecordType>>>>,
+    pub finalize_step: Arc<Mutex<dyn FinalizeStep<RecordType>>>,
 }
 
 impl<RecordType: Clone + Transformable> GenericWorker<RecordType> {
-    pub fn new(steps: Vec<Arc<dyn GenericStep<RecordType>>>, finalize_step: Arc<dyn FinalizeStep<RecordType>>) -> Self {
+    pub fn new(steps: Vec<Arc<Mutex<dyn GenericStep<RecordType>>>>, finalize_step: Arc<Mutex<dyn FinalizeStep<RecordType>>>) -> Self {
         Self {steps, finalize_step}
     }
 
@@ -16,12 +16,12 @@ impl<RecordType: Clone + Transformable> GenericWorker<RecordType> {
         let mut rec_in = record.get_record_in_transformation();
 
         for step in &self.steps {
-            rec_in = step.apply(rec_in);
+            rec_in = step.lock().unwrap().apply(rec_in);
             if rec_in.alignment_results.record_dropped {
                 break;
             }
         }
 
-        self.finalize_step.apply(rec_in)
+        self.finalize_step.lock().unwrap().apply(rec_in)
     }
 }

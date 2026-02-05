@@ -16,7 +16,7 @@ impl SingleUncalledSequenceFilter {
 }
 
 impl GenericStep<SingeRecordDto> for SingleUncalledSequenceFilter {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+    fn apply(&mut self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped {
             trace!("Uncalled filter processing record: {}", rec.record.id());
             let seq = &rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];

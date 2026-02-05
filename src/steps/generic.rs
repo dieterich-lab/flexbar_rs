@@ -51,7 +51,7 @@ impl Transformable for SingeRecordDto {
 
 
 pub trait GenericStep<RecordType>: Send + Sync {
-    fn apply(&self, rec: RecordInTransformation<RecordType>) -> RecordInTransformation<RecordType>;
+    fn apply(&mut self, rec: RecordInTransformation<RecordType>) -> RecordInTransformation<RecordType>;
 }
 
 pub trait FinalizeStep<RecordType>: Send + Sync {

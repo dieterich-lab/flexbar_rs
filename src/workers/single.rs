@@ -4,19 +4,20 @@ use crate::types::{SingeRecordDto, QualTrimType};
 use crate::steps::single_adapter_remover::SingleAdapterRemover;
 use crate::steps::single_uncalled_sequence_filter::SingleUncalledSequenceFilter;
 use crate::steps::single_barcode_splitter::SingleBarcodeSplitter;
+use crate::steps::single_barcode_splitter_v2::SingleBarcodeSplitterV2;
 use crate::steps::single_quality_trim::SingleQualityTrim;
 use crate::steps::single_filter_length::SingleFilterLength;
 use crate::steps::single_finalize::SingleFinalizeStep;
 use crate::steps::generic::GenericStep;
 use crate::workers::generic::GenericWorker;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use log::debug;
 
 pub struct SingleWorker (GenericWorker<SingeRecordDto> );
 
 impl SingleWorker {
     pub fn new(args: &Args, context: &Context) -> Self {
-        let mut steps: Vec<Arc<dyn GenericStep<SingeRecordDto>>> = Vec::new();
+        let mut steps: Vec<Arc<std::sync::Mutex<dyn GenericStep<SingeRecordDto>>>> = Vec::new();
         debug!("Creating new single worker pipeline:");
 
         if args.max_uncalled > 0 {
@@ -24,7 +25,7 @@ impl SingleWorker {
                 "- Step SingleUncalledSequenceFilter (max_uncalled: {})", args.max_uncalled
             );
             steps.push(
-                Arc::new(SingleUncalledSequenceFilter::new(args))
+                Arc::new(std::sync::Mutex::new(SingleUncalledSequenceFilter::new(args)))
             );
         }
         if args.qtrim != QualTrimType::Off && !args.qtrim_post_removal {
@@ -35,7 +36,7 @@ impl SingleWorker {
                 args.qtrim_win_size
             );
             steps.push(
-                Arc::new(SingleQualityTrim::new(args, context.format))
+                Arc::new(std::sync::Mutex::new(SingleQualityTrim::new(args, context.format)))
             );
         }
         if !context.barcodes.is_empty() {
@@ -47,7 +48,8 @@ impl SingleWorker {
                 args.barcode_keep
             );
             steps.push(
-                Arc::new(SingleBarcodeSplitter::new(args, &context.barcodes))
+                Arc::new(std::sync::Mutex::new(SingleBarcodeSplitter::new(args, &context.barcodes)))
+                // Arc::new(std::sync::Mutex::new(SingleBarcodeSplitterV2::new(args, &context.barcodes)))
             );
         }
         if !context.adapters.is_empty() {
@@ -59,7 +61,7 @@ impl SingleWorker {
                 args.adapter_revcomp,
             );
             steps.push(
-                Arc::new(SingleAdapterRemover::new(args, &context.adapters))
+                Arc::new(std::sync::Mutex::new(SingleAdapterRemover::new(args, &context.adapters)))
             );
         }
 
@@ -71,13 +73,13 @@ impl SingleWorker {
                 args.qtrim_win_size
             );
             steps.push(
-                Arc::new(SingleQualityTrim::new(args, context.format))
+                Arc::new(std::sync::Mutex::new(SingleQualityTrim::new(args, context.format)))
             )
         }
 
-        steps.push(Arc::new(SingleFilterLength::new(args)));
+        steps.push(Arc::new(std::sync::Mutex::new(SingleFilterLength::new(args))));
         debug!("Single worker pipeline created.");
-        Self (GenericWorker::new(steps, Arc::new(SingleFinalizeStep)))
+        Self(GenericWorker::new(steps, Arc::new(std::sync::Mutex::new(SingleFinalizeStep))))
     }
     
     pub fn process(&self, record: &SingeRecordDto) -> (Option<SingeRecordDto>, Option<String>, crate::statistics::WorkerStatistics) {

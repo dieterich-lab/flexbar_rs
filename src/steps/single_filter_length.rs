@@ -16,7 +16,7 @@ impl SingleFilterLength {
 }
 
 impl GenericStep<SingeRecordDto> for SingleFilterLength {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+    fn apply(&mut self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped && self.min_read_length > 0 {
             let current_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
             if current_len < self.min_read_length {
@@ -40,7 +40,7 @@ mod tests {
     #[test]
     fn test_length_filter_keep() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
-        let filter = SingleFilterLength::new(&args);
+        let mut filter = SingleFilterLength::new(&args);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");
         let rec_in = RecordInTransformation {
@@ -61,7 +61,7 @@ mod tests {
     #[test]
     fn test_length_filter_drop() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
-        let filter = SingleFilterLength::new(&args);
+        let mut filter = SingleFilterLength::new(&args);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII");
         let rec_in = RecordInTransformation {
@@ -82,7 +82,7 @@ mod tests {
     #[test]
     fn test_length_filter_disabled() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "0"]);
-        let filter = SingleFilterLength::new(&args);
+        let mut filter = SingleFilterLength::new(&args);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"A", b"I");
         let rec_in = RecordInTransformation {

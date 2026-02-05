@@ -92,7 +92,7 @@ impl SingleQualityTrim {
 }
 
 impl GenericStep<SingeRecordDto> for SingleQualityTrim {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+    fn apply(&mut self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         let current_qual = &rec.record.qual()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
         let trim_pos = self.get_trim_pos(current_qual);
         if trim_pos < current_qual.len() {

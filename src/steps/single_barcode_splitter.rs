@@ -33,7 +33,7 @@ struct BarCodeAlignment<'a> {
 type BoxedAligner<'a> = RefMut<'a, Aligner<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>>;
 
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+    fn apply(&mut self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         let mut best_alignment: Option<BarCodeAlignment> = None;
         let r_seq = rec.get_sequence();
         let seq_len = r_seq.len();
@@ -121,7 +121,7 @@ impl SingleBarcodeSplitter {
             |f| f.get(sequence_len, self.max_barcode_len)
         );
         match tail_aligner {
-            None => return vec![aligner],
+            None => vec![aligner],
             Some(extra) => vec![aligner, extra],
         }
     }
@@ -316,7 +316,7 @@ mod tests {
                 sequence: "NNNNNNTAGCTCTGTAGGCACCATCAAT".to_string()
             }
         ];
-        let splitter = SingleBarcodeSplitter::new(&args, &barcodes);
+        let mut splitter = SingleBarcodeSplitter::new(&args, &barcodes);
         splitter.apply(
             record.get_record_in_transformation()
         )
@@ -638,7 +638,7 @@ mod tests {
                 sequence: "NNNTTTTTCCCC".to_string()
             }
         ];
-        let splitter = SingleBarcodeSplitter::new(&Args::parse_from(&[
+        let mut splitter = SingleBarcodeSplitter::new(&Args::parse_from(&[
             "flexbar_rs", "--reads", "test.fq", 
             "--barcode-trim-end", "RIGHT", 
             "--barcode-min-overlap", "6"

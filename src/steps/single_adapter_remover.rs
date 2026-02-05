@@ -89,7 +89,7 @@ impl SingleAdapterRemover {
 }
 
 impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+    fn apply(&mut self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped {
             trace!("Adapter remover processing record: {}", rec.record.id());
             self.remove_adapters(&mut rec);
