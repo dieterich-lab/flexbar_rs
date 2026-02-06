@@ -10,7 +10,7 @@ use crate::steps::single_filter_length::SingleFilterLength;
 use crate::steps::single_finalize::SingleFinalizeStep;
 use crate::steps::generic::GenericStep;
 use crate::workers::generic::GenericWorker;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc};
 use log::debug;
 
 pub struct SingleWorker (GenericWorker<SingeRecordDto> );

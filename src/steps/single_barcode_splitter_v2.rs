@@ -1,15 +1,15 @@
 use crate::args::Args;
 use crate::types::{TrimEnd, SingeRecordDto};
 use crate::steps::generic::{GenericStep, RecordInTransformation};
-use crate::steps::utils_v2::{extract_umi_tags_sig, trace_alignment_sig};
+use crate::steps::utils_sigalign::{extract_umi_tags_sig, get_local_aligner_from_parameters, get_semiglobal_aligner_from_parameters, trace_alignment_sig, usize_to_u32, AlignerAlgorithmParameters};
 use crate::context::SequenceWithId;
 use sigalign::{ReferenceBuilder, Aligner, algorithms::Local, algorithms::SemiGlobal, Reference};
 use sigalign::results::{Alignment, QueryAlignment};
-use std::cmp::max;
 use log::trace;
-use crate::logging::log_fatal;
 use std::cell::RefCell;
+use std::ops::DerefMut;
 use thread_local::ThreadLocal;
+use crate::logging::log_fatal;
 
 struct BarCodeAlignment {
     barcode_index: usize,
@@ -19,21 +19,26 @@ struct BarCodeAlignment {
     alignment_for_trace: Option<Alignment>
 }
 
+struct BarcodeAligners {
+    prefix: Option<Aligner<SemiGlobal>>,
+    middle: Option<Aligner<Local>>,
+    suffix: Option<Aligner<SemiGlobal>>,
+}
+
 pub struct SingleBarcodeSplitterV2 {
     barcodes: Vec<SequenceWithId>,
     max_barcode_len: usize,
-    reference: Reference,
-    prefix_aligner: ThreadLocal<RefCell<Option<Aligner<SemiGlobal>>>>,
-    middle_aligner: ThreadLocal<RefCell<Option<Aligner<Local>>>>,
-    suffix_aligner: ThreadLocal<RefCell<Option<Aligner<SemiGlobal>>>>,
-    args: Args,
-    pub min_overlap: usize,
+    trim_end: TrimEnd,
+    min_overlap: usize,
     error_rate: f32,
     barcode_keep: bool,
     barcode_unassigned: bool,
     removal_tags: bool,
     umi_tags: bool,
     trace: bool,
+    reference: Reference,
+    aligner_params: AlignerAlgorithmParameters,
+    aligners: ThreadLocal<RefCell<BarcodeAligners>>,
 }
 
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitterV2 {
@@ -57,17 +62,18 @@ impl SingleBarcodeSplitterV2 {
         for barcode in barcodes {
             builder = builder.add_target(&*barcode.id, barcode.sequence.as_bytes());
         }
+        // See: https://github.com/baku4/sigalign/issues/17
+        builder = builder.add_target("barcode2", b"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ");
         let reference = builder.build().unwrap();
 
         Self {
             barcodes: (*barcodes).clone(),
             max_barcode_len,
             reference,
-            prefix_aligner: ThreadLocal::new(),
-            middle_aligner: ThreadLocal::new(),
-            suffix_aligner: ThreadLocal::new(),
-            args: args.clone(),
+            aligner_params: get_algorithm_parameters_from_args(args, max_barcode_len),
+            aligners: ThreadLocal::new(),
             min_overlap: barcode_min_overlap,
+            trim_end: args.barcode_trim_end,
             error_rate: args.barcode_error_rate,
             barcode_keep: args.barcode_keep,
             barcode_unassigned: args.barcode_unassigned,
@@ -77,19 +83,9 @@ impl SingleBarcodeSplitterV2 {
         }
     }
 
-    fn try_alignment(
-        &self,
-        r_seq: &[u8],
-    ) -> Option<BarCodeAlignment> {
-        let middle_opt = self.middle_aligner.get_or(|| {
-            RefCell::new(match self.args.barcode_trim_end {
-                TrimEnd::Any | TrimEnd::Right | TrimEnd::Left => Some(
-                    get_local_aligner_from_args(&self.args, self.min_overlap)
-                ),
-                _ => None
-            })
-        });
-        if let Some(aligner) = middle_opt.borrow_mut().as_mut() {
+    fn try_alignment(&self, r_seq: &[u8]) -> Option<BarCodeAlignment> {
+        let mut aligners = self.get_aligners();
+        if let Some(aligner) = aligners.middle.as_mut() {
             let result = aligner.align(r_seq, &self.reference);
             if let Some(x) = self.get_best_valid_alignment(
                 &result, 0, false, false
@@ -98,15 +94,7 @@ impl SingleBarcodeSplitterV2 {
             }
         }
 
-        let prefix_opt = self.prefix_aligner.get_or(|| {
-            RefCell::new(match self.args.barcode_trim_end {
-                TrimEnd::Any | TrimEnd::Left | TrimEnd::LTail => Some(
-                    get_semiglobal_aligner_from_args(&self.args, self.min_overlap)
-                ),
-                _ => None
-            })
-        });
-        if let Some(aligner) = prefix_opt.borrow_mut().as_mut() {
+        if let Some(aligner) = aligners.prefix.as_mut() {
             let len = r_seq.len().min(self.max_barcode_len);
             let prefix = &r_seq[..len];
             let result = aligner.align(prefix, &self.reference);
@@ -117,15 +105,7 @@ impl SingleBarcodeSplitterV2 {
             }
         }
 
-        let suffix_opt = self.suffix_aligner.get_or(|| {
-            RefCell::new(match self.args.barcode_trim_end {
-                TrimEnd::Any | TrimEnd::Right | TrimEnd::RTail => Some(
-                    get_semiglobal_aligner_from_args(&self.args, self.min_overlap)
-                ),
-                _ => None
-            })
-        });
-        if let Some(aligner) = suffix_opt.borrow_mut().as_mut() {
+        if let Some(aligner) = aligners.suffix.as_mut() {
             let start_index = if r_seq.len() > self.max_barcode_len {
                 r_seq.len() - self.max_barcode_len
             } else { 0 };
@@ -140,14 +120,44 @@ impl SingleBarcodeSplitterV2 {
         None
     }
 
+    fn get_aligners(&self) -> impl DerefMut<Target=BarcodeAligners> + '_ {
+        self.aligners
+            .get_or(|| RefCell::new(self.create_new_aligners()))
+            .borrow_mut()
+    }
+
+    fn create_new_aligners(&self) -> BarcodeAligners {
+        let new_aligners = BarcodeAligners {
+            prefix: match self.trim_end {
+                TrimEnd::Left | TrimEnd::LTail | TrimEnd::Any => Some(
+                    get_semiglobal_aligner_from_parameters(&self.aligner_params)
+                ),
+                _ => None
+            },
+            middle: match self.trim_end {
+                TrimEnd::Any | TrimEnd::Right | TrimEnd::Left => Some(
+                    get_local_aligner_from_parameters(&self.aligner_params)
+                ),
+                _ => None
+            },
+            suffix: match self.trim_end {
+                TrimEnd::Right | TrimEnd::RTail | TrimEnd::Any => Some(
+                get_semiglobal_aligner_from_parameters(&self.aligner_params)
+                ),
+                _ => None
+            },
+        };
+        new_aligners
+    }
+
     fn get_best_valid_alignment(
-        &self, all_alignments: &QueryAlignment, _offset: usize, is_prefix: bool, is_suffix: bool
+        &self, all_alignments: &QueryAlignment, offset: usize, is_prefix: bool, is_suffix: bool
     ) -> Option<BarCodeAlignment> {
         let mut best_alignment: Option<BarCodeAlignment> = None;
-        for (barcode_index, _barcode) in self.barcodes.iter().enumerate() {
+        for (barcode_index, barcode) in self.barcodes.iter().enumerate() {
             if barcode_index >= all_alignments.0.len() { continue; }
             for alignment in all_alignments.0[barcode_index].alignments.iter() {
-                if !self.validate_alignment(alignment, _offset, is_prefix, is_suffix) { continue; }
+                if !self.validate_alignment(alignment, &barcode, is_prefix, is_suffix) { continue; }
                 match best_alignment {
                     Some(ref best) => {
                         if alignment.penalty >= best.penalty { continue }
@@ -157,8 +167,8 @@ impl SingleBarcodeSplitterV2 {
                 best_alignment = Some(BarCodeAlignment {
                     barcode_index,
                     penalty: alignment.penalty,
-                    start: _offset + alignment.position.query.0 as usize,
-                    end: _offset + alignment.position.query.1 as usize,
+                    start: offset + alignment.position.query.0 as usize,
+                    end: offset + alignment.position.query.1 as usize,
                     alignment_for_trace: if self.trace { Some(alignment.clone()) } else { None },
                 });
             }
@@ -167,16 +177,30 @@ impl SingleBarcodeSplitterV2 {
     }
 
     fn validate_alignment(
-        &self, alignment: &Alignment, _offset: usize, is_prefix: bool, is_suffix: bool
+        &self, alignment: &Alignment, barcode: &SequenceWithId, is_prefix: bool, is_suffix: bool
     ) -> bool {
         let overlap = (alignment.position.query.1 - alignment.position.query.0) as usize;
         let barcode_overlap = (alignment.position.target.1 - alignment.position.target.0) as usize;
         if overlap < self.min_overlap || barcode_overlap < self.min_overlap {
             return false;
         }
-        if is_prefix && alignment.position.query.0 > 0 { return false }
-        let query_length = self.max_barcode_len as u32;
-        if is_suffix && alignment.position.query.1 < query_length { return false }
+        if is_prefix {
+            if alignment.position.query.0 > 0 { return false }
+            if alignment.penalty as f32 > overlap as f32 * self.error_rate { return false }
+        }
+        if is_suffix {
+            let query_length = self.max_barcode_len as u32;
+            if alignment.position.query.1 < query_length { return false }
+            if alignment.penalty as f32 > overlap as f32 * self.error_rate { return false }
+        }
+
+        if !is_prefix && !is_suffix {
+            let length = barcode.sequence.len();
+            let total_penalty = (length - overlap) as u32 + alignment.penalty;
+            if total_penalty as f32 > length as f32 * self.error_rate {
+                return false;
+            }
+        }
         true
     }
 
@@ -249,8 +273,22 @@ impl SingleBarcodeSplitterV2 {
         let rel_start = best.start - rec.alignment_results.seq_start;
         let rel_end = best.end - rec.alignment_results.seq_start;
         let old_start = rec.alignment_results.seq_start;
-        rec.alignment_results.seq_start = old_start + rel_start;
-        rec.alignment_results.seq_end = old_start + rel_end;
+        match self.trim_end {
+            TrimEnd::Right | TrimEnd::RTail => {
+                rec.alignment_results.seq_end = old_start + rel_start;
+            }
+            TrimEnd::Left | TrimEnd::LTail => {
+                rec.alignment_results.seq_start = old_start + rel_end;
+            }
+            TrimEnd::Any => {
+                let length = rec.get_sequence().len();
+                if rel_start < length - rel_end {
+                    rec.alignment_results.seq_start = old_start + rel_start;
+                } else {
+                    rec.alignment_results.seq_end = old_start + rel_end;
+                }
+            }
+        }
         if self.removal_tags {
             rec.alignment_results.removal_tags.push("Flexbar_removal".to_string());
         }
@@ -274,51 +312,28 @@ impl SingleBarcodeSplitterV2 {
     }
 }
 
-fn get_semiglobal_aligner_from_args(args: &Args, barcode_len: usize) -> Aligner<SemiGlobal> {
-    let min_overlap = usize_to_u32(
+fn get_algorithm_parameters_from_args(args: &Args, barcode_len: usize)
+    -> AlignerAlgorithmParameters
+{
+    // Some parameters need to be carefully auto-tuned to avoid
+    // "Cutoff is too low to detect the pattern" errors.
+    let min_length = usize_to_u32(
         args.barcode_min_overlap.unwrap_or(barcode_len),
         "barcode_min_overlap"
     );
-    let algorithm = SemiGlobal::new(
-        // mismatch - the aligner seems to have a constraint.
-        max(args.barcode_mismatch.unsigned_abs(), 64u32 / min_overlap),
-        // gap-open
-        args.barcode_gap_open.unsigned_abs(),
-        // gap-extend
-        args.barcode_gap_extend.unsigned_abs(),
-        // minimum length
-        min_overlap,
-        // maximum_penalty_per_length
-        if args.barcode_error_rate > 0.0 { args.barcode_error_rate } else { 0.1 }
-    );
-    Aligner::new(algorithm.unwrap())
-}
-
-fn get_local_aligner_from_args(args: &Args, barcode_len: usize) -> Aligner<Local> {
-    let min_overlap = usize_to_u32(
-        args.barcode_min_overlap.unwrap_or(barcode_len),
-        "barcode_min_overlap"
-    );
-    let algorithm = Local::new(
-        // mismatch - the aligner seems to have a constraint.
-        max(args.barcode_mismatch.unsigned_abs(), 64u32 / min_overlap),
-        // gap-open
-        args.barcode_gap_open.unsigned_abs(),
-        // gap-extend
-        args.barcode_gap_extend.unsigned_abs(),
-        // minimum length
-        min_overlap,
-        // maximum_penalty_per_length
-        if args.barcode_error_rate > 0.0 { args.barcode_error_rate } else { 0.1 }
-    );
-    Aligner::new(algorithm.unwrap())
-}
-
-fn usize_to_u32(x: usize, desc: &str) -> u32 {
-    if x > u32::MAX as usize {
-        log_fatal(&format!("Parameter {} too large for 32 bit: {}", desc, x));
+    let mismatch = 1; // max(1, 64u32 / min_length);
+    let maximum_penalty_per_length = if args.barcode_error_rate < 0.0001f32 {
+        0.0001f32  // sigalign needs a positive value here - we sort this out later!
+    } else {
+        args.barcode_error_rate
+    };
+    AlignerAlgorithmParameters {
+        mismatch,
+        gap_open: args.barcode_gap_open.unsigned_abs(),
+        gap_extend: args.barcode_gap_extend.unsigned_abs(),
+        min_length,
+        max_penalty_per_length: maximum_penalty_per_length,
     }
-    x as u32
 }
 
 #[cfg(test)]
@@ -327,29 +342,6 @@ mod tests {
     use crate::args::Args;
     use clap::Parser;
     use crate::steps::generic::Transformable;
-
-    #[test]
-    fn test_sigalign_manual() {
-        let barcode_str = "TAGCTCTGTAGGCACCATCAAT";
-        let reference = ReferenceBuilder::new()
-            .add_target("barcode", barcode_str.as_bytes())
-            .add_target("padding", &vec![b'A'; 100])
-            .build().unwrap();
-        
-        let mut aligner = Aligner::new(Local::new(1, 1, 1, 1, 0.5).unwrap());
-        
-        let query_orig = b"TAGCTCTGTAGGCACCATCAATTAGC";
-        
-        println!("Query: TAGCTCTGTAGGCACCATCAATTAGC");
-        
-        let res = aligner.align(query_orig, &reference);
-        println!("Local: {} alignments", res.0.len());
-        for target_res in res.0 {
-            for alignment in target_res.alignments {
-                println!("  Alignment: {:?}", alignment);
-            }
-        }
-    }
 
     fn process_record(record: SingeRecordDto, args: Args) -> RecordInTransformation<SingeRecordDto>
     {
@@ -360,9 +352,6 @@ mod tests {
             }
         ];
         let mut splitter = SingleBarcodeSplitterV2::new(&args, &barcodes);
-        // Realistic parameters for sigalign
-        splitter.min_overlap = 10;
-        splitter.error_rate = 0.2;
         splitter.apply(
             record.get_record_in_transformation()
         )
@@ -376,7 +365,7 @@ mod tests {
     fn test_barcode_unassigned_false() {
         let res = process_record(
             get_record_not_matching_barcode(),
-            Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-match", "1", "--barcode-mismatch", "1", "--barcode-gap-open", "1", "--barcode-gap-extend", "1"])
+            Args::parse_from(&["flexbar_rs", "--reads", "test.fq"])
         );
         
         assert!(res.alignment_results.record_dropped);
@@ -407,11 +396,9 @@ mod tests {
     fn test_barcode_trimming_right() {
         let res = process_record(
             get_record_with_barcode_at_end(),
-            Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "RIGHT", "--barcode-match", "1", "--barcode-mismatch", "1", "--barcode-gap-open", "1", "--barcode-gap-extend", "1", "--trace"])
+            Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "RIGHT", "--trace"])
         );
-        
-        // sigalign may not find it with DefaultAligner due to internal cutoffs if the sequence is too short or penalty is too high relative to length.
-        // But for this test, let's see. If it fails, it means sigalign didn't find the match.
+
         if !res.alignment_results.record_dropped {
             assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
             assert_eq!(res.get_sequence(), b"AAAAAA");

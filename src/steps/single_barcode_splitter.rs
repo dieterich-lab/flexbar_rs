@@ -114,7 +114,7 @@ impl SingleBarcodeSplitter {
     }
 
     fn build_aligners(&self, sequence_len: usize)
-        -> Vec<RefMut<Aligner<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>>>
+        -> Vec<RefMut<'_, Aligner<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>>>
     {
         let aligner = self.aligner_factory.get(sequence_len, self.max_barcode_len);
         let tail_aligner = self.tail_aligner_factory.as_ref().map(

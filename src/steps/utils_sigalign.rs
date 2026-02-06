@@ -1,5 +1,7 @@
-use sigalign::results::{Alignment, AlignmentOperation as SigOp};
 use log::trace;
+use sigalign::{Aligner, algorithms::Local, algorithms::SemiGlobal, Reference};
+use sigalign::results::{Alignment, AlignmentOperation as SigOp, QueryAlignment};
+use crate::logging::log_fatal;
 
 pub fn extract_umi_tags_sig(
     alignment: &Alignment,
@@ -107,4 +109,45 @@ pub fn trace_alignment_sig(alignment: &Alignment, query: &[u8], target: &[u8]) {
         "Alignment with penalty {}:\n  {}\n  {}\n  {}",
         alignment.penalty, line1, line2, line3
     );
+}
+
+pub struct AlignerAlgorithmParameters {
+    pub mismatch: u32,
+    pub gap_open: u32,
+    pub gap_extend: u32,
+    pub min_length: u32,
+    pub max_penalty_per_length: f32,
+}
+
+pub fn get_local_aligner_from_parameters(
+    params: &AlignerAlgorithmParameters) -> Aligner<Local>
+{
+    let algorithm = Local::new(
+        params.mismatch,
+        params.gap_open,
+        params.gap_extend,
+        params.min_length,
+        params.max_penalty_per_length,
+    );
+    Aligner::new(algorithm.unwrap())
+}
+
+pub fn get_semiglobal_aligner_from_parameters(params: &AlignerAlgorithmParameters)
+    -> Aligner<SemiGlobal>
+{
+    let algorithm = SemiGlobal::new(
+        params.mismatch,
+        params.gap_open,
+        params.gap_extend,
+        params.min_length,
+        params.max_penalty_per_length,
+    );
+    Aligner::new(algorithm.unwrap())
+}
+
+pub fn usize_to_u32(x: usize, desc: &str) -> u32 {
+    if x > u32::MAX as usize {
+        log_fatal(&format!("Parameter {} too large for 32 bit: {}", desc, x));
+    }
+    x as u32
 }

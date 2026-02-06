@@ -48,7 +48,7 @@ pub struct Args {
     #[arg(long = "barcode-min-overlap", alias = "bo")]
     pub barcode_min_overlap: Option<usize>,
 
-    /// Error rate threshold for mismatches and gaps
+    /// Error rate threshold for mismatches and gaps - maximum 0.1
     #[arg(long = "barcode-error-rate", alias = "be", default_value_t = 0.0)]
     pub barcode_error_rate: f32,
 
@@ -489,6 +489,9 @@ impl Args {
                 }
             }
             _ => {}
+        }
+        if self.barcode_error_rate > 0.01 {
+            log_fatal("--barcode-error-rate must be less than 0.01.");
         }
     }
 }
