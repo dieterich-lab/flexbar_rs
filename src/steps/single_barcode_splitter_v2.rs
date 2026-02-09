@@ -44,10 +44,8 @@ pub struct SingleBarcodeSplitterV2 {
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitterV2 {
     fn apply(&mut self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
         let r_seq = rec.get_sequence();
-        if let Some(best) = self.try_alignment(r_seq) {
-            let mut best_alignment = Some(best);
-            self.apply_best_alignment(&mut rec, &mut best_alignment);
-        }
+        let best = self.try_alignment(r_seq);
+        self.apply_best_alignment(&mut rec, &best);
         rec
     }
 }
@@ -205,7 +203,7 @@ impl SingleBarcodeSplitterV2 {
     fn apply_best_alignment(
         &self,
         rec: &mut RecordInTransformation<SingeRecordDto>,
-        best_alignment: &mut Option<BarCodeAlignment>
+        best_alignment: &Option<BarCodeAlignment>
     ) {
         if self.trace {
             trace!("Record {}:", rec.record.id());
