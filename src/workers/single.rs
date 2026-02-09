@@ -3,7 +3,7 @@ use crate::args::Args;
 use crate::types::{SingeRecordDto, QualTrimType};
 use crate::steps::single_adapter_remover::SingleAdapterRemover;
 use crate::steps::single_uncalled_sequence_filter::SingleUncalledSequenceFilter;
-use crate::steps::single_barcode_splitter::SingleBarcodeSplitter;
+// use crate::steps::single_barcode_splitter::SingleBarcodeSplitter;
 use crate::steps::single_barcode_splitter_v2::SingleBarcodeSplitterV2;
 use crate::steps::single_quality_trim::SingleQualityTrim;
 use crate::steps::single_filter_length::SingleFilterLength;
@@ -48,8 +48,8 @@ impl SingleWorker {
                 args.barcode_keep
             );
             steps.push(
-                Arc::new(std::sync::Mutex::new(SingleBarcodeSplitter::new(args, &context.barcodes)))
-                // Arc::new(std::sync::Mutex::new(SingleBarcodeSplitterV2::new(args, &context.barcodes)))
+                // Arc::new(std::sync::Mutex::new(SingleBarcodeSplitter::new(args, &context.barcodes)))
+                Arc::new(std::sync::Mutex::new(SingleBarcodeSplitterV2::new(args, &context.barcodes)))
             );
         }
         if !context.adapters.is_empty() {

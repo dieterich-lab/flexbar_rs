@@ -1,6 +1,6 @@
 use log::trace;
-use sigalign::{Aligner, algorithms::Local, algorithms::SemiGlobal, Reference};
-use sigalign::results::{Alignment, AlignmentOperation as SigOp, QueryAlignment};
+use sigalign::{Aligner, algorithms::Local};
+use sigalign::results::{Alignment, AlignmentOperation as SigOp};
 use crate::logging::log_fatal;
 
 pub fn extract_umi_tags_sig(
@@ -123,19 +123,6 @@ pub fn get_local_aligner_from_parameters(
     params: &AlignerAlgorithmParameters) -> Aligner<Local>
 {
     let algorithm = Local::new(
-        params.mismatch,
-        params.gap_open,
-        params.gap_extend,
-        params.min_length,
-        params.max_penalty_per_length,
-    );
-    Aligner::new(algorithm.unwrap())
-}
-
-pub fn get_semiglobal_aligner_from_parameters(params: &AlignerAlgorithmParameters)
-    -> Aligner<SemiGlobal>
-{
-    let algorithm = SemiGlobal::new(
         params.mismatch,
         params.gap_open,
         params.gap_extend,
