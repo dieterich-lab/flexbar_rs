@@ -62,8 +62,6 @@ impl SingleBarcodeSplitterV2 {
         for barcode in barcodes {
             builder = builder.add_target(&*barcode.id, barcode.sequence.as_bytes());
         }
-        // See: https://github.com/baku4/sigalign/issues/17
-        builder = builder.add_target("barcode2", b"ZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZZ");
         let reference = builder.build().unwrap();
 
         Self {

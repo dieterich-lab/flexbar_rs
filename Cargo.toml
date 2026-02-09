@@ -18,7 +18,7 @@ bzip2 = "0.4"
 zstd = "0.13"
 tempfile = "3.10"
 thread_local = "1.1"
-sigalign = "0.4.1"
+sigalign = "0.4.2"
 
 [profile.release]
 strip = "symbols"
