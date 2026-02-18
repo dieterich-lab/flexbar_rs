@@ -73,8 +73,8 @@ impl<'a> BioRustPairwiseAligner<'a> {
             _ => MIN_SCORE,
         };
         let yclip_prefix = match self.config.mode {
-            AlignerMode::LeftOverlap => MIN_SCORE,
-            _ => 0,
+            AlignerMode::LeftOverlap => 0,
+            _ => MIN_SCORE,
         };
 
         let scoring = Scoring {

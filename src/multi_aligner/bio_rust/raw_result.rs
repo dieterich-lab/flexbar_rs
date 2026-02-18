@@ -96,7 +96,7 @@ impl GenericRawResult for Alignment {
                 AlignmentOperation::Xclip(len) => {
                     for _ in 0..*len {
                         line1.push(x[x_pos] as char);
-                        line2.push(' ');
+                        line2.push('´');
                         line3.push(' ');
                         x_pos += 1;
                     }
@@ -104,7 +104,7 @@ impl GenericRawResult for Alignment {
                 AlignmentOperation::Yclip(len) => {
                     for _ in 0..*len {
                         line1.push(' ');
-                        line2.push(' ');
+                        line2.push(',');
                         line3.push(y[y_pos] as char);
                         y_pos += 1;
                     }

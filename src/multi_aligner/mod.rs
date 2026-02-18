@@ -118,13 +118,10 @@ impl<'r> MultiAligner<'r> {
 
 #[cfg(test)]
 mod tests {
-    use std::rc::Rc;
-    use bio::alignment::Alignment;
-    use crate::types::TrimEnd;
     use crate::context::SequenceWithId;
-    use crate::multi_aligner::generic::AlignerMode;
+    use crate::types::TrimEnd;
     use super::MultiAligner;
-    use super::result::{AlignmentResult, RawAlignment};
+    use super::result::AlignmentResult;
 
     fn run_alignment<'r, 's>(
         trim_end: TrimEnd,
@@ -171,260 +168,250 @@ mod tests {
         assert_eq!(alignment.get_end_index(), 4);
     }
 
-    // #[test]
-    // fn test_aligner_right_overhang() {
-    //     let alignment = run_alignment(
-    //         TrimEnd::Right, 0.0,3, 1, -1, -1, -1,
-    //         b"AAAAATTT", b"NNNTTTTCCC"
-    //     );
-    //     // Matching prefix NNNTTT at position 2
-    //     assert_eq!(alignment.score, 6);
-    //     assert_eq!(alignment.xstart, 2);
-    //     assert_eq!(alignment.xend, 8);
-    //     assert_eq!(alignment.ystart, 0);
-    //     assert_eq!(alignment.yend, 6);
-    // }
-    //
-    // #[test]
-    // fn test_aligner_right_overhang_ambiguous() {
-    //     let alignment = run_alignment(
-    //         TrimEnd::Right, 0.0, 3, 1, -1, -1, -1,
-    //         b"AAAAATTT", b"TTTT"
-    //     );
-    //     // Matching prefix TTT at position 5
-    //     assert_eq!(alignment.score, 3);
-    //     assert_eq!(alignment.xstart, 5);
-    //     assert_eq!(alignment.xend, 8);
-    //     assert_eq!(alignment.ystart, 0);
-    //     assert_eq!(alignment.yend, 3);
-    // }
-    //
-    // #[test]
-    // fn test_aligner_right_overhang_with_error() {
-    //     let alignment = run_alignment(
-    //         TrimEnd::Right, 0.2,5, 1, -1, -1, -1,
-    //         b"AAAAATTATT", b"TTTTTTT"
-    //     );
-    //     // Matching prefix TTxTT with an error starting at x[5]
-    //     assert_eq!(alignment.score, 3);
-    //     assert_eq!(alignment.xstart, 5);
-    //     assert_eq!(alignment.xend, 10);
-    //     assert_eq!(alignment.ystart, 0);
-    //     assert_eq!(alignment.yend, 5);
-    // }
-    //
-    // #[test]
-    // fn test_aligner_right_embedded() {
-    //     let alignment = run_alignment(
-    //         TrimEnd::Right, 0.0., 5, 1, -1, -1, -1,
-    //         b"AAAAATTTTTAAA", b"TTTTT"
-    //     );
-    //     // Prefect match att position 5
-    //     assert_eq!(alignment.score, 5);
-    //     assert_eq!(alignment.xstart, 5);
-    //     assert_eq!(alignment.xend, 10);
-    //     assert_eq!(alignment.ystart, 0);
-    //     assert_eq!(alignment.yend, 5);
-    // }
-    //
-    // #[test]
-    // fn test_aligner_right_embedded_with_error() {
-    //     let alignment = run_alignment(
-    //         TrimEnd::Right,  0.2, 5, 1, -1, -1, -1,
-    //         b"AAAAATTATTAAA", b"TTTTT"
-    //     );
-    //     // Match with error TTxTT at position 5
-    //     assert_eq!(alignment.score, 3);
-    //     assert_eq!(alignment.xstart, 5);
-    //     assert_eq!(alignment.xend, 10);
-    //     assert_eq!(alignment.ystart, 0);
-    //     assert_eq!(alignment.yend, 5);
-    // }
-    //
-    // #[test]
-    // fn test_aligner_right_embedded_with_wildcard() {
-    //     let alignment = run_alignment(
-    //         TrimEnd::Right, 0.0, 5,1, -1, -1, -1,
-    //         b"AAAAATTATTAAA", b"TTNTT"
-    //     );
-    //     // Matching TTNTT at position 5
-    //     assert_eq!(alignment.score, 5);
-    //     assert_eq!(alignment.xstart, 5);
-    //     assert_eq!(alignment.xend, 10);
-    //     assert_eq!(alignment.ystart, 0);
-    //     assert_eq!(alignment.yend, 5);
-    // }
-    //
-    // #[test]
-    // fn test_aligner_right_wrong_side_overhang() {
-    //     let alignment = run_alignment(
-    //         TrimEnd::Right, 0.2, 3, 1, -1, -1, -1,
-    //         b"TTTAAAA", b"TTTT"
-    //     );
-    //     // Match TTT (prefix) starting x[0]
-    //     assert_eq!(alignment.score, 3);
-    //     assert_eq!(alignment.xstart, 0);
-    //     assert_eq!(alignment.xend, 3);
-    //     assert_eq!(alignment.ystart, 0);
-    //     assert_eq!(alignment.yend, 3);
-    // }
-    //
-    // #[test]
-    // fn test_aligner_right_partial_embedded() {
-    //     // This a strange case: The multi_aligner will score an invalid barcode match
-    //     // in the middle of the string higher than an exact prefix match at the end.
-    //     // So the same read may be mapped to a barcode with TrimEnd::RTail but not
-    //     // with TrimEnd::Right.
-    //     let alignment = run_alignment(
-    //         TrimEnd::Right, 1, -1, -1, -1,
-    //         b"AAAAATTTTTAAATTT", b"NNNTTTTTCCCC"
-    //     );
-    //     // Matching NNNTTTTTT (prefix) at position 2
-    //     assert_eq!(alignment.score, 8);
-    //     assert_eq!(alignment.xstart, 2);
-    //     assert_eq!(alignment.xend, 10);
-    //     assert_eq!(alignment.ystart, 0);
-    //     assert_eq!(alignment.yend, 8);
-    // }
-    //
-    // #[test]
-    // fn test_aligner_left_overhang() {
-    //     let alignment = run_alignment(
-    //         TrimEnd::Left, 1, -1, -1, -1,
-    //         b"TTTAAAAA", b"TTTT"
-    //     );
-    //     // Match TTT (suffix) starting x[0]
-    //     assert_eq!(alignment.score, 3);
-    //     assert_eq!(alignment.xstart, 0);
-    //     assert_eq!(alignment.xend, 3);
-    //     assert_eq!(alignment.ystart, 1);
-    //     assert_eq!(alignment.yend, 4);
-    // }
-    //
-    // #[test]
-    // fn test_aliagner_rtail_overhang() {
-    //     // See also: test_aligner_right_partial_embedded()!!!
-    //     let alignment = run_alignment(
-    //         TrimEnd::RTail, 1, -1, -1, -1,
-    //         b"AAAAATTTTTAAATTT", b"NNNTTTTTCCCC"
-    //     );
-    //     // Match NNNTTT starting x[10]
-    //     assert_eq!(alignment.score, 6);
-    //     assert_eq!(alignment.xstart, 10);
-    //     assert_eq!(alignment.xend, 16);
-    //     assert_eq!(alignment.ystart, 0);
-    //     assert_eq!(alignment.yend, 6);
-    // }
-    //
-    // #[test]
-    // fn test_format_alignment_wildcard() {
-    //     let x = b"ACGTNTCG";
-    //     let y = b"ACGTATCG";
-    //     let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
-    //     let (l1, l2, l3) = format_alignment(&alignment, x, y);
-    //     assert_eq!(l1, "ACGTNTCG");
-    //     assert_eq!(l2, "||||.|||");
-    //     assert_eq!(l3, "ACGTATCG");
-    // }
-    //
-    // #[test]
-    // fn test_format_alignment_embedded() {
-    //     let x = b"AAAAACCCCTTTTT";
-    //     let y = b"CCCC";
-    //     let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
-    //     let (l1, l2, l3) = format_alignment(&alignment, x, y);
-    //     // Expected alignment:
-    //     // AAAAACCCCTTTTT
-    //     //      ||||
-    //     //      CCCC
-    //     // Note: Global alignment with Any might include clips.
-    //     // Actually run_alignment with TrimEnd::Any uses 0 for all clips.
-    //
-    //     // Let's check what actually happens.
-    //     assert_eq!(l1, "AAAAACCCCTTTTT");
-    //     assert_eq!(l2, "     ||||     ");
-    //     assert_eq!(l3, "     CCCC     ");
-    // }
-    //
-    // #[test]
-    // fn test_format_alignment_prefix_suffix() {
-    //     let x = b"AAACCC";
-    //     let y = b"CCCGGG";
-    //     // To get a prefix of y aligned to suffix of x, we might need TrimEnd::Any
-    //     // or a specific mode. TrimEnd::Any sets all clips to 0.
-    //     let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
-    //     let (l1, l2, l3) = format_alignment(&alignment, x, y);
-    //
-    //     // AAACCC---
-    //     //    |||
-    //     // ---CCCGGG
-    //
-    //     assert_eq!(l1, "AAACCC   ");
-    //     assert_eq!(l2, "   |||   ");
-    //     assert_eq!(l3, "   CCCGGG");
-    // }
-    //
-    // #[test]
-    // fn test_format_alignment_suffix_prefix() {
-    //     let x = b"CCCGGG";
-    //     let y = b"AAACCC";
-    //     let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
-    //     let (l1, l2, l3) = format_alignment(&alignment, x, y);
-    //
-    //     // ---CCCGGG
-    //     //    |||
-    //     // AAACCC---
-    //
-    //     assert_eq!(l1, "   CCCGGG");
-    //     assert_eq!(l2, "   |||   ");
-    //     assert_eq!(l3, "AAACCC   ");
-    // }
-    //
-    // #[test]
-    // fn test_format_alignment_partial_with_error() {
-    //     let x = b"CCCCCGGG";
-    //     let y = b"AAACCACC";
-    //     let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
-    //     let (l1, l2, l3) = format_alignment(&alignment, x, y);
-    //
-    //     // ---CCCGGG
-    //     //    |||
-    //     // AAACCC---
-    //
-    //     assert_eq!(l1, "   CCCCCGGG");
-    //     assert_eq!(l2, "   ||\\||   ");
-    //     assert_eq!(l3, "AAACCACC   ");
-    // }
-    //
-    // #[test]
-    // fn test_format_alignment_partial_with_deletion() {
-    //     let x = b"CAATCCTTTT";
-    //     let y = b"CCCCAACCT";
-    //     let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
-    //     let (l1, l2, l3) = format_alignment(&alignment, x, y);
-    //
-    //     // ---CCCGGG
-    //     //    |||
-    //     // AAACCC---
-    //
-    //     assert_eq!(l1, "   CAATCCTTTT");
-    //     assert_eq!(l2, "   ||| |||   ");
-    //     assert_eq!(l3, "CCCCAA CCT   ");
-    // }
-    //
-    // #[test]
-    // fn test_format_alignment_partial_with_insertion() {
-    //     let x = b"CAACCTTTT";
-    //     let y = b"CCCCAATCCT";
-    //     let alignment = run_alignment(TrimEnd::Any, 1, -1, -1, -1, x, y);
-    //     let (l1, l2, l3) = format_alignment(&alignment, x, y);
-    //
-    //     // ---CCCGGG
-    //     //    |||
-    //     // AAACCC---
-    //
-    //     assert_eq!(l1, "   CAA CCTTTT");
-    //     assert_eq!(l2, "   ||| |||   ");
-    //     assert_eq!(l3, "CCCCAATCCT   ");
-    // }
+    #[test]
+    fn test_aligner_right_overhang() {
+        let references = get_as_references(b"NNNTTTTCCC");
+        let result = run_alignment(
+            TrimEnd::Right, 0.0,3, 1, -1, -1, -1,
+            b"AAAAATTT", &references
+        );
+        let alignment = result.unwrap();
+        // Matching prefix NNNTTT at position 2
+        assert_eq!(alignment.score(), 6);
+        assert_eq!(alignment.get_start_index(), 2);
+        assert_eq!(alignment.get_end_index(), 8);
+    }
+
+    #[test]
+    fn test_aligner_right_overhang_ambiguous() {
+        let references = get_as_references(b"TTTT");
+        let result = run_alignment(
+            TrimEnd::Right, 0.0, 3, 1, -1, -1, -1,
+            b"AAAAATTT", &references
+        );
+        let alignment = result.unwrap();
+        // Matching prefix TTT at position 5
+        assert_eq!(alignment.score(), 3);
+        assert_eq!(alignment.get_start_index(), 5);
+        assert_eq!(alignment.get_end_index(), 8);
+    }
+
+    #[test]
+    fn test_aligner_right_overhang_with_error() {
+        let references = get_as_references(b"TTTTTTT");
+        let result = run_alignment(
+            TrimEnd::Right, 0.2,5, 1, -1, -1, -1,
+            b"AAAAATTATT", &references
+        );
+        let alignment = result.unwrap();
+        // Matching prefix TTxTT with an error starting at x[5]
+        assert_eq!(alignment.score(), 3);
+        assert_eq!(alignment.get_start_index(), 5);
+        assert_eq!(alignment.get_end_index(), 10);
+    }
+
+    #[test]
+    fn test_aligner_right_embedded() {
+        let references = get_as_references(b"TTTTT");
+        let result = run_alignment(
+            TrimEnd::Right, 0.0, 5, 1, -1, -1, -1,
+            b"AAAAATTTTTAAA", &references
+        );
+        let alignment = result.unwrap();
+        // Prefect match att position 5
+        assert_eq!(alignment.score(), 5);
+        assert_eq!(alignment.get_start_index(), 5);
+        assert_eq!(alignment.get_end_index(), 10);
+    }
+
+    #[test]
+    fn test_aligner_right_embedded_with_error() {
+        let references = get_as_references(b"TTTTT");
+        let result = run_alignment(
+            TrimEnd::Right,  0.2, 5, 1, -1, -1, -1,
+            b"AAAAATTATTAAA", &references
+        );
+        let alignment = result.unwrap();
+        // Match with error TTxTT at position 5
+        assert_eq!(alignment.score(), 3);
+        assert_eq!(alignment.get_start_index(), 5);
+        assert_eq!(alignment.get_end_index(), 10);
+    }
+
+    #[test]
+    fn test_aligner_right_embedded_with_wildcard() {
+        let references = get_as_references(b"TTNTT");
+        let result = run_alignment(
+            TrimEnd::Right, 0.0, 5,1, -1, -1, -1,
+            b"AAAAATTATTAAA", &references
+        );
+        let alignment = result.unwrap();
+        // Matching TTNTT at position 5
+        assert_eq!(alignment.score(), 5);
+        assert_eq!(alignment.get_start_index(), 5);
+        assert_eq!(alignment.get_end_index(), 10);
+    }
+
+    #[test]
+    fn test_aligner_right_wrong_side_overhang() {
+        let references = get_as_references(b"TTTT");
+        let result = run_alignment(
+            TrimEnd::Right, 0.2, 3, 1, -1, -1, -1,
+            b"TTTAAAA", &references
+        );
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn test_aligner_right_partial_embedded() {
+        // This a strange case: The multi_aligner will score an invalid barcode match
+        // in the middle of the string higher than an exact prefix match at the end.
+        // So the same read may be mapped to a barcode with TrimEnd::RTail but not
+        // with TrimEnd::Right.
+        let references = get_as_references(b"NNNTTTTTCCCC");
+        let result = run_alignment(
+            TrimEnd::Right, 0.0, 6, 1, -1, -1, -1,
+            b"AAAAATTTTTAAATTT", &references
+        );
+        let alignment = result.unwrap();
+        // Matching NNNTTTTTT (prefix) at position 2
+        assert_eq!(alignment.score(), 6);
+        assert_eq!(alignment.get_start_index(), 10);
+        assert_eq!(alignment.get_end_index(), 16);
+    }
+
+    #[test]
+    fn test_aligner_left_overhang() {
+        let references = get_as_references(b"TTTT");
+        let result = run_alignment(
+            TrimEnd::Left, 0.0, 1, 1, -1, -1, -1,
+            b"TTTAAAAA", &references
+        );
+        let alignment = result.unwrap();
+        // Match TTT (suffix) starting x[0]
+        assert_eq!(alignment.score(), 3);
+        assert_eq!(alignment.get_start_index(), 0);
+        assert_eq!(alignment.get_end_index(), 3);
+    }
+
+    #[test]
+    fn test_aliagner_rtail_overhang() {
+        // See also: test_aligner_right_partial_embedded()!!!
+        let references = get_as_references(b"NNNTTTTTCCCC");
+        let result = run_alignment(
+            TrimEnd::RTail, 0.0, 1, 1, -1, -1, -1,
+            b"AAAAATTTTTAAATTT", &references
+        );
+        let alignment = result.unwrap();
+        // Match NNNTTT starting x[10]
+        assert_eq!(alignment.score(), 6);
+        assert_eq!(alignment.get_start_index(), 10);
+        assert_eq!(alignment.get_end_index(), 16);
+    }
+
+    #[test]
+    fn test_format_alignment_wildcard() {
+        let x = b"ACGTNTCG";
+        let y = b"ACGTATCG";
+        let references = get_as_references(y);
+        let result = run_alignment(TrimEnd::Any, 0.0, 1, 1, -1, -1, -1, x, &references);
+        let alignment = result.unwrap();
+        let formatted = alignment.format();
+        assert!(formatted.contains("ACGTNTCG"));
+        assert!(formatted.contains("||||.|||"));
+        assert!(formatted.contains("ACGTATCG"));
+    }
+
+    #[test]
+    fn test_format_alignment_embedded() {
+        let x = b"AAAAACCCCTTTTT";
+        let y = b"CCCC";
+        let references = get_as_references(y);
+        let result = run_alignment(TrimEnd::Any, 0.0, 1, 1, -1, -1, -1, x, &references);
+        let alignment = result.unwrap();
+        let formatted = alignment.format();
+        // Expected alignment:
+        // AAAAACCCCTTTTT
+        //      ||||
+        //      CCCC
+        assert!(formatted.contains("AAAAACCCCTTTTT"));
+        assert!(formatted.contains("||||"));
+        assert!(formatted.contains("CCCC"));
+    }
+
+    #[test]
+    fn test_format_alignment_prefix_suffix() {
+        let x = b"AAACCC";
+        let y = b"CCCGGG";
+        let references = get_as_references(y);
+        let result = run_alignment(TrimEnd::Any, 0.0, 1, 1, -1, -1, -1, x, &references);
+        let alignment = result.unwrap();
+        let formatted = alignment.format();
+
+        // AAACCC---
+        //    |||
+        // ---CCCGGG
+
+        assert!(formatted.contains("AAACCC"));
+        assert!(formatted.contains("|||"));
+        assert!(formatted.contains("CCCGGG"));
+    }
+
+    #[test]
+    fn test_format_alignment_suffix_prefix() {
+        let x = b"CCCGGG";
+        let y = b"AAACCC";
+        let references = get_as_references(y);
+        let result = run_alignment(TrimEnd::Any, 0.0, 1, 1, -1, -1, -1, x, &references);
+        let alignment = result.unwrap();
+        let formatted = alignment.format();
+
+        // ---CCCGGG
+        //    |||
+        // AAACCC---
+
+        assert!(formatted.contains("CCCGGG"));
+        assert!(formatted.contains("|||"));
+        assert!(formatted.contains("AAACCC"));
+    }
+
+    #[test]
+    fn test_format_alignment_partial_with_error() {
+        let x = b"CCCCCGGG";
+        let y = b"AAACCACC";
+        let references = get_as_references(y);
+        let result = run_alignment(TrimEnd::Any, 0.2, 1, 1, -1, -1, -1, x, &references);
+        let alignment = result.unwrap();
+        let formatted = alignment.format();
+
+        assert!(formatted.contains("CCCCCGGG"));
+        assert!(formatted.contains("|\\|"));
+        assert!(formatted.contains("AAACCACC"));
+    }
+
+    #[test]
+    fn test_format_alignment_partial_with_deletion() {
+        let x = b"CAATCCTTTT";
+        let y = b"CCCCAACCT";
+        let references = get_as_references(y);
+        let result = run_alignment(TrimEnd::Any, 0.2, 1, 1, -1, -1, -1, x, &references);
+        let alignment = result.unwrap();
+        let formatted = alignment.format();
+
+        assert!(formatted.contains("CAATCCTTT"));
+        assert!(formatted.contains("CCCCAA CCT"));
+    }
+
+    #[test]
+    fn test_format_alignment_partial_with_insertion() {
+        let x = b"CAACCTTTT";
+        let y = b"CCCCAATCCT";
+        let references = get_as_references(y);
+        let result = run_alignment(TrimEnd::Any, 0.2, 1, 1, -1, -1, -1, x, &references);
+        let alignment = result.unwrap();
+        let formatted = alignment.format();
+
+        assert!(formatted.contains("CAA CCTTTT"));
+        assert!(formatted.contains("CCCCAATCCT"));
+    }
 }
