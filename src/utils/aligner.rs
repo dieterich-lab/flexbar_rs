@@ -340,7 +340,7 @@ mod tests {
 
     #[test]
     fn test_aligner_right_partial_embedded() {
-        // This a strange case: The aligner will score an invalid barcode match
+        // This a strange case: The multi_aligner will score an invalid barcode match
         // in the middle of the string higher than an exact prefix match at the end.
         // So the same read may be mapped to a barcode with TrimEnd::RTail but not
         // with TrimEnd::Right.

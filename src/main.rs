@@ -9,6 +9,7 @@ mod writers;
 mod workers;
 mod workflow;
 mod steps;
+mod multi_aligner;
 
 use std::env;
 use log::info;

@@ -76,9 +76,9 @@ impl SingleBarcodeSplitter {
 
         // In the case of a trim end of RIGHT or LEFT, we might find an alignment
         // in the middle of the sequence, which has a good score but is invalid.
-        // That may prevent the aligner from finding a valid alignment at the end
+        // That may prevent the multi_aligner from finding a valid alignment at the end
         // with the same or a lower score. To prevent that, we check again with
-        // the 'TAIL' version of the aligner specifically for alignments at the end.
+        // the 'TAIL' version of the multi_aligner specifically for alignments at the end.
         let tail_aligner_factory = match args.barcode_trim_end {
             TrimEnd::Right => Some(AlignerFactory::new(
                 TrimEnd::RTail,
@@ -648,7 +648,7 @@ mod tests {
         let res = splitter.apply(rec.get_record_in_transformation());
         
         // In this case:
-        // Primary aligner (RIGHT) finds:
+        // Primary multi_aligner (RIGHT) finds:
         // AAAAATTTTTAAATTT
         //   ||||||||
         //   NNNTTTTTCCCC
@@ -656,7 +656,7 @@ mod tests {
         // allowed_errors (error_rate=0.1) = 0.
         // check_match fails.
         
-        // Tail aligner (RTAIL) finds:
+        // Tail multi_aligner (RTAIL) finds:
         // AAAAATTTTTAAATTT
         //           ||||||
         //           NNNTTTTTCCCC
