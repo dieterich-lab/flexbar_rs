@@ -7,28 +7,25 @@ pub enum RawAlignment {
     BioRust(Alignment),
 }
 
-pub struct AlignmentResult<'r, 's> {
+pub struct MultiAlignerResult {
     pub raw: RawAlignment,
     pub mode: AlignerMode,
     pub offset: usize,
-    pub reference: &'r SequenceWithId,
-    pub sequence: &'s [u8],
+    pub reference_index: usize,
 }
 
-impl<'r, 's> AlignmentResult<'r, 's> {
+impl<'r> MultiAlignerResult {
     pub fn new(
-        sequence: &'s [u8],
-        reference: &'r SequenceWithId,
         mode: AlignerMode,
         offset: usize,
-        raw: RawAlignment
+        raw: RawAlignment,
+        reference_index: usize
     ) -> Self {
         Self {
             raw,
             mode,
             offset,
-            reference,
-            sequence,
+            reference_index
         }
     }
 
@@ -37,30 +34,24 @@ impl<'r, 's> AlignmentResult<'r, 's> {
             RawAlignment::BioRust(raw) => raw.score,
         }
     }
-    pub fn reference_id(&self) -> &str { &self.reference.id }
     pub fn offset(&self) -> usize {
         self.offset
     }
     pub fn mode(&self) -> AlignerMode { self.mode }
 
-    pub fn validate(&self, error_rate: f32, min_overlap: usize) -> bool {
-        let y = self.reference.sequence.as_bytes();
+    pub fn validate(&self, error_rate: f32, y: &[u8], min_overlap: Option<usize>) -> bool {
         match &self.raw {
             RawAlignment::BioRust(raw) =>
                 raw.validate(self.mode, y, error_rate, min_overlap),
         }
     }
 
-    pub fn get_umi_tags(&self) -> Vec<String> {
-        let x = self.sequence;
-        let y = self.reference.sequence.as_bytes();
+    pub fn get_umi_tags(&self, x: &[u8], y: &[u8]) -> Vec<String> {
         match &self.raw {
             RawAlignment::BioRust(raw) => raw.get_umi_tags(x, y),
         }
     }
-    pub fn format(&self) -> String {
-        let x = self.sequence;
-        let y = self.reference.sequence.as_bytes();
+    pub fn format(&self, x: &[u8], y: &[u8]) -> String {
         match &self.raw {
             RawAlignment::BioRust(raw) => raw.format(x, y),
         }

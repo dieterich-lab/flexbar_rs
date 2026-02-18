@@ -1,7 +1,8 @@
+use std::sync::Arc;
 use bio::alignment::pairwise::{Aligner, Scoring, MIN_SCORE};
 use crate::context::SequenceWithId;
 use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
-use crate::multi_aligner::result::{AlignmentResult, RawAlignment};
+use crate::multi_aligner::result::{MultiAlignerResult, RawAlignment};
 
 pub struct BioRustAlignerConfig {
     pub mode: AlignerMode,
@@ -13,16 +14,16 @@ pub struct BioRustAlignerConfig {
 
 pub type BoxedAligner = Aligner<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>;
 
-pub struct BioRustPairwiseAligner<'a> {
+pub struct BioRustPairwiseAligner {
     aligner: Option<BoxedAligner>,
-    references: &'a [SequenceWithId],
+    references: Arc<Vec<SequenceWithId>>,
     config: BioRustAlignerConfig,
     x_capacity: usize,
     y_capacity: usize,
 }
 
-impl<'a> BioRustPairwiseAligner<'a> {
-    pub fn new(config: BioRustAlignerConfig, references: &'a [SequenceWithId]) -> Self {
+impl<'a> BioRustPairwiseAligner {
+    pub fn new(config: BioRustAlignerConfig, references: Arc<Vec<SequenceWithId>>) -> Self {
         let y_capacity = references.iter().map(|r| r.sequence.len()).max().unwrap();
         BioRustPairwiseAligner {
             aligner: None,
@@ -92,12 +93,12 @@ impl<'a> BioRustPairwiseAligner<'a> {
     }
 }
 
-impl<'a> GenericAligner<'a> for BioRustPairwiseAligner<'a> {
-    fn align<'s>(&mut self, sequence: &'s [u8], reference_index: usize)
-         -> AlignmentResult<'a, 's>
+impl GenericAligner for BioRustPairwiseAligner {
+    fn align(&mut self, sequence: &[u8], reference_index: usize)
+         -> MultiAlignerResult
     {
-        let reference = &self.references[reference_index];
         self.setup_aligner(sequence.len());
+        let reference = &self.references[reference_index];
         let aligner = self.aligner.as_mut().unwrap();
 
         let seq_len = sequence.len();
@@ -110,6 +111,6 @@ impl<'a> GenericAligner<'a> for BioRustPairwiseAligner<'a> {
         let relevant_seq = &sequence[offset..offset + length];
 
         let raw = aligner.custom(relevant_seq, reference.sequence.as_bytes());
-        AlignmentResult { raw: RawAlignment::BioRust(raw), reference, sequence, mode, offset }
+        MultiAlignerResult { raw: RawAlignment::BioRust(raw), mode, offset, reference_index }
     }
 }

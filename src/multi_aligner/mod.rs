@@ -1,21 +1,22 @@
 
 mod generic;
 mod bio_rust;
-mod result;
+pub mod result;
 
+use std::sync::Arc;
 use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::aligner::{BioRustAlignerConfig, BioRustPairwiseAligner};
 use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
-use crate::multi_aligner::result::AlignmentResult;
+use crate::multi_aligner::result::MultiAlignerResult;
 
-enum SpecificAligner<'r> {
-    BioRustPairwiseAligner(BioRustPairwiseAligner<'r>),
+enum SpecificAligner {
+    BioRustPairwiseAligner(BioRustPairwiseAligner),
 }
 
-impl<'r> GenericAligner<'r> for SpecificAligner<'r> {
-    fn align<'s>(&mut self, sequence: &'s [u8], reference_index: usize) 
-        -> AlignmentResult<'r, 's> 
+impl GenericAligner for SpecificAligner {
+    fn align(&mut self, sequence: &[u8], reference_index: usize) 
+        -> MultiAlignerResult
     {
         match self {
             SpecificAligner::BioRustPairwiseAligner(aligner) => 
@@ -24,25 +25,25 @@ impl<'r> GenericAligner<'r> for SpecificAligner<'r> {
     }
 }
 
-pub struct MultiAligner<'r> {
-    references: &'r Vec<SequenceWithId>,
+pub struct MultiAligner {
+    references: Arc<Vec<SequenceWithId>>,
     trim_end: TrimEnd,
-    min_overlap: usize,
+    min_overlap: Option<usize>,
     error_rate: f32,
     match_score: i32,
     mismatch_score: i32,
     gap_open: i32,
     gap_extend: i32,
-    cached_aligners: thread_local::ThreadLocal<std::cell::RefCell<Vec<SpecificAligner<'r>>>>,
+    cached_aligners: thread_local::ThreadLocal<std::cell::RefCell<Vec<SpecificAligner>>>,
 }
 
 
-impl<'r> MultiAligner<'r> {
+impl MultiAligner {
     pub fn new(
-        references: &'r Vec<SequenceWithId>,
+        references: Arc<Vec<SequenceWithId>>,
         trim_end: TrimEnd,
         error_rate: f32,
-        min_overlap: usize,
+        min_overlap: Option<usize>,
         match_score: i32,
         mismatch_score: i32,
         gap_open: i32,
@@ -61,17 +62,18 @@ impl<'r> MultiAligner<'r> {
         }
     }
 
-    pub fn align<'s>(&mut self, sequence: &'s [u8]) -> Option<AlignmentResult<'r, 's>> {
+    pub fn align<'s>(&self, sequence: &[u8]) -> Option<MultiAlignerResult> {
         let aligners_cell = self.cached_aligners.get_or(
             || std::cell::RefCell::new(self.create_aligners())
         );
         let mut aligners = aligners_cell.borrow_mut();
         
-        let mut best: Option<AlignmentResult<'r, 's>> = None;
+        let mut best: Option<MultiAlignerResult> = None;
         for index in 0..self.references.len() {
             for aligner in aligners.iter_mut() {
                 let result = aligner.align(sequence, index);
-                if !result.validate(self.error_rate, self.min_overlap) { continue; }
+                let reference = &self.references[index].sequence.as_bytes();
+                if !result.validate(self.error_rate, reference, self.min_overlap) { continue; }
                 let old_score = match best.as_ref() {
                     Some(b) => b.score(),
                     None => i32::MIN,
@@ -84,7 +86,7 @@ impl<'r> MultiAligner<'r> {
         best
     }
 
-    fn create_aligners(&self) -> Vec<SpecificAligner<'r>> {
+    fn create_aligners(&self) -> Vec<SpecificAligner> {
         let mut aligners = Vec::new();
         let required_modes = match self.trim_end {
             TrimEnd::Any => vec![
@@ -98,7 +100,7 @@ impl<'r> MultiAligner<'r> {
         for mode in required_modes {
             let config = self.get_aligner_config(mode);
             aligners.push(SpecificAligner::BioRustPairwiseAligner(
-                BioRustPairwiseAligner::new(config, self.references)
+                BioRustPairwiseAligner::new(config, self.references.clone())
             ))
         }
         aligners
@@ -118,23 +120,24 @@ impl<'r> MultiAligner<'r> {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
     use crate::context::SequenceWithId;
     use crate::types::TrimEnd;
     use super::MultiAligner;
-    use super::result::AlignmentResult;
+    use super::result::MultiAlignerResult;
 
-    fn run_alignment<'r, 's>(
+    fn run_alignment(
         trim_end: TrimEnd,
         error_rate: f32,
-        min_overlap: usize,
+        min_overlap: Option<usize>,
         match_score: i32,
         mismatch_score: i32,
         gap_open: i32,
         gap_extend: i32,
-        seq_x: &'s [u8],
-        references: &'r Vec<SequenceWithId>
-    ) -> Option<AlignmentResult<'r, 's>> {
-        let mut aligner = MultiAligner::new(
+        seq_x: &[u8],
+        references: Arc<Vec<SequenceWithId>>
+    ) -> Option<MultiAlignerResult> {
+        let aligner = MultiAligner::new(
             references,
             trim_end,
             error_rate,
@@ -147,19 +150,19 @@ mod tests {
         aligner.align(seq_x)
     }
 
-    fn get_as_references(raw: &[u8]) -> Vec<SequenceWithId> {
-       vec![SequenceWithId {
+    fn get_as_references(raw: &[u8]) -> Arc<Vec<SequenceWithId>> {
+       Arc::new(vec![SequenceWithId {
             id: "ref".to_string(),
             sequence: String::from_utf8_lossy(raw).to_string(),
-        }]
+       }])
     }
 
     #[test]
     fn test_aligner_trivial() {
         let references = get_as_references(b"ACGT");
         let result = run_alignment(
-            TrimEnd::Right, 0.0, 3, 1, -1, -1, -1,
-            b"ACGT", &references
+            TrimEnd::Right, 0.0, Some(3), 1, -1, -1, -1,
+            b"ACGT", references
         );
         assert!(result.is_some());
         let alignment = result.unwrap();
@@ -172,8 +175,8 @@ mod tests {
     fn test_aligner_right_overhang() {
         let references = get_as_references(b"NNNTTTTCCC");
         let result = run_alignment(
-            TrimEnd::Right, 0.0,3, 1, -1, -1, -1,
-            b"AAAAATTT", &references
+            TrimEnd::Right, 0.0, Some(3), 1, -1, -1, -1,
+            b"AAAAATTT", references
         );
         let alignment = result.unwrap();
         // Matching prefix NNNTTT at position 2
@@ -186,8 +189,8 @@ mod tests {
     fn test_aligner_right_overhang_ambiguous() {
         let references = get_as_references(b"TTTT");
         let result = run_alignment(
-            TrimEnd::Right, 0.0, 3, 1, -1, -1, -1,
-            b"AAAAATTT", &references
+            TrimEnd::Right, 0.0, Some(3), 1, -1, -1, -1,
+            b"AAAAATTT", references
         );
         let alignment = result.unwrap();
         // Matching prefix TTT at position 5
@@ -200,8 +203,8 @@ mod tests {
     fn test_aligner_right_overhang_with_error() {
         let references = get_as_references(b"TTTTTTT");
         let result = run_alignment(
-            TrimEnd::Right, 0.2,5, 1, -1, -1, -1,
-            b"AAAAATTATT", &references
+            TrimEnd::Right, 0.2,Some(5), 1, -1, -1, -1,
+            b"AAAAATTATT", references
         );
         let alignment = result.unwrap();
         // Matching prefix TTxTT with an error starting at x[5]
@@ -214,8 +217,8 @@ mod tests {
     fn test_aligner_right_embedded() {
         let references = get_as_references(b"TTTTT");
         let result = run_alignment(
-            TrimEnd::Right, 0.0, 5, 1, -1, -1, -1,
-            b"AAAAATTTTTAAA", &references
+            TrimEnd::Right, 0.0, Some(5), 1, -1, -1, -1,
+            b"AAAAATTTTTAAA", references
         );
         let alignment = result.unwrap();
         // Prefect match att position 5
@@ -228,8 +231,8 @@ mod tests {
     fn test_aligner_right_embedded_with_error() {
         let references = get_as_references(b"TTTTT");
         let result = run_alignment(
-            TrimEnd::Right,  0.2, 5, 1, -1, -1, -1,
-            b"AAAAATTATTAAA", &references
+            TrimEnd::Right,  0.2, Some(5), 1, -1, -1, -1,
+            b"AAAAATTATTAAA", references
         );
         let alignment = result.unwrap();
         // Match with error TTxTT at position 5
@@ -242,8 +245,8 @@ mod tests {
     fn test_aligner_right_embedded_with_wildcard() {
         let references = get_as_references(b"TTNTT");
         let result = run_alignment(
-            TrimEnd::Right, 0.0, 5,1, -1, -1, -1,
-            b"AAAAATTATTAAA", &references
+            TrimEnd::Right, 0.0, Some(5),1, -1, -1, -1,
+            b"AAAAATTATTAAA", references
         );
         let alignment = result.unwrap();
         // Matching TTNTT at position 5
@@ -256,8 +259,8 @@ mod tests {
     fn test_aligner_right_wrong_side_overhang() {
         let references = get_as_references(b"TTTT");
         let result = run_alignment(
-            TrimEnd::Right, 0.2, 3, 1, -1, -1, -1,
-            b"TTTAAAA", &references
+            TrimEnd::Right, 0.2, Some(3), 1, -1, -1, -1,
+            b"TTTAAAA", references
         );
         assert!(result.is_none());
     }
@@ -270,8 +273,8 @@ mod tests {
         // with TrimEnd::Right.
         let references = get_as_references(b"NNNTTTTTCCCC");
         let result = run_alignment(
-            TrimEnd::Right, 0.0, 6, 1, -1, -1, -1,
-            b"AAAAATTTTTAAATTT", &references
+            TrimEnd::Right, 0.0, Some(6), 1, -1, -1, -1,
+            b"AAAAATTTTTAAATTT", references
         );
         let alignment = result.unwrap();
         // Matching NNNTTTTTT (prefix) at position 2
@@ -284,8 +287,8 @@ mod tests {
     fn test_aligner_left_overhang() {
         let references = get_as_references(b"TTTT");
         let result = run_alignment(
-            TrimEnd::Left, 0.0, 1, 1, -1, -1, -1,
-            b"TTTAAAAA", &references
+            TrimEnd::Left, 0.0, Some(1), 1, -1, -1, -1,
+            b"TTTAAAAA", references
         );
         let alignment = result.unwrap();
         // Match TTT (suffix) starting x[0]
@@ -299,8 +302,8 @@ mod tests {
         // See also: test_aligner_right_partial_embedded()!!!
         let references = get_as_references(b"NNNTTTTTCCCC");
         let result = run_alignment(
-            TrimEnd::RTail, 0.0, 1, 1, -1, -1, -1,
-            b"AAAAATTTTTAAATTT", &references
+            TrimEnd::RTail, 0.0, Some(1), 1, -1, -1, -1,
+            b"AAAAATTTTTAAATTT", references
         );
         let alignment = result.unwrap();
         // Match NNNTTT starting x[10]
@@ -314,9 +317,9 @@ mod tests {
         let x = b"ACGTNTCG";
         let y = b"ACGTATCG";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.0, 1, 1, -1, -1, -1, x, &references);
+        let result = run_alignment(TrimEnd::Any, 0.0, Some(1), 1, -1, -1, -1, x, references);
         let alignment = result.unwrap();
-        let formatted = alignment.format();
+        let formatted = alignment.format(x, y);
         assert!(formatted.contains("ACGTNTCG"));
         assert!(formatted.contains("||||.|||"));
         assert!(formatted.contains("ACGTATCG"));
@@ -327,9 +330,9 @@ mod tests {
         let x = b"AAAAACCCCTTTTT";
         let y = b"CCCC";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.0, 1, 1, -1, -1, -1, x, &references);
+        let result = run_alignment(TrimEnd::Any, 0.0, Some(1), 1, -1, -1, -1, x, references);
         let alignment = result.unwrap();
-        let formatted = alignment.format();
+        let formatted = alignment.format(x, y);
         // Expected alignment:
         // AAAAACCCCTTTTT
         //      ||||
@@ -344,9 +347,9 @@ mod tests {
         let x = b"AAACCC";
         let y = b"CCCGGG";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.0, 1, 1, -1, -1, -1, x, &references);
+        let result = run_alignment(TrimEnd::Any, 0.0, Some(1), 1, -1, -1, -1, x, references);
         let alignment = result.unwrap();
-        let formatted = alignment.format();
+        let formatted = alignment.format(x, y);
 
         // AAACCC---
         //    |||
@@ -362,9 +365,9 @@ mod tests {
         let x = b"CCCGGG";
         let y = b"AAACCC";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.0, 1, 1, -1, -1, -1, x, &references);
+        let result = run_alignment(TrimEnd::Any, 0.0, Some(1), 1, -1, -1, -1, x, references);
         let alignment = result.unwrap();
-        let formatted = alignment.format();
+        let formatted = alignment.format(x, y);
 
         // ---CCCGGG
         //    |||
@@ -380,9 +383,9 @@ mod tests {
         let x = b"CCCCCGGG";
         let y = b"AAACCACC";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.2, 1, 1, -1, -1, -1, x, &references);
+        let result = run_alignment(TrimEnd::Any, 0.2, Some(1), 1, -1, -1, -1, x, references);
         let alignment = result.unwrap();
-        let formatted = alignment.format();
+        let formatted = alignment.format(x, y);
 
         assert!(formatted.contains("CCCCCGGG"));
         assert!(formatted.contains("|\\|"));
@@ -394,9 +397,9 @@ mod tests {
         let x = b"CAATCCTTTT";
         let y = b"CCCCAACCT";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.2, 1, 1, -1, -1, -1, x, &references);
+        let result = run_alignment(TrimEnd::Any, 0.2, Some(1), 1, -1, -1, -1, x, references);
         let alignment = result.unwrap();
-        let formatted = alignment.format();
+        let formatted = alignment.format(x, y);
 
         assert!(formatted.contains("CAATCCTTT"));
         assert!(formatted.contains("CCCCAA CCT"));
@@ -407,11 +410,21 @@ mod tests {
         let x = b"CAACCTTTT";
         let y = b"CCCCAATCCT";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.2, 1, 1, -1, -1, -1, x, &references);
+        let result = run_alignment(TrimEnd::Any, 0.2, Some(1), 1, -1, -1, -1, x, references);
         let alignment = result.unwrap();
-        let formatted = alignment.format();
+        let formatted = alignment.format(x, y);
 
         assert!(formatted.contains("CAA CCTTTT"));
         assert!(formatted.contains("CCCCAATCCT"));
+    }
+
+    #[test]
+    fn test_umi_tag() {
+        let x = b"CAATCCTTT";
+        let y = b"NNNTTT";
+        let references = get_as_references(y);
+        let result = run_alignment(TrimEnd::Right, 0.0, Some(6), 1, -1, -1, -1, x, references);
+        let alignment = result.unwrap();
+        assert_eq!(alignment.get_umi_tags(x, y), vec![String::from("TCC")])
     }
 }

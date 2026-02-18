@@ -2,11 +2,12 @@ use bio::alignment::{Alignment, AlignmentOperation};
 use crate::multi_aligner::generic::{AlignerMode, GenericRawResult};
 
 impl GenericRawResult for Alignment {
-    fn validate(&self, mode: AlignerMode, y: &[u8], error_rate: f32, min_overlap: usize) -> bool {
-        let required_overlap = match mode {
-            AlignerMode::Local => y.len(),
-            _ => min_overlap,
-        };
+    fn validate(&self, mode: AlignerMode, y: &[u8], error_rate: f32, min_overlap: Option<usize>) -> bool {
+        let required_overlap = if mode != AlignerMode::Local
+            && min_overlap.is_some() 
+        { 
+            min_overlap.unwrap()
+        } else {y.len()};
         let overlap = self.xend - self.xstart;
         let allowed_errors = (overlap as f32 * error_rate) as usize;
         check_match(self, y, required_overlap, allowed_errors)

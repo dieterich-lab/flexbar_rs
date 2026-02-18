@@ -6,6 +6,7 @@ use bio::alphabets::dna::revcomp;
 use log::{debug, info, warn};
 use std::fs::File;
 use std::io::BufReader;
+use std::sync::Arc;
 use crate::logging::log_fatal;
 
 
@@ -16,10 +17,10 @@ pub struct SequenceWithId {
 }
 
 pub struct Context {
-    pub adapters: Vec<String>,
-    pub adapters2: Vec<String>,
-    pub barcodes: Vec<SequenceWithId>,
-    pub barcodes2: Vec<SequenceWithId>,
+    pub adapters: Arc<Vec<String>>,
+    pub adapters2: Arc<Vec<String>>,
+    pub barcodes: Arc<Vec<SequenceWithId>>,
+    pub barcodes2: Arc<Vec<SequenceWithId>>,
     pub use_rc_trim_end: bool,
     pub format: FileFormat,
     pub run_type: RunType,
@@ -34,10 +35,10 @@ impl Context {
         let bar_detect = Self::determine_barcode_detection(args);
 
         let mut context = Context {
-            adapters: Vec::new(),
-            adapters2: Vec::new(),
-            barcodes: Vec::new(),
-            barcodes2: Vec::new(),
+            adapters: Arc::new(Vec::new()),
+            adapters2: Arc::new(Vec::new()),
+            barcodes: Arc::new(Vec::new()),
+            barcodes2: Arc::new(Vec::new()),
             use_rc_trim_end: Self::determine_use_rc_trim_end(args),
             format,
             run_type: Self::determine_run_type(args),
@@ -210,7 +211,9 @@ impl Context {
         }
 
         if let Some(adapter_seq) = &args.adapter_seq {
-            self.adapters.push(adapter_seq.clone());
+            let mut new_adapters = self.adapters.to_vec();
+            new_adapters.push(adapter_seq.clone());
+            self.adapters = Arc::new(new_adapters);
         }
 
         if let Some(adapter_file) = &args.adapters {
@@ -218,24 +221,27 @@ impl Context {
                 .into_iter()
                 .map(|item| item.sequence)
                 .collect();
-            self.adapters.append(&mut new_items);
+            let mut new_adapters = self.adapters.to_vec();
+            new_adapters.append(&mut new_items);
+            self.adapters = Arc::new(new_adapters);
         }
 
         if let Some(adapter_file2) = &args.adapters2
             && self.adapter_removal == AdapterRemoval::Normal2
         {
-            self.adapters2 = self.load_fasta_file(adapter_file2)
+            self.adapters2 = Arc::new(self.load_fasta_file(adapter_file2)
                 .into_iter()
                 .map(|item| item.sequence)
-                .collect();
+                .collect()
+            );
         }
 
         if let Some(barcode_file) = &args.barcodes {
-            self.barcodes = self.load_fasta_file(barcode_file);
+            self.barcodes = Arc::new(self.load_fasta_file(barcode_file));
         }
 
         if let Some(barcode_file2) = &args.barcodes2 {
-            self.barcodes2 = self.load_fasta_file(barcode_file2);
+            self.barcodes2 = Arc::new(self.load_fasta_file(barcode_file2));
         }
 
         self.apply_revcomp(args.adapter_revcomp);
@@ -255,32 +261,36 @@ impl Context {
     }
 
     fn load_preset(&mut self, preset: &AdapterPreset) {
+        let mut new_adapters = self.adapters.to_vec();
+        let mut new_adapters2 = self.adapters2.to_vec();
         match preset {
             AdapterPreset::TruSeq => {
-                self.adapters.push("AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string());
-                self.adapters2.push("AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string());
+                new_adapters.push("AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string());
+                new_adapters2.push("AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string());
             }
             AdapterPreset::SmallRna => {
-                self.adapters.push("TGGAATTCTCGGGTGCCAAGG".to_string());
+                new_adapters.push("TGGAATTCTCGGGTGCCAAGG".to_string());
             }
             AdapterPreset::Methyl => {
-                self.adapters.push("AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string());
-                self.adapters2.push("AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string());
+                new_adapters.push("AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string());
+                new_adapters2.push("AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string());
             }
             AdapterPreset::Ribo => {
-                self.adapters.push("AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string());
-                self.adapters2.push("AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string());
+                new_adapters.push("AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string());
+                new_adapters2.push("AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string());
             }
             AdapterPreset::Nextera => {
-                self.adapters.push("CTGTCTCTTATACACATCT".to_string());
-                self.adapters2.push("CTGTCTCTTATACACATCT".to_string());
+                new_adapters.push("CTGTCTCTTATACACATCT".to_string());
+                new_adapters2.push("CTGTCTCTTATACACATCT".to_string());
             }
             AdapterPreset::NexteraMp => {
-                self.adapters.push("CTGTCTCTTATACACATCT".to_string());
-                self.adapters2.push("CTGTCTCTTATACACATCT".to_string());
+                new_adapters.push("CTGTCTCTTATACACATCT".to_string());
+                new_adapters2.push("CTGTCTCTTATACACATCT".to_string());
             }
             AdapterPreset::Off => (),
         }
+        self.adapters = Arc::new(new_adapters);
+        self.adapters2 = Arc::new(new_adapters2);
     }
 
     fn load_fasta_file(&mut self, path: &std::path::Path) -> Vec<SequenceWithId> {
@@ -340,14 +350,21 @@ impl Context {
         match mode {
             RevCompMode::Off => (),
             RevCompMode::On => {
+                let mut new_adapters: Vec<String> = self.adapters.to_vec();
+                let mut new_adapters2: Vec<String> = self.adapters2.to_vec();
+                
                 let rc1: Vec<String> = self.adapters.iter().map(|s| String::from_utf8(revcomp(s.as_bytes())).unwrap()).collect();
                 let rc2: Vec<String> = self.adapters2.iter().map(|s| String::from_utf8(revcomp(s.as_bytes())).unwrap()).collect();
-                self.adapters.extend(rc1);
-                self.adapters2.extend(rc2);
+                new_adapters.extend(rc1);
+                new_adapters2.extend(rc2);
+                self.adapters = Arc::new(new_adapters);
+                self.adapters2 = Arc::new(new_adapters2);
             }
             RevCompMode::Only => {
-                self.adapters = self.adapters.iter().map(|s| String::from_utf8(revcomp(s.as_bytes())).unwrap()).collect();
-                self.adapters2 = self.adapters2.iter().map(|s| String::from_utf8(revcomp(s.as_bytes())).unwrap()).collect();
+                let new_adapters: Vec<String> = self.adapters.iter().map(|s| String::from_utf8(revcomp(s.as_bytes())).unwrap()).collect();
+                let new_adapters2: Vec<String> = self.adapters2.iter().map(|s| String::from_utf8(revcomp(s.as_bytes())).unwrap()).collect();
+                self.adapters = Arc::new(new_adapters);
+                self.adapters2 = Arc::new(new_adapters2);
             }
         }
     }
