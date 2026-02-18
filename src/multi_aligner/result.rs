@@ -65,4 +65,15 @@ impl<'r, 's> AlignmentResult<'r, 's> {
             RawAlignment::BioRust(raw) => raw.format(x, y),
         }
     }
+
+    pub fn get_start_index(&self) -> usize {
+        match &self.raw {
+            RawAlignment::BioRust(raw) => self.offset + raw.xstart,
+        }
+    }
+    pub fn get_end_index(&self) -> usize {
+        match &self.raw {
+            RawAlignment::BioRust(raw) => self.offset + raw.xend,
+        }
+    }
 }
