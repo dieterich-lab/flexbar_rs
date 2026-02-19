@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use bio::alignment::pairwise::{Aligner, Scoring, MIN_SCORE};
 use crate::context::SequenceWithId;
 use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
@@ -16,14 +15,14 @@ pub type BoxedAligner = Aligner<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>;
 
 pub struct BioRustPairwiseAligner {
     aligner: Option<BoxedAligner>,
-    references: Arc<Vec<SequenceWithId>>,
+    references: Vec<SequenceWithId>,
     config: BioRustAlignerConfig,
     x_capacity: usize,
     y_capacity: usize,
 }
 
 impl<'a> BioRustPairwiseAligner {
-    pub fn new(config: BioRustAlignerConfig, references: Arc<Vec<SequenceWithId>>) -> Self {
+    pub fn new(config: BioRustAlignerConfig, references: Vec<SequenceWithId>) -> Self {
         let y_capacity = references.iter().map(|r| r.sequence.len()).max().unwrap();
         BioRustPairwiseAligner {
             aligner: None,

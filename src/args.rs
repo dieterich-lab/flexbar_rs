@@ -80,9 +80,13 @@ pub struct Args {
     #[arg(long = "barcode-gap-open", alias = "bg", default_value_t = -9)]
     pub barcode_gap_open: i32,
 
-    // Alignment gap extend score for barcodes
+    /// Alignment gap extend score for barcodes
     #[arg(long = "barcode-gap-extend", alias = "ba", default_value_t = -1)]
     pub barcode_gap_extend: i32,
+
+    /// Override k-mer size for barcode banded aligner. 0 to disable.
+    #[arg(long = "barcode-kmer")]
+    pub barcode_kmer: Option<usize>,
 
     // Adapter removal
     /// Fasta file with adapters for removal that may contain N
@@ -172,6 +176,10 @@ pub struct Args {
     /// Alignment gap extend score for adapters (default -1)
     #[arg(long = "adapter-gap-extend", default_value_t = -1)]
     pub adapter_gap_extend: i32,
+
+    /// Override k-mer size for adapter banded aligner. 0 to disable.
+    #[arg(long = "adapter-kmer")]
+    pub adapter_kmer: Option<usize>,
 
     // Filtering and trimming
     /// Filter out reads with more than N uncalled bases. 0 (default) means no filtering.

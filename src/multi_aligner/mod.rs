@@ -3,15 +3,16 @@ mod generic;
 mod bio_rust;
 pub mod result;
 
-use std::sync::Arc;
 use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::aligner::{BioRustAlignerConfig, BioRustPairwiseAligner};
+use crate::multi_aligner::bio_rust::aligner_banded::{BioRustBandedAlignerConfig, BioRustBandedPairwiseAligner};
 use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
 use crate::multi_aligner::result::MultiAlignerResult;
 
 enum SpecificAligner {
     BioRustPairwiseAligner(BioRustPairwiseAligner),
+    BioRustBandedPairwiseAligner(BioRustBandedPairwiseAligner),
 }
 
 impl GenericAligner for SpecificAligner {
@@ -21,12 +22,14 @@ impl GenericAligner for SpecificAligner {
         match self {
             SpecificAligner::BioRustPairwiseAligner(aligner) => 
                 aligner.align(sequence, reference_index),
+            SpecificAligner::BioRustBandedPairwiseAligner(aligner) =>
+                aligner.align(sequence, reference_index),
         }
     }
 }
 
 pub struct MultiAligner {
-    references: Arc<Vec<SequenceWithId>>,
+    references: Vec<SequenceWithId>,
     trim_end: TrimEnd,
     min_overlap: Option<usize>,
     error_rate: f32,
@@ -34,13 +37,14 @@ pub struct MultiAligner {
     mismatch_score: i32,
     gap_open: i32,
     gap_extend: i32,
+    k_override: Option<usize>,
     cached_aligners: thread_local::ThreadLocal<std::cell::RefCell<Vec<SpecificAligner>>>,
 }
 
 
 impl MultiAligner {
     pub fn new(
-        references: Arc<Vec<SequenceWithId>>,
+        references: Vec<SequenceWithId>,
         trim_end: TrimEnd,
         error_rate: f32,
         min_overlap: Option<usize>,
@@ -48,6 +52,7 @@ impl MultiAligner {
         mismatch_score: i32,
         gap_open: i32,
         gap_extend: i32,
+        k_override: Option<usize>,
     ) -> Self {
         Self {
             references,
@@ -58,6 +63,7 @@ impl MultiAligner {
             mismatch_score,
             gap_open,
             gap_extend,
+            k_override,
             cached_aligners: thread_local::ThreadLocal::new(),
         }
     }
@@ -101,11 +107,33 @@ impl MultiAligner {
             TrimEnd::LTail => vec![AlignerMode::LeftOverlap],
             TrimEnd::RTail => vec![AlignerMode::RightOverlap],
         };
+
+        let k = match self.k_override {
+            Some(0) => 0,
+            Some(val) => val,
+            None => BioRustBandedPairwiseAligner::estimate_k(&self.references, self.error_rate),
+        };
+
         for mode in required_modes {
-            let config = self.get_aligner_config(mode);
-            aligners.push(SpecificAligner::BioRustPairwiseAligner(
-                BioRustPairwiseAligner::new(config, self.references.clone())
-            ))
+            let refs = self.references.clone();
+            if k >= 4 {
+                let config = BioRustBandedAlignerConfig {
+                    mode,
+                    match_score: self.match_score,
+                    mismatch_score: self.mismatch_score,
+                    gap_open: self.gap_open,
+                    gap_extend: self.gap_extend,
+                    k,
+                };
+                aligners.push(SpecificAligner::BioRustBandedPairwiseAligner(
+                    BioRustBandedPairwiseAligner::new(config, refs)
+                ));
+            } else {
+                let config = self.get_aligner_config(mode);
+                aligners.push(SpecificAligner::BioRustPairwiseAligner(
+                    BioRustPairwiseAligner::new(config, refs)
+                ));
+            }
         }
         aligners
     }
@@ -124,7 +152,6 @@ impl MultiAligner {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Arc;
     use crate::context::SequenceWithId;
     use crate::types::TrimEnd;
     use super::MultiAligner;
@@ -139,7 +166,7 @@ mod tests {
         gap_open: i32,
         gap_extend: i32,
         seq_x: &[u8],
-        references: Arc<Vec<SequenceWithId>>
+        references: Vec<SequenceWithId>
     ) -> Option<MultiAlignerResult> {
         let aligner = MultiAligner::new(
             references,
@@ -150,15 +177,16 @@ mod tests {
             mismatch_score,
             gap_open,
             gap_extend,
+            None,
         );
         aligner.align(seq_x)
     }
 
-    fn get_as_references(raw: &[u8]) -> Arc<Vec<SequenceWithId>> {
-       Arc::new(vec![SequenceWithId {
+    fn get_as_references(raw: &[u8]) -> Vec<SequenceWithId> {
+       vec![SequenceWithId {
             id: "ref".to_string(),
             sequence: String::from_utf8_lossy(raw).to_string(),
-       }])
+       }]
     }
 
     #[test]
@@ -314,6 +342,53 @@ mod tests {
         assert_eq!(alignment.score(), 6);
         assert_eq!(alignment.get_start_index(), 10);
         assert_eq!(alignment.get_end_index(), 16);
+    }
+
+    #[test]
+    fn test_aligner_k_override_zero() {
+        let references = get_as_references(b"ACGTACGTACGT"); // Length 12
+        // Default estimate_k for error_rate 0.0 is max_no_n = 12
+        // 12 > 8, so default k would be 8 (banded aligner used since 8 >= 4)
+        
+        let aligner = MultiAligner::new(
+            references,
+            TrimEnd::Right,
+            0.0,
+            Some(4),
+            1, -1, -1, -1,
+            Some(0), // Override k to 0 should force old aligner
+        );
+        
+        let aligners = aligner.create_aligners();
+        for a in aligners {
+            match a {
+                super::SpecificAligner::BioRustPairwiseAligner(_) => (),
+                _ => panic!("Expected BioRustPairwiseAligner when k_override is 0"),
+            }
+        }
+    }
+
+    #[test]
+    fn test_aligner_k_override_banded() {
+        let references = get_as_references(b"ACGT");
+        // Default estimate_k for length 4 is 4.
+        
+        let aligner = MultiAligner::new(
+            references,
+            TrimEnd::Right,
+            0.0,
+            Some(4),
+            1, -1, -1, -1,
+            Some(5), // Override k to 5 should use banded aligner even if k=4 was estimated
+        );
+        
+        let aligners = aligner.create_aligners();
+        for a in aligners {
+            match a {
+                super::SpecificAligner::BioRustBandedPairwiseAligner(_) => (),
+                _ => panic!("Expected BioRustBandedPairwiseAligner when k_override is 5"),
+            }
+        }
     }
 
     #[test]

@@ -1,15 +1,14 @@
-use std::cmp::min;
 use bio::alignment::{Alignment, AlignmentOperation};
-use crate::multi_aligner::generic::{AlignerMode, GenericRawResult};
+use crate::multi_aligner::generic::GenericRawResult;
 
 impl GenericRawResult for Alignment {
     fn validate(
         &self, x: &[u8], y: &[u8], error_rate: f32, min_overlap: Option<usize>, x_offset: usize
     ) -> bool {
         let check_length = if self.xstart + x_offset > self.ystart {
-            min(y.len(), x.len() - self.xstart - x_offset)
+            std::cmp::min(y.len(), x.len() - self.xstart - x_offset)
         } else {
-            min(y.len(), y.len() - (self.ystart - self.xstart - x_offset))
+            std::cmp::min(y.len(), y.len() - (self.ystart - self.xstart - x_offset))
         };
         match min_overlap {
             Some(x) => if x > check_length {return false},
@@ -28,8 +27,10 @@ impl GenericRawResult for Alignment {
         for op in &self.operations {
             match op {
                 AlignmentOperation::Match | AlignmentOperation::Subst => {
-                    if y[y_pos] == b'N' {
-                        umi.push(x[x_pos] as char);
+                    if y_pos < y.len() && y[y_pos] == b'N' {
+                        if x_pos < x.len() {
+                            umi.push(x[x_pos] as char);
+                        }
                     } else if !umi.is_empty() {
                         umi_tags.push(umi);
                         umi = String::new();
@@ -61,18 +62,20 @@ impl GenericRawResult for Alignment {
         let mut y_pos = 0;
 
         for _ in 0..x_offset {
-            line1.push(x[x_pos] as char);
-            line2.push('´');
-            line3.push(' ');
-            x_pos += 1;
+            if x_pos < x.len() {
+                line1.push(x[x_pos] as char);
+                line2.push('´');
+                line3.push(' ');
+                x_pos += 1;
+            }
         }
         for op in &self.operations {
             match op {
                 AlignmentOperation::Match => {
-                    let x_char = x[x_pos];
-                    let y_char = y[y_pos];
-                    line1.push(x_char as char);
-                    line3.push(y_char as char);
+                    let x_char = if x_pos < x.len() { x[x_pos] } else { b' ' };
+                    let y_char = if y_pos < y.len() { y[y_pos] } else { b' ' };
+                    line1.push(if x_pos < x.len() { x_char as char } else { '-' });
+                    line3.push(if y_pos < y.len() { y_char as char } else { '-' });
                     if x_char == b'N' || y_char == b'N' {
                         line2.push('.');
                     } else {
@@ -82,10 +85,10 @@ impl GenericRawResult for Alignment {
                     y_pos += 1;
                 }
                 AlignmentOperation::Subst => {
-                    let x_char = x[x_pos];
-                    let y_char = y[y_pos];
-                    line1.push(x_char as char);
-                    line3.push(y_char as char);
+                    let x_char = if x_pos < x.len() { x[x_pos] } else { b' ' };
+                    let y_char = if y_pos < y.len() { y[y_pos] } else { b' ' };
+                    line1.push(if x_pos < x.len() { x_char as char } else { '-' });
+                    line3.push(if y_pos < y.len() { y_char as char } else { '-' });
                     if x_char == b'N' || y_char == b'N' {
                         line2.push('.');
                     } else {
@@ -95,7 +98,7 @@ impl GenericRawResult for Alignment {
                     y_pos += 1;
                 }
                 AlignmentOperation::Ins => {
-                    line1.push(x[x_pos] as char);
+                    line1.push(if x_pos < x.len() { x[x_pos] as char } else { '-' });
                     line2.push(' ');
                     line3.push(' ');
                     x_pos += 1;
@@ -103,12 +106,12 @@ impl GenericRawResult for Alignment {
                 AlignmentOperation::Del => {
                     line1.push(' ');
                     line2.push(' ');
-                    line3.push(y[y_pos] as char);
+                    line3.push(if y_pos < y.len() { y[y_pos] as char } else { '-' });
                     y_pos += 1;
                 }
                 AlignmentOperation::Xclip(len) => {
                     for _ in 0..*len {
-                        line1.push(x[x_pos] as char);
+                        line1.push(if x_pos < x.len() { x[x_pos] as char } else { '-' });
                         line2.push('´');
                         line3.push(' ');
                         x_pos += 1;
@@ -118,12 +121,20 @@ impl GenericRawResult for Alignment {
                     for _ in 0..*len {
                         line1.push(' ');
                         line2.push(',');
-                        line3.push(y[y_pos] as char);
+                        line3.push(if y_pos < y.len() { y[y_pos] as char } else { '-' });
                         y_pos += 1;
                     }
                 }
             }
         }
+        // Append remaining x if any
+        while x_pos < x.len() {
+            line1.push(x[x_pos] as char);
+            line2.push(' ');
+            line3.push(' ');
+            x_pos += 1;
+        }
+
         format!("\
             Alignment with score {}:\n  {}\n  {}\n  {}\n",
                 self.score, line1, line2, line3

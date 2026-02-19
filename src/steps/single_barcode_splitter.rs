@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use crate::args::Args;
 use crate::types::{SingeRecordDto, TrimEnd};
 use log::trace;
@@ -8,7 +7,7 @@ use crate::multi_aligner::MultiAligner;
 use crate::multi_aligner::result::MultiAlignerResult;
 
 pub struct SingleBarcodeSplitter {
-    barcodes: Arc<Vec<SequenceWithId>>,
+    barcodes: Vec<SequenceWithId>,
     multi_aligner: MultiAligner,
     trim_end: TrimEnd,
     barcode_keep: bool,
@@ -51,7 +50,7 @@ impl<'a> GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 }
 
 impl<'a> SingleBarcodeSplitter {
-    pub fn new(args: &Args, barcodes: Arc<Vec<SequenceWithId>>) -> Self {
+    pub fn new(args: &Args, barcodes: Vec<SequenceWithId>) -> Self {
         let multi_aligner = MultiAligner::new(
             barcodes.clone(),
             args.barcode_trim_end,
@@ -60,7 +59,8 @@ impl<'a> SingleBarcodeSplitter {
             args.barcode_match,
             args.barcode_mismatch,
             args.barcode_gap_open,
-            args.barcode_gap_extend
+            args.barcode_gap_extend,
+            args.barcode_kmer
         );
 
         Self {
@@ -138,12 +138,12 @@ mod tests {
 
     fn process_record(record: SingeRecordDto, args: Args) -> RecordInTransformation<SingeRecordDto>
     {
-        let barcodes = Arc::new(vec![
+        let barcodes = vec![
             SequenceWithId {
                 id: "bc1".to_string(),
                 sequence: "NNNNNNTAGCTCTGTAGGCACCATCAAT".to_string()
             }
-        ]);
+        ];
         let splitter = SingleBarcodeSplitter::new(&args, barcodes);
         splitter.apply(
             record.get_record_in_transformation()
@@ -460,12 +460,12 @@ mod tests {
         // To test the fallback, we need a case where RIGHT finds a DIFFERENT (invalid) alignment
         // than RTAIL (which finds a valid one).
         
-        let barcodes = Arc::new(vec![
+        let barcodes = vec![
             SequenceWithId {
                 id: "bc1".to_string(),
                 sequence: "NNNTTTTTCCCC".to_string()
             }
-        ]);
+        ];
         let splitter = SingleBarcodeSplitter::new(&Args::parse_from(&[
             "flexbar_rs", "--reads", "test.fq", 
             "--barcode-trim-end", "RIGHT", 

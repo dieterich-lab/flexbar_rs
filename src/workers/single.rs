@@ -129,7 +129,7 @@ mod tests {
     fn test_process_barcode() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.barcodes = Arc::new(vec![SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}]);
+        context.barcodes = vec![SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}];
         
         let worker = SingleWorker::new(&args, &context);
         
@@ -166,9 +166,9 @@ mod tests {
     fn test_removal_tags_barcode() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--removal-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.barcodes = Arc::new(vec![
+        context.barcodes = vec![
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
-        ]);
+        ];
         
         let worker = SingleWorker::new(&args, &context);
         
@@ -184,7 +184,7 @@ mod tests {
     fn test_removal_tags_adapter() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--removal-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.adapters = Arc::new(vec!["AGATCGGAAGAG".to_string()]);
+        context.adapters = vec!["AGATCGGAAGAG".to_string()];
         
         let worker = SingleWorker::new(&args, &context);
         
@@ -203,10 +203,10 @@ mod tests {
             "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5",
             "--removal-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.adapters = Arc::new(vec!["AGATCGGAAGAG".to_string()]);
-        context.barcodes = Arc::new(vec![
+        context.adapters = vec!["AGATCGGAAGAG".to_string()];
+        context.barcodes = vec![
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
-        ]);
+        ];
         
         let worker = SingleWorker::new(&args, &context);
         
@@ -271,9 +271,9 @@ mod tests {
     fn test_umi_tags_barcode() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--umi-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.barcodes = Arc::new(vec![
+        context.barcodes = vec![
             SequenceWithId{id: "bc1".to_string(), sequence: "NNGGGGNN".to_string()}
-        ]);
+        ];
 
         let worker = SingleWorker::new(&args, &context);
         
@@ -292,7 +292,7 @@ mod tests {
     fn test_umi_tags_adapter() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATNNNN", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "4", "--umi-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.adapters = Arc::new(vec!["AGATNNNN".to_string()]);
+        context.adapters = vec!["AGATNNNN".to_string()];
         
         let worker = SingleWorker::new(&args, &context);
         

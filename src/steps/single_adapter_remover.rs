@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use crate::args::Args;
 use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
@@ -18,13 +17,11 @@ pub struct SingleAdapterRemover {
 
 impl SingleAdapterRemover {
     pub fn new(args: &Args, adapters: &[String]) -> Self {
-        let references = Arc::new(
-            adapters.iter().enumerate()
+        let references = adapters.iter().enumerate()
                 .map(|(index, seq)|
                     SequenceWithId{id: format!("adapter_{}", index), sequence: seq.to_string()}
                 )
-                .collect()
-        );
+                .collect();
         let multi_aligner = MultiAligner::new(
             references,
             args.adapter_trim_end,
@@ -34,6 +31,7 @@ impl SingleAdapterRemover {
             args.adapter_mismatch,
             args.adapter_gap_open,
             args.adapter_gap_extend,
+            args.adapter_kmer,
         );
 
         Self {
