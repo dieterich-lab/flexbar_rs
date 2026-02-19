@@ -5,4 +5,3 @@ pub mod single_quality_trim;
 pub mod single_filter_length;
 pub mod single_finalize;
 pub mod generic;
-pub mod utils;

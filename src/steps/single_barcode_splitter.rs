@@ -107,21 +107,7 @@ impl<'a> SingleBarcodeSplitter {
         best: &MultiAlignerResult
     ) {
         if self.barcode_keep { return; }
-        let rel_start = best.get_start_index();
-        let rel_end = best.get_end_index();
-        match self.trim_end {
-            TrimEnd::Right | TrimEnd::RTail => rec.alignment_results.seq_end =
-                rec.alignment_results.seq_start + rel_start,
-            TrimEnd::Left | TrimEnd::LTail => rec.alignment_results.seq_start += rel_end,
-            TrimEnd::Any => {
-                let right_length = rec.get_sequence().len() - rel_end;
-                if rel_start > right_length {
-                    rec.alignment_results.seq_end = rec.alignment_results.seq_start + rel_start;
-                } else {
-                    rec.alignment_results.seq_start += rel_end;
-                }
-            }
-        }
+        rec.trim(self.trim_end, best.get_start_index(), best.get_end_index());
         if self.removal_tags {
             rec.alignment_results.removal_tags.push("Flexbar_removal".to_string());
         }

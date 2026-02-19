@@ -1,5 +1,5 @@
 use crate::statistics::WorkerStatistics;
-use crate::types::SingeRecordDto;
+use crate::types::{SingeRecordDto, TrimEnd};
 
 #[derive(Default, Clone)]
 pub struct AlignmentResults {
@@ -25,6 +25,22 @@ impl RecordInTransformation<SingeRecordDto> {
     
     pub fn get_sequence_as_str(&self) -> String {
         String::from_utf8_lossy(self.get_sequence()).to_string()
+    }
+
+    pub fn trim(&mut self, trim_end: TrimEnd, start: usize, end: usize) {
+        match trim_end {
+            TrimEnd::Right | TrimEnd::RTail => self.alignment_results.seq_end =
+                self.alignment_results.seq_start + start,
+            TrimEnd::Left | TrimEnd::LTail => self.alignment_results.seq_start += end,
+            TrimEnd::Any => {
+                let right_length = self.get_sequence().len() - end;
+                if start > right_length {
+                    self.alignment_results.seq_end = self.alignment_results.seq_start + start;
+                } else {
+                    self.alignment_results.seq_start += end;
+                }
+            }
+        }
     }
 }
 
