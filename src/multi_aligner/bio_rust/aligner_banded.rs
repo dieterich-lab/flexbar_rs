@@ -162,6 +162,6 @@ impl GenericAligner for BioRustBandedPairwiseAligner {
         let relevant_seq = &sequence[offset..offset + length];
 
         let raw = aligner.custom_with_prehash(relevant_seq, reference.sequence.as_bytes(), &temp_hash);
-        MultiAlignerResult { raw: RawAlignment::BioRust(raw), mode, offset, reference_index }
+        MultiAlignerResult { raw: RawAlignment::BioRust(raw), offset, reference_index }
     }
 }

@@ -1,5 +1,5 @@
 use bio::alignment::Alignment;
-use crate::multi_aligner::generic::{AlignerMode, GenericRawResult};
+use crate::multi_aligner::generic::{GenericRawResult};
 
 
 pub enum RawAlignment {
@@ -8,7 +8,6 @@ pub enum RawAlignment {
 
 pub struct MultiAlignerResult {
     pub raw: RawAlignment,
-    pub mode: AlignerMode,
     pub offset: usize,
     pub reference_index: usize,
 }
