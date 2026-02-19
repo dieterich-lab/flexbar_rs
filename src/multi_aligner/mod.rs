@@ -73,7 +73,11 @@ impl MultiAligner {
             for aligner in aligners.iter_mut() {
                 let result = aligner.align(sequence, index);
                 let reference = &self.references[index].sequence.as_bytes();
-                if !result.validate(self.error_rate, reference, self.min_overlap) { continue; }
+                if !result.validate(
+                    self.error_rate, sequence, reference, self.min_overlap, result.offset
+                ) {
+                    continue;
+                }
                 let old_score = match best.as_ref() {
                     Some(b) => b.score(),
                     None => i32::MIN,
@@ -314,15 +318,15 @@ mod tests {
 
     #[test]
     fn test_format_alignment_wildcard() {
-        let x = b"ACGTNTCG";
-        let y = b"ACGTATCG";
+        let x = b"ACGTATCG";
+        let y = b"ACGTNTCG";
         let references = get_as_references(y);
         let result = run_alignment(TrimEnd::Any, 0.0, Some(1), 1, -1, -1, -1, x, references);
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
-        assert!(formatted.contains("ACGTNTCG"));
-        assert!(formatted.contains("||||.|||"));
         assert!(formatted.contains("ACGTATCG"));
+        assert!(formatted.contains("||||.|||"));
+        assert!(formatted.contains("ACGTNTCG"));
     }
 
     #[test]
@@ -444,10 +448,20 @@ mod tests {
         // Check format
         let formatted = alignment.format(x, y);
         assert_eq!(formatted, concat!(
-            "Alignment with score 27:\n",
+            "Alignment with score 21:\n",
             "  CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA \n",
-            "  ´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´......|||||||||||||||||||||,\n",
+            "  ´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´......||||||||||||||||||||| \n",
             "                                              NNNNNNTAGCTCTGTAGGCACCATCAAT\n"
         ));
+    }
+
+    #[test]
+    fn invalid_alignment_at_end() {
+        let x = b"TATTCGCTTTGGGCGCGCGCCGCGGCTGGACGAGGCGCCGCCGGCATCATAGCTCTGTAGGACCATCAATA";
+        let y = b"NNNNNNTAGCTCTGTAGGCACCATCAAT";
+        let references = get_as_references(y);
+
+        let result = run_alignment(TrimEnd::Right, 0.0, Some(11), 1, -1, -5, -1, x, references);
+        assert!(result.is_none());
     }
 }

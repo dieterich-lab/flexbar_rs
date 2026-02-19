@@ -20,10 +20,12 @@ impl<'r> MultiAlignerResult {
         }
     }
 
-    pub fn validate(&self, error_rate: f32, y: &[u8], min_overlap: Option<usize>) -> bool {
+    pub fn validate(
+        &self, error_rate: f32, x: &[u8], y: &[u8], min_overlap: Option<usize>, x_offset: usize
+    ) -> bool {
         match &self.raw {
             RawAlignment::BioRust(raw) =>
-                raw.validate(self.mode, y, error_rate, min_overlap),
+                raw.validate(x, y, error_rate, min_overlap, x_offset),
         }
     }
 

@@ -1,16 +1,22 @@
+use std::cmp::min;
 use bio::alignment::{Alignment, AlignmentOperation};
 use crate::multi_aligner::generic::{AlignerMode, GenericRawResult};
 
 impl GenericRawResult for Alignment {
-    fn validate(&self, mode: AlignerMode, y: &[u8], error_rate: f32, min_overlap: Option<usize>) -> bool {
-        let required_overlap = if mode != AlignerMode::Local
-            && min_overlap.is_some() 
-        { 
-            min_overlap.unwrap()
-        } else {y.len()};
-        let overlap = self.xend - self.xstart;
-        let allowed_errors = (overlap as f32 * error_rate) as usize;
-        check_match(self, y, required_overlap, allowed_errors)
+    fn validate(
+        &self, x: &[u8], y: &[u8], error_rate: f32, min_overlap: Option<usize>, x_offset: usize
+    ) -> bool {
+        let check_length = if self.xstart + x_offset > self.ystart {
+            min(y.len(), x.len() - self.xstart - x_offset)
+        } else {
+            min(y.len(), y.len() - (self.ystart - self.xstart - x_offset))
+        };
+        match min_overlap {
+            Some(x) => if x > check_length {return false},
+            None => ()
+        }
+        let allowed_errors = (check_length as f32 * error_rate) as usize;
+        check_match(self, y, check_length, allowed_errors)
     }
 
     fn get_umi_tags(&self, x: &[u8], y: &[u8], x_offset: usize) -> Vec<String> {
@@ -127,11 +133,11 @@ impl GenericRawResult for Alignment {
 fn check_match(
     alignment: &Alignment,
     y: &[u8],
-    required_overlap: usize,
+    check_length: usize,
     allowed_errors: usize
 ) -> bool {
     let mut y_pos = alignment.ystart;
-    let mut bases_to_check = required_overlap;
+    let mut bases_to_check = check_length;
     let mut free_errors: i32 = allowed_errors as i32;
 
     for op in &alignment.operations {
@@ -152,6 +158,7 @@ fn check_match(
                 free_errors -= 1;
             }
             AlignmentOperation::Del => {
+                bases_to_check -= 1;
                 y_pos += 1;
                 free_errors -= 1;
             }
