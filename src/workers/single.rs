@@ -272,7 +272,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--umi-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
         context.barcodes = Arc::new(vec![
-            SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
+            SequenceWithId{id: "bc1".to_string(), sequence: "NNGGGGNN".to_string()}
         ]);
 
         let worker = SingleWorker::new(&args, &context);

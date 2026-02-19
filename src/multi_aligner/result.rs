@@ -1,5 +1,4 @@
 use bio::alignment::Alignment;
-use crate::context::SequenceWithId;
 use crate::multi_aligner::generic::{AlignerMode, GenericRawResult};
 
 
@@ -15,29 +14,11 @@ pub struct MultiAlignerResult {
 }
 
 impl<'r> MultiAlignerResult {
-    pub fn new(
-        mode: AlignerMode,
-        offset: usize,
-        raw: RawAlignment,
-        reference_index: usize
-    ) -> Self {
-        Self {
-            raw,
-            mode,
-            offset,
-            reference_index
-        }
-    }
-
     pub fn score(&self) -> i32 {
         match &self.raw {
             RawAlignment::BioRust(raw) => raw.score,
         }
     }
-    pub fn offset(&self) -> usize {
-        self.offset
-    }
-    pub fn mode(&self) -> AlignerMode { self.mode }
 
     pub fn validate(&self, error_rate: f32, y: &[u8], min_overlap: Option<usize>) -> bool {
         match &self.raw {

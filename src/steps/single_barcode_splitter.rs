@@ -1,10 +1,8 @@
-use std::cell::RefMut;
 use std::sync::Arc;
 use crate::args::Args;
-use crate::types::{SingeRecordDto};
+use crate::types::{SingeRecordDto, TrimEnd};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
-use bio::alignment::pairwise::Aligner;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::MultiAligner;
 use crate::multi_aligner::result::MultiAlignerResult;
@@ -12,14 +10,13 @@ use crate::multi_aligner::result::MultiAlignerResult;
 pub struct SingleBarcodeSplitter {
     barcodes: Arc<Vec<SequenceWithId>>,
     multi_aligner: MultiAligner,
+    trim_end: TrimEnd,
     barcode_keep: bool,
     barcode_unassigned: bool,
     removal_tags: bool,
     umi_tags: bool,
     trace: bool,
 }
-
-type BoxedAligner<'a> = RefMut<'a, Aligner<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>>;
 
 impl<'a> GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
@@ -69,6 +66,7 @@ impl<'a> SingleBarcodeSplitter {
         Self {
             barcodes,
             multi_aligner,
+            trim_end: args.barcode_trim_end,
             barcode_keep: args.barcode_keep,
             barcode_unassigned: args.barcode_unassigned,
             removal_tags: args.removal_tags,
@@ -111,9 +109,19 @@ impl<'a> SingleBarcodeSplitter {
         if self.barcode_keep { return; }
         let rel_start = best.get_start_index();
         let rel_end = best.get_end_index();
-        let old_start = rec.alignment_results.seq_start;
-        rec.alignment_results.seq_start = old_start + rel_start;
-        rec.alignment_results.seq_end = old_start + rel_end;
+        match self.trim_end {
+            TrimEnd::Right | TrimEnd::RTail => rec.alignment_results.seq_end =
+                rec.alignment_results.seq_start + rel_start,
+            TrimEnd::Left | TrimEnd::LTail => rec.alignment_results.seq_start += rel_end,
+            TrimEnd::Any => {
+                let right_length = rec.get_sequence().len() - rel_end;
+                if rel_start > right_length {
+                    rec.alignment_results.seq_end = rec.alignment_results.seq_start + rel_start;
+                } else {
+                    rec.alignment_results.seq_start += rel_end;
+                }
+            }
+        }
         if self.removal_tags {
             rec.alignment_results.removal_tags.push("Flexbar_removal".to_string());
         }
@@ -284,7 +292,7 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.seq_start, 0);
+        assert_eq!(res.alignment_results.seq_start, 28);
         assert_eq!(res.alignment_results.seq_end, 72);
     }
 
@@ -302,7 +310,7 @@ mod tests {
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
         assert_eq!(res.alignment_results.seq_start, 0);
-        assert_eq!(res.alignment_results.seq_end, 72);
+        assert_eq!(res.alignment_results.seq_end, 44);
     }
 
     fn get_record_with_last_barcode_base_missing_in_sequence() -> SingeRecordDto {
