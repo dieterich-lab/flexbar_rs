@@ -13,10 +13,10 @@ impl GenericRawResult for Alignment {
         check_match(self, y, required_overlap, allowed_errors)
     }
 
-    fn get_umi_tags(&self, x: &[u8], y: &[u8]) -> Vec<String> {
+    fn get_umi_tags(&self, x: &[u8], y: &[u8], x_offset: usize) -> Vec<String> {
         let mut umi_tags = Vec::new();
         let mut umi = String::new();
-        let mut x_pos = self.xstart;
+        let mut x_pos = self.xstart + x_offset;
         let mut y_pos = self.ystart;
 
         for op in &self.operations {
@@ -46,7 +46,7 @@ impl GenericRawResult for Alignment {
         umi_tags
     }
 
-    fn format(&self, x: &[u8], y: &[u8]) -> String {
+    fn format(&self, x: &[u8], y: &[u8], x_offset: usize) -> String {
         let mut line1 = String::new();
         let mut line2 = String::new();
         let mut line3 = String::new();
@@ -54,6 +54,12 @@ impl GenericRawResult for Alignment {
         let mut x_pos = 0;
         let mut y_pos = 0;
 
+        for _ in 0..x_offset {
+            line1.push(x[x_pos] as char);
+            line2.push('´');
+            line3.push(' ');
+            x_pos += 1;
+        }
         for op in &self.operations {
             match op {
                 AlignmentOperation::Match => {
@@ -113,7 +119,7 @@ impl GenericRawResult for Alignment {
             }
         }
         format!("\
-            Alignment with score {}:\n  {}\n  {}\n  {}",
+            Alignment with score {}:\n  {}\n  {}\n  {}\n",
                 self.score, line1, line2, line3
         )
     }

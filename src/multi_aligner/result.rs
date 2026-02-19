@@ -29,12 +29,12 @@ impl<'r> MultiAlignerResult {
 
     pub fn get_umi_tags(&self, x: &[u8], y: &[u8]) -> Vec<String> {
         match &self.raw {
-            RawAlignment::BioRust(raw) => raw.get_umi_tags(x, y),
+            RawAlignment::BioRust(raw) => raw.get_umi_tags(x, y, self.offset),
         }
     }
     pub fn format(&self, x: &[u8], y: &[u8]) -> String {
         match &self.raw {
-            RawAlignment::BioRust(raw) => raw.format(x, y),
+            RawAlignment::BioRust(raw) => raw.format(x, y, self.offset),
         }
     }
 

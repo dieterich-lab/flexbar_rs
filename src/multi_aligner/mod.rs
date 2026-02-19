@@ -427,4 +427,27 @@ mod tests {
         let alignment = result.unwrap();
         assert_eq!(alignment.get_umi_tags(x, y), vec![String::from("TCC")])
     }
+
+    #[test]
+    fn test_offset_handling() {
+        let x = b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA";
+        let y =b"NNNNNNTAGCTCTGTAGGCACCATCAAT";
+        let references = get_as_references(y);
+        let result = run_alignment(TrimEnd::Right, 0.0, Some(11), 1, -1, -5, -1, x, references);
+        assert!(result.is_some());
+        let alignment = result.unwrap();
+        let umi_tags = alignment.get_umi_tags(x, y);
+        
+        assert_eq!(umi_tags.len(), 1);
+        assert_eq!(umi_tags[0], "GTGCCC");
+
+        // Check format
+        let formatted = alignment.format(x, y);
+        assert_eq!(formatted, concat!(
+            "Alignment with score 27:\n",
+            "  CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA \n",
+            "  ´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´......|||||||||||||||||||||,\n",
+            "                                              NNNNNNTAGCTCTGTAGGCACCATCAAT\n"
+        ));
+    }
 }
