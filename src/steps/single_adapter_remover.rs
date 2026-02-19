@@ -17,12 +17,13 @@ pub struct SingleAdapterRemover {
 
 impl SingleAdapterRemover {
     pub fn new(args: &Args, adapters: &[String]) -> Self {
-        let references = adapters.iter().enumerate()
+        let references: Vec<SequenceWithId> = adapters.iter().enumerate()
                 .map(|(index, seq)|
                     SequenceWithId{id: format!("adapter_{}", index), sequence: seq.to_string()}
                 )
                 .collect();
         let multi_aligner = MultiAligner::new(
+            "Adapter Remover".to_string(),
             references,
             args.adapter_trim_end,
             args.adapter_error_rate,

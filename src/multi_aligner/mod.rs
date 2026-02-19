@@ -9,6 +9,7 @@ use crate::multi_aligner::bio_rust::aligner::{BioRustAlignerConfig, BioRustPairw
 use crate::multi_aligner::bio_rust::aligner_banded::{BioRustBandedAlignerConfig, BioRustBandedPairwiseAligner};
 use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
 use crate::multi_aligner::result::MultiAlignerResult;
+use log::{debug, warn};
 
 enum SpecificAligner {
     BioRustPairwiseAligner(BioRustPairwiseAligner),
@@ -29,6 +30,7 @@ impl GenericAligner for SpecificAligner {
 }
 
 pub struct MultiAligner {
+    name: String,
     references: Vec<SequenceWithId>,
     trim_end: TrimEnd,
     min_overlap: Option<usize>,
@@ -44,6 +46,7 @@ pub struct MultiAligner {
 
 impl MultiAligner {
     pub fn new(
+        name: String,
         references: Vec<SequenceWithId>,
         trim_end: TrimEnd,
         error_rate: f32,
@@ -55,6 +58,7 @@ impl MultiAligner {
         k_override: Option<usize>,
     ) -> Self {
         Self {
+            name,
             references,
             trim_end,
             error_rate,
@@ -108,15 +112,30 @@ impl MultiAligner {
             TrimEnd::RTail => vec![AlignerMode::RightOverlap],
         };
 
+        let estimated_k = BioRustBandedPairwiseAligner::estimate_k(&self.references, self.error_rate);
+
         let k = match self.k_override {
             Some(0) => 0,
-            Some(val) => val,
-            None => BioRustBandedPairwiseAligner::estimate_k(&self.references, self.error_rate),
+            Some(val) => {
+                if val < estimated_k {
+                    warn!(
+                        "Warning: The k-mer size ({}, <{}) for {} might be too small for the error rate.",
+                        val, estimated_k, self.name
+                    );
+                }
+                val
+            },
+            None => estimated_k,
         };
+
+        if k < 4 && self.k_override != Some(0) {
+            warn!("Warning: Non-banded aligner for {} - performance might improve if a lower error rate is used.", self.name);
+        }
 
         for mode in required_modes {
             let refs = self.references.clone();
             if k >= 4 {
+                debug!("{}: Using banded aligner with k={} for mode {:?}.", self.name, k, mode);
                 let config = BioRustBandedAlignerConfig {
                     mode,
                     match_score: self.match_score,
@@ -129,6 +148,7 @@ impl MultiAligner {
                     BioRustBandedPairwiseAligner::new(config, refs)
                 ));
             } else {
+                debug!("{}: Using standard aligner for mode {:?}.", self.name, mode);
                 let config = self.get_aligner_config(mode);
                 aligners.push(SpecificAligner::BioRustPairwiseAligner(
                     BioRustPairwiseAligner::new(config, refs)
@@ -169,6 +189,7 @@ mod tests {
         references: Vec<SequenceWithId>
     ) -> Option<MultiAlignerResult> {
         let aligner = MultiAligner::new(
+            "Test Aligner".to_string(),
             references,
             trim_end,
             error_rate,
@@ -351,6 +372,7 @@ mod tests {
         // 12 > 8, so default k would be 8 (banded aligner used since 8 >= 4)
         
         let aligner = MultiAligner::new(
+            "Test Aligner".to_string(),
             references,
             TrimEnd::Right,
             0.0,
@@ -374,6 +396,7 @@ mod tests {
         // Default estimate_k for length 4 is 4.
         
         let aligner = MultiAligner::new(
+            "Test Aligner".to_string(),
             references,
             TrimEnd::Right,
             0.0,

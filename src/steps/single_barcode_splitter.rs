@@ -52,6 +52,7 @@ impl<'a> GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 impl<'a> SingleBarcodeSplitter {
     pub fn new(args: &Args, barcodes: Vec<SequenceWithId>) -> Self {
         let multi_aligner = MultiAligner::new(
+            "Barcode Splitter".to_string(),
             barcodes.clone(),
             args.barcode_trim_end,
             args.barcode_error_rate,
