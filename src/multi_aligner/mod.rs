@@ -3,13 +3,21 @@ mod generic;
 mod bio_rust;
 pub mod result;
 
+use std::cmp::min;
 use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::aligner::{BioRustAlignerConfig, BioRustPairwiseAligner};
 use crate::multi_aligner::bio_rust::aligner_banded::{BioRustBandedAlignerConfig, BioRustBandedPairwiseAligner};
 use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
 use crate::multi_aligner::result::MultiAlignerResult;
-use log::{debug, warn};
+use log::{debug, info, warn};
+
+fn get_minimum_kmer_k() -> usize {
+    // If k becomes too low, two problems may arise:
+    // - The hash may become huge.
+    // - The kmer approach may become inefficient.
+    4
+}
 
 enum SpecificAligner {
     BioRustPairwiseAligner(BioRustPairwiseAligner),
@@ -39,7 +47,7 @@ pub struct MultiAligner {
     mismatch_score: i32,
     gap_open: i32,
     gap_extend: i32,
-    k_override: Option<usize>,
+    kmer_k: usize,
     cached_aligners: thread_local::ThreadLocal<std::cell::RefCell<Vec<SpecificAligner>>>,
 }
 
@@ -57,6 +65,12 @@ impl MultiAligner {
         gap_extend: i32,
         k_override: Option<usize>,
     ) -> Self {
+        let kmer_k = determine_kmer_k(&name, &references, error_rate, min_overlap, k_override);
+        if kmer_k > 0 {
+            debug!("{}: Using banded aligner with k={} with trim end {:?}.", name, kmer_k, trim_end);
+        } else {
+            debug!("{}: Using non-banded aligner with trim end {:?}.", name, trim_end);
+        }
         Self {
             name,
             references,
@@ -67,7 +81,7 @@ impl MultiAligner {
             mismatch_score,
             gap_open,
             gap_extend,
-            k_override,
+            kmer_k,
             cached_aligners: thread_local::ThreadLocal::new(),
         }
     }
@@ -112,37 +126,16 @@ impl MultiAligner {
             TrimEnd::RTail => vec![AlignerMode::RightOverlap],
         };
 
-        let estimated_k = BioRustBandedPairwiseAligner::estimate_k(&self.references, self.error_rate);
-
-        let k = match self.k_override {
-            Some(0) => 0,
-            Some(val) => {
-                if val < estimated_k {
-                    warn!(
-                        "Warning: The k-mer size ({}, <{}) for {} might be too small for the error rate.",
-                        val, estimated_k, self.name
-                    );
-                }
-                val
-            },
-            None => estimated_k,
-        };
-
-        if k < 4 && self.k_override != Some(0) {
-            warn!("Warning: Non-banded aligner for {} - performance might improve if a lower error rate is used.", self.name);
-        }
-
         for mode in required_modes {
             let refs = self.references.clone();
-            if k >= 4 {
-                debug!("{}: Using banded aligner with k={} for mode {:?}.", self.name, k, mode);
+            if self.kmer_k > 0 {
                 let config = BioRustBandedAlignerConfig {
                     mode,
                     match_score: self.match_score,
                     mismatch_score: self.mismatch_score,
                     gap_open: self.gap_open,
                     gap_extend: self.gap_extend,
-                    k,
+                    k: self.kmer_k,
                 };
                 aligners.push(SpecificAligner::BioRustBandedPairwiseAligner(
                     BioRustBandedPairwiseAligner::new(config, refs)
@@ -169,6 +162,86 @@ impl MultiAligner {
     }
 }
 
+fn determine_kmer_k(
+    name: &str,
+    references: &Vec<SequenceWithId>,
+    error_rate: f32,
+    min_overlap: Option<usize>,
+    k_override: Option<usize>
+) -> usize {
+    let mut highest_possible_k = usize::MAX;
+    for r in references.iter() {
+        let possible_k = determine_kmer_k_for_sequence(&r.sequence, error_rate, min_overlap);
+        if possible_k < highest_possible_k {
+            highest_possible_k = possible_k;
+        }
+    }
+    match k_override {
+        Some(0) => {
+            info!("{}: Using non-banded aligner on user request.", name);
+            0
+        },
+        Some(val) => {
+            if val > highest_possible_k {
+                warn!(
+                        "Warning: The k-mer size ({}, <{}) for {} might be too big.",
+                        val, highest_possible_k, name
+                    );
+                warn!("Warning: Valid alignments for the given error rate/overlap may be missed.");
+            }
+            val
+        },
+        None => {
+            if highest_possible_k > get_minimum_kmer_k() {
+                highest_possible_k
+            } else {
+                warn!(
+                    "Warning: The k-mer size ({}) for {} is too small - using non-banded aligner.",
+                    highest_possible_k, name
+                );
+                warn!("Warning: Performance might be improved using a lower error rate and/or a larger overlap");
+                0
+            }
+        },
+    }
+}
+
+fn determine_kmer_k_for_sequence(
+    sequence: &str,
+    error_rate: f32,
+    min_overlap: Option<usize>,
+) -> usize {
+    let mut max_clean_length: usize = 0;
+    let mut present_clean_length: usize = 0;
+    let mut n_count = 0;
+    for c in sequence.chars() {
+        if c == 'N' {
+            if present_clean_length > max_clean_length {
+                max_clean_length = present_clean_length;
+            }
+            present_clean_length = 0;
+            n_count += 1;
+        } else {
+            present_clean_length += 1;
+        }
+    }
+    if present_clean_length > max_clean_length {
+        max_clean_length = present_clean_length;
+    }
+    let allowed_errors = (max_clean_length as f32 * error_rate) as usize;
+    let min_match_length = max_clean_length / (allowed_errors + 1);
+    match min_overlap {
+        Some(min_overlap) => {
+            if min_overlap < n_count {
+                // That is a pathological case, which will give a warning anyway.
+                0
+            } else {
+                min(min_match_length, min_overlap - n_count)
+            }
+        },
+        None => min_match_length,
+    }
+}
 
 #[cfg(test)]
 mod tests {
@@ -351,7 +424,7 @@ mod tests {
     }
 
     #[test]
-    fn test_aliagner_rtail_overhang() {
+    fn test_aligner_rtail_overhang() {
         // See also: test_aligner_right_partial_embedded()!!!
         let references = get_as_references(b"NNNTTTTTCCCC");
         let result = run_alignment(
@@ -412,6 +485,75 @@ mod tests {
                 _ => panic!("Expected BioRustBandedPairwiseAligner when k_override is 5"),
             }
         }
+    }
+
+    #[test]
+    fn test_determine_k() {
+        let references = vec![SequenceWithId {
+            id: "ref".to_string(),
+            sequence: "NNNNNNTAGCTCTGTAGGCACCATCAAT".to_string(), // length 28, 6 Ns
+        }];
+        let k = super::determine_kmer_k(
+            "Test", &references, 0.0, None, None
+        );
+        // We need to detect matches of length 22 (28-6)
+        assert_eq!(k, 22);
+    }
+
+    #[test]
+    fn test_determine_k_small_overlap() {
+        let references = vec![SequenceWithId {
+            id: "ref".to_string(),
+            sequence: "NNNNNNTAGCTCTGTAGGCACCATCAAT".to_string(), // length 28, 6 Ns
+        }];
+        let k = super::determine_kmer_k(
+            "Test", &references, 0.0, Some(11), None
+        );
+        // With an overlap of 11 and 6 'N's we must be able to detect
+        // matches of length 5. So K can be at most 5.
+        assert_eq!(k, 5);
+    }
+
+    #[test]
+    fn test_determine_k_with_min_overlap_low() {
+        let references = vec![SequenceWithId {
+            id: "ref".to_string(),
+            sequence: "NNNNNNTGC".to_string(), // length 9, 6 Ns, max_no_n = 3
+        }];
+        let k = super::determine_kmer_k(
+            "Test", &references, 0.0, Some(8), None
+        );
+        // With only 3 bases other than 'N', we need a k below 4 - so we disable
+        // the banded aligner.
+        assert_eq!(k, 0);
+    }
+
+    #[test]
+    fn test_determine_k_with_min_overlap_high() {
+        let references = vec![SequenceWithId {
+            id: "ref".to_string(),
+            sequence: "NNNNNNTAGCTCTGTAGGCACCATCAAT".to_string(), // length 28, 6 Ns
+        }];
+        let k = super::determine_kmer_k(
+            "Test", &references, 0.0, None, Some(0)
+        );
+        // Normale 22 - but the user disabled the banded aligner.
+        assert_eq!(k, 0);
+    }
+
+    #[test]
+    fn test_determine_k_with_error_rate() {
+        let references = vec![SequenceWithId {
+            id: "ref".to_string(),
+            sequence: "NNNNNNTAGCTCTGTAGGCACCATCAAT".to_string(), // length 28, 6 Ns
+        }];
+        let k = super::determine_kmer_k(
+            "Test", &references, 0.1, None, None
+        );
+        // With error rate 0.0 we would need to detect matches of length 22 (28-6).
+        // With an error rate of 0.1, we may see 2 errors in 22 bases, splitting
+        // the alignment worst case into 3 parts of about 7 bases.
+        assert_eq!(k, 7);
     }
 
     #[test]

@@ -106,36 +106,6 @@ impl BioRustBandedPairwiseAligner {
         // Using w = k * 2 as a heuristic for window size
         Aligner::with_capacity_and_scoring(self.x_capacity, self.y_capacity, scoring, self.config.k, self.config.k * 2)
     }
-
-    pub fn estimate_k(references: &[SequenceWithId], error_rate: f32) -> usize {
-        let mut min_k = usize::MAX;
-        for r in references.iter() {
-            let seq = r.sequence.as_bytes();
-            let mut max_no_n = 0;
-            let mut current_no_n = 0;
-            for &b in seq {
-                if b != b'N' {
-                    current_no_n += 1;
-                } else {
-                    if current_no_n > max_no_n {
-                        max_no_n = current_no_n;
-                    }
-                    current_no_n = 0;
-                }
-            }
-            if current_no_n > max_no_n {
-                max_no_n = current_no_n;
-            }
-
-            let errors = (seq.len() as f32 * error_rate) as usize;
-            let k = if errors == 0 { max_no_n } else { max_no_n / (errors + 1) };
-            if k < min_k {
-                min_k = k;
-            }
-        }
-        
-        if min_k > 8 { 8 } else { min_k }
-    }
 }
 
 impl GenericAligner for BioRustBandedPairwiseAligner {
