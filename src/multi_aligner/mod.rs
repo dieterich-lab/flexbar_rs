@@ -6,11 +6,12 @@ pub mod result;
 use std::cmp::min;
 use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
-use crate::multi_aligner::bio_rust::aligner::{BioRustAlignerConfig, BioRustPairwiseAligner};
-use crate::multi_aligner::bio_rust::aligner_banded::{BandedExtraConfig, BioRustBandedAlignerConfig, BioRustBandedPairwiseAligner};
+use crate::multi_aligner::bio_rust::aligner::BioRustPairwiseAligner;
+use crate::multi_aligner::bio_rust::aligner_banded::{BandedExtraConfig, BioRustBandedPairwiseAligner};
 use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
 use crate::multi_aligner::result::MultiAlignerResult;
 use log::{debug, info, warn};
+use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig};
 
 fn get_minimum_kmer_k() -> usize {
     // If k becomes too low, two problems may arise:
@@ -29,7 +30,7 @@ impl GenericAligner for SpecificAligner {
         -> MultiAlignerResult
     {
         match self {
-            SpecificAligner::BioRustPairwiseAligner(aligner) => 
+            SpecificAligner::BioRustPairwiseAligner(aligner) =>
                 aligner.align(sequence, reference_index),
             SpecificAligner::BioRustBandedPairwiseAligner(aligner) =>
                 aligner.align(sequence, reference_index),
@@ -129,20 +130,16 @@ impl MultiAligner {
         for mode in required_modes {
             let refs = self.references.clone();
             if self.kmer_k > 0 {
-                let config = BioRustBandedAlignerConfig {
+                let config = self.get_aligner_config(
                     mode,
-                    match_score: self.match_score,
-                    mismatch_score: self.mismatch_score,
-                    gap_open: self.gap_open,
-                    gap_extend: self.gap_extend,
-                    extra: BandedExtraConfig { k: self.kmer_k },
-                };
+                    BandedExtraConfig { k: self.kmer_k }
+                );
                 aligners.push(SpecificAligner::BioRustBandedPairwiseAligner(
                     BioRustBandedPairwiseAligner::new(config, refs)
                 ));
             } else {
                 debug!("{}: Using standard aligner for mode {:?}.", self.name, mode);
-                let config = self.get_aligner_config(mode);
+                let config = self.get_aligner_config(mode, ());
                 aligners.push(SpecificAligner::BioRustPairwiseAligner(
                     BioRustPairwiseAligner::new(config, refs)
                 ));
@@ -151,14 +148,14 @@ impl MultiAligner {
         aligners
     }
 
-    fn get_aligner_config(&self, mode: AlignerMode) -> BioRustAlignerConfig {
+    fn get_aligner_config<Extra>(&self, mode: AlignerMode, extra: Extra) -> BioRustAlignerConfig<Extra> {
         BioRustAlignerConfig {
             mode,
             match_score: self.match_score,
             mismatch_score: self.mismatch_score,
             gap_open: self.gap_open,
             gap_extend: self.gap_extend,
-            extra: (),
+            extra,
         }
     }
 }
@@ -452,7 +449,7 @@ mod tests {
             0.0,
             Some(4),
             1, -1, -1, -1,
-            Some(0), // Override k to 0 should force old aligner
+            Some(0), // Override k to 0 should force the old aligner
         );
         
         let aligners = aligner.create_aligners();

@@ -1,9 +1,13 @@
+use std::cell::RefCell;
 use bio::alignment::pairwise::{Scoring, MIN_SCORE};
+use thread_local::ThreadLocal;
 use crate::context::SequenceWithId;
-use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
+use crate::multi_aligner::generic::{AlignerMode};
 use crate::multi_aligner::result::{MultiAlignerResult, RawAlignment};
 
-pub struct BioRustAlignerConfigBase<ExtraConfig> {
+pub type BoxedScoreFunction = Box<dyn Fn(u8, u8) -> i32 + Send + Sync>;
+
+pub struct BioRustAlignerConfig<ExtraConfig> {
     pub mode: AlignerMode,
     pub match_score: i32,
     pub mismatch_score: i32,
@@ -12,46 +16,46 @@ pub struct BioRustAlignerConfigBase<ExtraConfig> {
     pub extra: ExtraConfig,
 }
 
-pub trait BioRustAlignerSetup<ExtraConfig> {
-    type AlignerType;
-    type ExtraAlignerData;
+pub struct BioRustAligner<Raw: Send, ExtraConfig, AuxData> {
+    pub raw_cache: ThreadLocal<RefCell<Raw>>,
+    pub config: BioRustAlignerConfig<ExtraConfig>,
+    pub references: Vec<SequenceWithId>,
+    pub aux_data: AuxData,
+    pub x_capacity: usize,
+    pub y_capacity: usize,
+}
 
-    fn build_extra_data(config: &BioRustAlignerConfigBase<ExtraConfig>, references: &[SequenceWithId]) -> Self::ExtraAlignerData;
-    
-    fn build_aligner(
-        config: &BioRustAlignerConfigBase<ExtraConfig>,
-        x_capacity: usize,
-        y_capacity: usize,
-        extra_data: &Self::ExtraAlignerData,
-    ) -> Self::AlignerType;
+pub trait BioRustRawAligner<ExtraConfig, AuxData> {
+    fn create_raw(
+        config: &BioRustAlignerConfig<ExtraConfig>,
+        x_capacity: usize, y_capacity: usize
+    ) -> Self;
 
-    fn perform_alignment(
-        aligner: &mut Self::AlignerType,
-        relevant_seq: &[u8],
-        reference: &SequenceWithId,
-        extra_data: &Self::ExtraAlignerData,
+    fn create_aux_data(
+        config: &BioRustAlignerConfig<ExtraConfig>,
+        references: &Vec<SequenceWithId>
+    ) -> AuxData;
+
+    fn perform_align(
+        &mut self,
+        sequence: &[u8],
         reference_index: usize,
+        references: &[SequenceWithId],
+        extra_data: &AuxData,
     ) -> bio::alignment::Alignment;
 }
 
-pub struct BioRustAligner<ExtraConfig, Setup: BioRustAlignerSetup<ExtraConfig>> {
-    pub(crate) aligner: Option<Setup::AlignerType>,
-    pub(crate) references: Vec<SequenceWithId>,
-    pub(crate) extra_data: Setup::ExtraAlignerData,
-    pub(crate) config: BioRustAlignerConfigBase<ExtraConfig>,
-    pub(crate) x_capacity: usize,
-    pub(crate) y_capacity: usize,
-}
 
-impl<ExtraConfig, Setup: BioRustAlignerSetup<ExtraConfig>> BioRustAligner<ExtraConfig, Setup> {
-    pub fn new(config: BioRustAlignerConfigBase<ExtraConfig>, references: Vec<SequenceWithId>) -> Self {
+impl<ExtraConfig, AuxData, Raw: BioRustRawAligner<ExtraConfig, AuxData>+Send>
+    BioRustAligner<Raw, ExtraConfig, AuxData>
+{
+    pub fn new(config: BioRustAlignerConfig<ExtraConfig>, references: Vec<SequenceWithId>) -> Self {
+        let aux_data = Raw::create_aux_data(&config, &references);
         let y_capacity = references.iter().map(|r| r.sequence.len()).max().unwrap_or(0);
-        let extra_data = Setup::build_extra_data(&config, &references);
-        
         BioRustAligner {
-            aligner: None,
+            raw_cache: ThreadLocal::new(),
             references,
-            extra_data,
+            aux_data,
             config,
             x_capacity: 0,
             y_capacity,
@@ -59,24 +63,54 @@ impl<ExtraConfig, Setup: BioRustAlignerSetup<ExtraConfig>> BioRustAligner<ExtraC
     }
 
     fn setup_aligner(&mut self, x_capacity: usize) {
-        match self.aligner {
-            Some(_) => {
-                if self.x_capacity >= x_capacity {
-                    return;
-                } else {
-                    self.x_capacity = x_capacity + x_capacity / 10;
-                }
+        let cell = self.raw_cache.get_or(
+            || RefCell::new(Raw::create_raw(&self.config, self.x_capacity, self.y_capacity))
+        );
+        if x_capacity <= self.x_capacity { return; }
+        match self.x_capacity {
+            0 => {  // Initial allocation
+                self.x_capacity = x_capacity
+            },
+            _ => { // Resize
+                self.x_capacity = x_capacity + x_capacity / 10;
+                cell.replace(
+                    Raw::create_raw(&self.config, self.x_capacity, self.y_capacity)
+                );
             }
-            None => {
-                self.x_capacity = x_capacity;
-            }
+        };
+    }
+
+    pub fn align(&mut self, sequence: &[u8], reference_index: usize) -> MultiAlignerResult {
+        self.setup_aligner(sequence.len());
+        let mut aligner = self.raw_cache.get_or(|| unreachable!()).borrow_mut();
+        let reference = &self.references[reference_index];
+        let seq_len = sequence.len();
+        let ref_len = reference.sequence.len();
+        let mode = self.config.mode;
+
+        let offset = if mode == AlignerMode::RightOverlap && seq_len > ref_len {
+            seq_len - ref_len
+        } else {
+            0
+        };
+
+        let length = if mode != AlignerMode::Local && seq_len > ref_len {
+            ref_len
+        } else {
+            seq_len
+        };
+
+        let relevant_seq = &sequence[offset..offset + length];
+        let raw = aligner.perform_align(relevant_seq, reference_index, &self.references, &self.aux_data);
+        MultiAlignerResult {
+            raw: RawAlignment::BioRust(raw),
+            offset,
+            reference_index,
         }
-        let new_aligner = Setup::build_aligner(&self.config, self.x_capacity, self.y_capacity, &self.extra_data);
-        self.aligner = Some(new_aligner);
     }
 }
 
-pub fn get_scoring<ExtraConfig>(config: &BioRustAlignerConfigBase<ExtraConfig>) -> Scoring<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>> {
+pub fn get_scoring<ExtraConfig>(config: &BioRustAlignerConfig<ExtraConfig>) -> Scoring<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>> {
     let match_score = config.match_score;
     let mismatch_score = config.mismatch_score;
 
@@ -114,39 +148,5 @@ pub fn get_scoring<ExtraConfig>(config: &BioRustAlignerConfigBase<ExtraConfig>) 
         xclip_suffix,
         yclip_prefix,
         yclip_suffix,
-    }
-}
-
-impl<ExtraConfig, Setup: BioRustAlignerSetup<ExtraConfig>> GenericAligner for BioRustAligner<ExtraConfig, Setup> {
-    fn align(&mut self, sequence: &[u8], reference_index: usize) -> MultiAlignerResult {
-        self.setup_aligner(sequence.len());
-        let reference = &self.references[reference_index];
-        let aligner = self.aligner.as_mut().unwrap();
-
-        let seq_len = sequence.len();
-        let ref_len = reference.sequence.len();
-        let mode = self.config.mode;
-        
-        let offset = if mode == AlignerMode::RightOverlap && seq_len > ref_len {
-            seq_len - ref_len
-        } else {
-            0
-        };
-        
-        let length = if mode != AlignerMode::Local && seq_len > ref_len {
-            ref_len
-        } else {
-            seq_len
-        };
-        
-        let relevant_seq = &sequence[offset..offset + length];
-
-        let raw = Setup::perform_alignment(aligner, relevant_seq, reference, &self.extra_data, reference_index);
-        
-        MultiAlignerResult {
-            raw: RawAlignment::BioRust(raw),
-            offset,
-            reference_index,
-        }
     }
 }
