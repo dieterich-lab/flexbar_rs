@@ -7,7 +7,7 @@ use std::cmp::min;
 use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::aligner::{BioRustAlignerConfig, BioRustPairwiseAligner};
-use crate::multi_aligner::bio_rust::aligner_banded::{BioRustBandedAlignerConfig, BioRustBandedPairwiseAligner};
+use crate::multi_aligner::bio_rust::aligner_banded::{BandedExtraConfig, BioRustBandedAlignerConfig, BioRustBandedPairwiseAligner};
 use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
 use crate::multi_aligner::result::MultiAlignerResult;
 use log::{debug, info, warn};
@@ -135,7 +135,7 @@ impl MultiAligner {
                     mismatch_score: self.mismatch_score,
                     gap_open: self.gap_open,
                     gap_extend: self.gap_extend,
-                    k: self.kmer_k,
+                    extra: BandedExtraConfig { k: self.kmer_k },
                 };
                 aligners.push(SpecificAligner::BioRustBandedPairwiseAligner(
                     BioRustBandedPairwiseAligner::new(config, refs)
@@ -158,6 +158,7 @@ impl MultiAligner {
             mismatch_score: self.mismatch_score,
             gap_open: self.gap_open,
             gap_extend: self.gap_extend,
+            extra: (),
         }
     }
 }

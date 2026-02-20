@@ -1,137 +1,59 @@
 use bio::alignment::pairwise::banded::Aligner;
-use bio::alignment::pairwise::{Scoring, MIN_SCORE};
 use bio::alignment::sparse::{hash_kmers, HashMapFx};
 use crate::context::SequenceWithId;
-use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
-use crate::multi_aligner::result::{MultiAlignerResult, RawAlignment};
+use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAligner, BioRustAlignerConfigBase, BioRustAlignerSetup, get_scoring};
 
-pub struct BioRustBandedAlignerConfig {
-    pub mode: AlignerMode,
-    pub match_score: i32,
-    pub mismatch_score: i32,
-    pub gap_open: i32,
-    pub gap_extend: i32,
+#[derive(Clone, Copy)]
+pub struct BandedExtraConfig {
     pub k: usize,
 }
 
+pub type BioRustBandedAlignerConfig = BioRustAlignerConfigBase<BandedExtraConfig>;
+
 pub type BoxedBandedAligner = Aligner<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>>;
 
-pub struct BioRustBandedPairwiseAligner {
-    aligner: Option<BoxedBandedAligner>,
-    references: Vec<SequenceWithId>,
-    reference_hashes: Vec<HashMapFx<Vec<u8>, Vec<u32>>>,
-    config: BioRustBandedAlignerConfig,
-    x_capacity: usize,
-    y_capacity: usize,
-}
+pub struct BandedSetup;
 
-impl BioRustBandedPairwiseAligner {
-    pub fn new(config: BioRustBandedAlignerConfig, references: Vec<SequenceWithId>) -> Self {
-        let y_capacity = references.iter().map(|r| r.sequence.len()).max().unwrap();
-        let reference_hashes = references.iter()
+impl BioRustAlignerSetup<BandedExtraConfig> for BandedSetup {
+    type AlignerType = BoxedBandedAligner;
+    type ExtraAlignerData = Vec<HashMapFx<Vec<u8>, Vec<u32>>>;
+
+    fn build_extra_data(config: &BioRustBandedAlignerConfig, references: &[SequenceWithId]) -> Self::ExtraAlignerData {
+        references.iter()
             .map(|r| {
-                hash_kmers(r.sequence.as_bytes(), config.k)
+                hash_kmers(r.sequence.as_bytes(), config.extra.k)
                     .into_iter()
                     .map(|(k, v)| (k.to_vec(), v))
                     .collect()
             })
-            .collect();
-
-        BioRustBandedPairwiseAligner {
-            aligner: None,
-            references,
-            reference_hashes,
-            config,
-            x_capacity: 0,
-            y_capacity
-        }
+            .collect()
     }
 
-    fn setup_aligner(&mut self, x_capacity: usize) {
-        match self.aligner {
-            Some(_) => {
-                if self.x_capacity >= x_capacity {
-                    return;
-                } else {
-                    self.x_capacity = x_capacity + x_capacity / 10;
-                }
-            }
-            None => {
-                self.x_capacity = x_capacity;
-            }
-        }
-        let new_aligner = self.build_aligner();
-        self.aligner = Some(new_aligner);
-    }
-
-    fn build_aligner(&self) -> BoxedBandedAligner {
-        let match_score = self.config.match_score;
-        let mismatch_score = self.config.mismatch_score;
-
-        let match_fn: Box<dyn Fn(u8, u8) -> i32 + Send + Sync> = Box::new(move |a, b| {
-            if a == b || a == b'N' || b == b'N' {
-                match_score
-            } else {
-                mismatch_score
-            }
-        });
-        let xclip_prefix = match self.config.mode {
-            AlignerMode::LeftOverlap => MIN_SCORE,
-            _ => 0,
-        };
-        let xclip_suffix = match self.config.mode {
-            AlignerMode::RightOverlap => MIN_SCORE,
-            _ => 0,
-        };
-        let yclip_suffix = match self.config.mode {
-            AlignerMode::RightOverlap => 0,
-            _ => MIN_SCORE,
-        };
-        let yclip_prefix = match self.config.mode {
-            AlignerMode::LeftOverlap => 0,
-            _ => MIN_SCORE,
-        };
-
-        let scoring = Scoring {
-            match_fn,
-            match_scores: None,
-            gap_open: self.config.gap_open,
-            gap_extend: self.config.gap_extend,
-            xclip_prefix,
-            xclip_suffix,
-            yclip_prefix,
-            yclip_suffix,
-        };
-
+    fn build_aligner(
+        config: &BioRustBandedAlignerConfig,
+        x_capacity: usize,
+        y_capacity: usize,
+        _extra_data: &Self::ExtraAlignerData,
+    ) -> Self::AlignerType {
+        let scoring = get_scoring(config);
         // Using w = k * 2 as a heuristic for window size
-        Aligner::with_capacity_and_scoring(self.x_capacity, self.y_capacity, scoring, self.config.k, self.config.k * 2)
+        Aligner::with_capacity_and_scoring(x_capacity, y_capacity, scoring, config.extra.k, config.extra.k * 2)
     }
-}
 
-impl GenericAligner for BioRustBandedPairwiseAligner {
-    fn align(&mut self, sequence: &[u8], reference_index: usize)
-         -> MultiAlignerResult
-    {
-        self.setup_aligner(sequence.len());
-        let reference = &self.references[reference_index];
-        let ref_hash = &self.reference_hashes[reference_index];
-        
+    fn perform_alignment(
+        aligner: &mut Self::AlignerType,
+        relevant_seq: &[u8],
+        reference: &SequenceWithId,
+        extra_data: &Self::ExtraAlignerData,
+        reference_index: usize,
+    ) -> bio::alignment::Alignment {
+        let ref_hash = &extra_data[reference_index];
         let temp_hash: HashMapFx<&[u8], Vec<u32>> = ref_hash.iter()
             .map(|(k, v)| (k.as_slice(), v.clone()))
             .collect();
-
-        let aligner = self.aligner.as_mut().unwrap();
-
-        let seq_len = sequence.len();
-        let ref_len = reference.sequence.len();
-        let mode = self.config.mode;
-        let offset = if mode == AlignerMode::RightOverlap
-            && seq_len > ref_len { seq_len - ref_len } else { 0 };
-        let length = if mode != AlignerMode::Local
-            && seq_len > ref_len { ref_len } else { seq_len };
-        let relevant_seq = &sequence[offset..offset + length];
-
-        let raw = aligner.custom_with_prehash(relevant_seq, reference.sequence.as_bytes(), &temp_hash);
-        MultiAlignerResult { raw: RawAlignment::BioRust(raw), offset, reference_index }
+        
+        aligner.custom_with_prehash(relevant_seq, reference.sequence.as_bytes(), &temp_hash)
     }
 }
+
+pub type BioRustBandedPairwiseAligner = BioRustAligner<BandedExtraConfig, BandedSetup>;
