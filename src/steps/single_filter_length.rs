@@ -3,6 +3,8 @@ use crate::types::SingeRecordDto;
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 
+use std::any::Any;
+
 pub struct SingleFilterLength {
     min_read_length: usize,
 }
@@ -15,8 +17,19 @@ impl SingleFilterLength {
     }
 }
 
+pub struct SingleFilterLengthSetup;
+
 impl GenericStep<SingeRecordDto> for SingleFilterLength {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+    type Setup = Box<dyn Any + Send + Sync>;
+    fn create_setup(&self) -> Box<dyn Any + Send + Sync> {
+        Box::new(SingleFilterLengthSetup)
+    }
+
+    fn clone_setup(&self, _setup: &Box<dyn Any + Send + Sync>) -> Box<dyn Any + Send + Sync> {
+        Box::new(SingleFilterLengthSetup)
+    }
+
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, _setup: &mut Box<dyn Any + Send + Sync>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped && self.min_read_length > 0 {
             let current_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
             if current_len < self.min_read_length {
@@ -53,7 +66,8 @@ mod tests {
             },
             stats: WorkerStatistics::default(),
         };
-        let res = filter.apply(rec_in);
+        let mut setup = filter.create_setup();
+        let res = filter.apply(rec_in, &mut setup);
         assert!(!res.alignment_results.record_dropped);
         assert_eq!(res.stats.total_discarded_length, 0);
     }
@@ -74,7 +88,8 @@ mod tests {
             },
             stats: WorkerStatistics::default(),
         };
-        let res = filter.apply(rec_in);
+        let mut setup = filter.create_setup();
+        let res = filter.apply(rec_in, &mut setup);
         assert!(res.alignment_results.record_dropped);
         assert_eq!(res.stats.total_discarded_length, 1);
     }
@@ -95,7 +110,8 @@ mod tests {
             },
             stats: WorkerStatistics::default(),
         };
-        let res = filter.apply(rec_in);
+        let mut setup = filter.create_setup();
+        let res = filter.apply(rec_in, &mut setup);
         assert!(!res.alignment_results.record_dropped);
     }
 }

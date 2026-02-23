@@ -3,6 +3,8 @@ use crate::types::{FileFormat, QualTrimType, QualityType, SingeRecordDto};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 
+use std::any::Any;
+
 pub struct SingleQualityTrim {
     qtrim: QualTrimType,
     threshold: usize,
@@ -91,8 +93,19 @@ impl SingleQualityTrim {
     }
 }
 
+pub struct SingleQualityTrimSetup;
+
 impl GenericStep<SingeRecordDto> for SingleQualityTrim {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+    type Setup = Box<dyn Any + Send + Sync>;
+    fn create_setup(&self) -> Box<dyn Any + Send + Sync> {
+        Box::new(SingleQualityTrimSetup)
+    }
+
+    fn clone_setup(&self, _setup: &Box<dyn Any + Send + Sync>) -> Box<dyn Any + Send + Sync> {
+        Box::new(SingleQualityTrimSetup)
+    }
+
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, _setup: &mut Box<dyn Any + Send + Sync>) -> RecordInTransformation<SingeRecordDto> {
         let current_qual = &rec.record.qual()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
         let trim_pos = self.get_trim_pos(current_qual);
         if trim_pos < current_qual.len() {

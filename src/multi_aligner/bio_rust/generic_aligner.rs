@@ -1,6 +1,4 @@
-use std::cell::RefCell;
 use bio::alignment::pairwise::{Scoring, MIN_SCORE};
-use thread_local::ThreadLocal;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::generic::{AlignerMode};
 use crate::multi_aligner::result::{MultiAlignerResult, RawAlignment};
@@ -17,12 +15,22 @@ pub struct BioRustAlignerConfig<ExtraConfig> {
 }
 
 pub struct BioRustAligner<Raw: Send, ExtraConfig, AuxData> {
-    pub raw_cache: ThreadLocal<RefCell<Raw>>,
     pub config: BioRustAlignerConfig<ExtraConfig>,
     pub references: Vec<SequenceWithId>,
     pub aux_data: AuxData,
-    pub x_capacity: usize,
     pub y_capacity: usize,
+    pub _phantom: std::marker::PhantomData<Raw>,
+}
+
+pub struct BioRustAlignerState<Raw> {
+    pub raw: Option<Raw>,
+    pub x_capacity: usize,
+}
+
+impl<Raw> Default for BioRustAlignerState<Raw> {
+    fn default() -> Self {
+        Self { raw: None, x_capacity: 0 }
+    }
 }
 
 pub trait BioRustRawAligner<ExtraConfig, AuxData> {
@@ -53,36 +61,30 @@ impl<ExtraConfig, AuxData, Raw: BioRustRawAligner<ExtraConfig, AuxData>+Send>
         let aux_data = Raw::create_aux_data(&config, &references);
         let y_capacity = references.iter().map(|r| r.sequence.len()).max().unwrap_or(0);
         BioRustAligner {
-            raw_cache: ThreadLocal::new(),
             references,
             aux_data,
             config,
-            x_capacity: 0,
             y_capacity,
+            _phantom: std::marker::PhantomData,
         }
     }
 
-    fn setup_aligner(&mut self, x_capacity: usize) {
-        let cell = self.raw_cache.get_or(
-            || RefCell::new(Raw::create_raw(&self.config, self.x_capacity, self.y_capacity))
-        );
-        if x_capacity <= self.x_capacity { return; }
-        match self.x_capacity {
-            0 => {  // Initial allocation
-                self.x_capacity = x_capacity
-            },
-            _ => { // Resize
-                self.x_capacity = x_capacity + x_capacity / 10;
-                cell.replace(
-                    Raw::create_raw(&self.config, self.x_capacity, self.y_capacity)
-                );
-            }
+    fn setup_aligner(&self, state: &mut BioRustAlignerState<Raw>, x_capacity: usize) {
+        if state.raw.is_some() && x_capacity <= state.x_capacity { return; }
+        
+        let new_x_capacity = if state.x_capacity == 0 {
+            x_capacity
+        } else {
+            x_capacity + x_capacity / 10
         };
+
+        state.x_capacity = new_x_capacity;
+        state.raw = Some(Raw::create_raw(&self.config, state.x_capacity, self.y_capacity));
     }
 
-    pub fn align(&mut self, sequence: &[u8], reference_index: usize) -> MultiAlignerResult {
-        self.setup_aligner(sequence.len());
-        let mut aligner = self.raw_cache.get_or(|| unreachable!()).borrow_mut();
+    pub fn align(&self, state: &mut BioRustAlignerState<Raw>, sequence: &[u8], reference_index: usize) -> MultiAlignerResult {
+        self.setup_aligner(state, sequence.len());
+        let aligner = state.raw.as_mut().unwrap();
         let reference = &self.references[reference_index];
         let seq_len = sequence.len();
         let ref_len = reference.sequence.len();

@@ -122,7 +122,7 @@ pub struct Args {
     pub adapter_tail_length: usize,
 
     /// Batch size for record processing
-    #[arg(long = "batch-size", default_value_t = 256)]
+    #[arg(long = "batch-size", default_value_t = 4096)]
     pub batch_size: usize,
 
     /// Skip restriction to pass read ends in right and left modes

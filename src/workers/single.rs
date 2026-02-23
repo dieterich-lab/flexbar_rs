@@ -12,11 +12,14 @@ use crate::workers::generic::GenericWorker;
 use std::sync::Arc;
 use log::debug;
 
+use std::any::Any;
+
+#[derive(Clone)]
 pub struct SingleWorker (GenericWorker<SingeRecordDto> );
 
 impl SingleWorker {
     pub fn new(args: &Args, context: &Context) -> Self {
-        let mut steps: Vec<Arc<dyn GenericStep<SingeRecordDto>>> = Vec::new();
+        let mut steps: Vec<Arc<dyn GenericStep<SingeRecordDto, Setup = Box<dyn Any + Send + Sync>>>> = Vec::new();
         debug!("Creating new single worker pipeline:");
 
         if args.max_uncalled > 0 {
@@ -80,7 +83,7 @@ impl SingleWorker {
         Self (GenericWorker::new(steps, Arc::new(SingleFinalizeStep)))
     }
     
-    pub fn process(&self, record: &SingeRecordDto) -> (Option<SingeRecordDto>, Option<String>, crate::statistics::WorkerStatistics) {
+    pub fn process(&mut self, record: &SingeRecordDto) -> (Option<SingeRecordDto>, Option<String>, crate::statistics::WorkerStatistics) {
         self.0.process(record)
     }
 }
@@ -98,7 +101,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
         let context = Context::new(&args);
         
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
         let (processed_opt, _, _stats) = worker.process(&record);
@@ -115,7 +118,7 @@ mod tests {
          
          
         
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
         let (processed_opt, _, _stats) = worker.process(&record);
@@ -131,7 +134,7 @@ mod tests {
         let mut context = Context::new(&args);
         context.barcodes = vec![SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}];
         
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
         
         // Barcode at start
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
@@ -149,7 +152,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--max-uncalled", "2"]);
         let context = Context::new(&args);
          
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
 
         // 2 'N's - should keep
         let record = SingeRecordDto::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
@@ -170,7 +173,7 @@ mod tests {
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         ];
         
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -186,7 +189,7 @@ mod tests {
         let mut context = Context::new(&args);
         context.adapters = vec!["AGATCGGAAGAG".to_string()];
         
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -208,7 +211,7 @@ mod tests {
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         ];
         
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -225,7 +228,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "TAIL", "--qtrim-threshold", "20", "--min-read-length", "0"]);
         let context = Context::new(&args);
          
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
 
         // Threshold 20 + 33 (sanger) = 53 ('5')
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
@@ -241,7 +244,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "WIN", "--qtrim-threshold", "20", "--qtrim-win-size", "5", "--min-read-length", "0"]);
         let context = Context::new(&args);
          
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
 
         // Threshold 53. Window size 5.
         // "IIIII" sum = 5 * 73 = 365. Threshold sum = 5 * 53 = 265.
@@ -258,7 +261,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "BWA", "--qtrim-threshold", "20", "--min-read-length", "0"]);
         let context = Context::new(&args);
          
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
 
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
         let (processed_opt, _, _) = worker.process(&record);
@@ -275,7 +278,7 @@ mod tests {
             SequenceWithId{id: "bc1".to_string(), sequence: "NNGGGGNN".to_string()}
         ];
 
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
         
         // Barcode NNGGGGNN matches AAGGGGTT
         let record = SingeRecordDto::with_attrs("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
@@ -294,7 +297,7 @@ mod tests {
         let mut context = Context::new(&args);
         context.adapters = vec!["AGATNNNN".to_string()];
         
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCCCC", b"IIIIIIIIIIIII");
         let (processed_opt, _, _) = worker.process(&record);
@@ -310,7 +313,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
         let context = Context::new(&args);
          
-        let worker = SingleWorker::new(&args, &context);
+        let mut worker = SingleWorker::new(&args, &context);
 
         // Length 10 - should keep
         let record = SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");

@@ -66,8 +66,13 @@ impl Transformable for SingeRecordDto {
 }
 
 
+use std::any::Any;
+
 pub trait GenericStep<RecordType>: Send + Sync {
-    fn apply(&self, rec: RecordInTransformation<RecordType>) -> RecordInTransformation<RecordType>;
+    type Setup: Send + Sync;
+    fn create_setup(&self) -> Box<dyn Any + Send + Sync>;
+    fn clone_setup(&self, setup: &Box<dyn Any + Send + Sync>) -> Box<dyn Any + Send + Sync>;
+    fn apply(&self, rec: RecordInTransformation<RecordType>, setup: &mut Box<dyn Any + Send + Sync>) -> RecordInTransformation<RecordType>;
 }
 
 pub trait FinalizeStep<RecordType>: Send + Sync {

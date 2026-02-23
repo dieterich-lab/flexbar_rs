@@ -3,6 +3,8 @@ use crate::types::SingeRecordDto;
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 
+use std::any::Any;
+
 pub struct SingleUncalledSequenceFilter {
     max_uncalled: usize,
 }
@@ -15,8 +17,19 @@ impl SingleUncalledSequenceFilter {
     }
 }
 
+pub struct SingleUncalledSequenceFilterSetup;
+
 impl GenericStep<SingeRecordDto> for SingleUncalledSequenceFilter {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+    type Setup = Box<dyn Any + Send + Sync>;
+    fn create_setup(&self) -> Box<dyn Any + Send + Sync> {
+        Box::new(SingleUncalledSequenceFilterSetup)
+    }
+
+    fn clone_setup(&self, _setup: &Box<dyn Any + Send + Sync>) -> Box<dyn Any + Send + Sync> {
+        Box::new(SingleUncalledSequenceFilterSetup)
+    }
+
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, _setup: &mut Box<dyn Any + Send + Sync>) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped {
             trace!("Uncalled filter processing record: {}", rec.record.id());
             let seq = &rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];

@@ -3,8 +3,10 @@ use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::SequenceWithId;
-use crate::multi_aligner::MultiAligner;
+use crate::multi_aligner::{MultiAligner, MultiAlignerSetup};
 use crate::multi_aligner::result::MultiAlignerResult;
+
+use std::any::Any;
 
 pub struct SingleAdapterRemover {
     adapters: Vec<String>,
@@ -13,6 +15,10 @@ pub struct SingleAdapterRemover {
     removal_tags: bool,
     umi_tags: bool,
     trace: bool,
+}
+
+pub struct SingleAdapterRemoverSetup {
+    pub multi_aligner_setup: MultiAlignerSetup,
 }
 
 impl SingleAdapterRemover {
@@ -45,9 +51,9 @@ impl SingleAdapterRemover {
         }
     }
 
-    pub fn remove_adapters(&self, rec: &mut RecordInTransformation<SingeRecordDto>) {
+    pub fn remove_adapters(&self, setup: &mut SingleAdapterRemoverSetup, rec: &mut RecordInTransformation<SingeRecordDto>) {
         let current_seq = &rec.get_sequence();
-        let best_alignment = self.multi_aligner.align(current_seq);
+        let best_alignment = self.multi_aligner.align(&mut setup.multi_aligner_setup, current_seq);
         if let Some(alignment) = best_alignment {
             let adapter = &self.adapters[alignment.reference_index];
             self.handle_umi_tags(rec, &alignment, adapter);
@@ -85,12 +91,24 @@ impl SingleAdapterRemover {
 }
 
 impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+    type Setup = Box<dyn Any + Send + Sync>;
+    fn create_setup(&self) -> Box<dyn Any + Send + Sync> {
+        Box::new(SingleAdapterRemoverSetup {
+            multi_aligner_setup: self.multi_aligner.create_setup(),
+        })
+    }
+
+    fn clone_setup(&self, _setup: &Box<dyn Any + Send + Sync>) -> Box<dyn Any + Send + Sync> {
+        self.create_setup()
+    }
+
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, setup: &mut Box<dyn Any + Send + Sync>) -> RecordInTransformation<SingeRecordDto> {
         if rec.alignment_results.record_dropped { return rec }
+        let setup = setup.downcast_mut::<SingleAdapterRemoverSetup>().unwrap();
         if self.trace {
             trace!("Adapter remover processing record: {}", rec.record.id());
         }
-        self.remove_adapters(&mut rec);
+        self.remove_adapters(setup, &mut rec);
         rec
     }
 }

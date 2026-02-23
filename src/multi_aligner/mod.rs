@@ -8,7 +8,7 @@ use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::aligner::BioRustPairwiseAligner;
 use crate::multi_aligner::bio_rust::aligner_banded::{BandedExtraConfig, BioRustBandedPairwiseAligner};
-use crate::multi_aligner::generic::{AlignerMode, GenericAligner};
+use crate::multi_aligner::generic::{AlignerMode};
 use crate::multi_aligner::result::MultiAlignerResult;
 use log::{debug, info, warn};
 use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig};
@@ -20,20 +20,26 @@ fn get_minimum_kmer_k() -> usize {
     4
 }
 
-enum SpecificAligner {
+use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerState, BoxedScoreFunction};
+
+pub enum SpecificAligner {
     BioRustPairwiseAligner(BioRustPairwiseAligner),
     BioRustBandedPairwiseAligner(BioRustBandedPairwiseAligner),
 }
 
-impl GenericAligner for SpecificAligner {
-    fn align(&mut self, sequence: &[u8], reference_index: usize) 
-        -> MultiAlignerResult
-    {
-        match self {
-            SpecificAligner::BioRustPairwiseAligner(aligner) =>
-                aligner.align(sequence, reference_index),
-            SpecificAligner::BioRustBandedPairwiseAligner(aligner) =>
-                aligner.align(sequence, reference_index),
+pub enum SpecificAlignerState {
+    BioRustPairwiseAlignerState(BioRustAlignerState<bio::alignment::pairwise::Aligner<BoxedScoreFunction>>),
+    BioRustBandedPairwiseAlignerState(BioRustAlignerState<bio::alignment::pairwise::banded::Aligner<BoxedScoreFunction>>),
+}
+
+impl SpecificAligner {
+    pub fn align(&self, state: &mut SpecificAlignerState, sequence: &[u8], reference_index: usize) -> MultiAlignerResult {
+        match (self, state) {
+            (SpecificAligner::BioRustPairwiseAligner(aligner), SpecificAlignerState::BioRustPairwiseAlignerState(state)) =>
+                aligner.align(state, sequence, reference_index),
+            (SpecificAligner::BioRustBandedPairwiseAligner(aligner), SpecificAlignerState::BioRustBandedPairwiseAlignerState(state)) =>
+                aligner.align(state, sequence, reference_index),
+            _ => panic!("Aligner and state mismatch"),
         }
     }
 }
@@ -49,7 +55,11 @@ pub struct MultiAligner {
     gap_open: i32,
     gap_extend: i32,
     kmer_k: usize,
-    cached_aligners: thread_local::ThreadLocal<std::cell::RefCell<Vec<SpecificAligner>>>,
+}
+
+pub struct MultiAlignerSetup {
+    pub cached_aligners: Vec<SpecificAligner>,
+    pub states: Vec<SpecificAlignerState>,
 }
 
 
@@ -83,20 +93,23 @@ impl MultiAligner {
             gap_open,
             gap_extend,
             kmer_k,
-            cached_aligners: thread_local::ThreadLocal::new(),
         }
     }
 
-    pub fn align<'s>(&self, sequence: &[u8]) -> Option<MultiAlignerResult> {
-        let aligners_cell = self.cached_aligners.get_or(
-            || std::cell::RefCell::new(self.create_aligners())
-        );
-        let mut aligners = aligners_cell.borrow_mut();
-        
+    pub fn create_setup(&self) -> MultiAlignerSetup {
+        let cached_aligners = self.create_aligners();
+        let states = cached_aligners.iter().map(|a| match a {
+            SpecificAligner::BioRustPairwiseAligner(_) => SpecificAlignerState::BioRustPairwiseAlignerState(Default::default()),
+            SpecificAligner::BioRustBandedPairwiseAligner(_) => SpecificAlignerState::BioRustBandedPairwiseAlignerState(Default::default()),
+        }).collect();
+        MultiAlignerSetup { cached_aligners, states }
+    }
+
+    pub fn align(&self, setup: &mut MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
         let mut best: Option<MultiAlignerResult> = None;
         for index in 0..self.references.len() {
-            for aligner in aligners.iter_mut() {
-                let result = aligner.align(sequence, index);
+            for (aligner, state) in setup.cached_aligners.iter().zip(setup.states.iter_mut()) {
+                let result = aligner.align(state, sequence, index);
                 let reference = &self.references[index].sequence.as_bytes();
                 if !result.validate(
                     self.error_rate, sequence, reference, self.min_overlap, result.offset
@@ -271,7 +284,8 @@ mod tests {
             gap_extend,
             None,
         );
-        aligner.align(seq_x)
+        let mut setup = aligner.create_setup();
+        aligner.align(&mut setup, seq_x)
     }
 
     fn get_as_references(raw: &[u8]) -> Vec<SequenceWithId> {

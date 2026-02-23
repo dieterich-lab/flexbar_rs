@@ -45,7 +45,7 @@ fn process_single(args: &Args, context: &Context, reads_path: &Path, output_pref
 
 fn process_batch(
     reader: &mut Box<dyn SequenceReader + Send>,
-    worker: &SingleWorker,
+    worker_shared: &SingleWorker,
     writer: &mut Box<dyn Writer>,
     batch_size: usize,
     count: Option<usize>,
@@ -69,7 +69,10 @@ fn process_batch(
         
         let batch_out: Vec<(Option<SingeRecordDto>, Option<String>, WorkerStatistics)> = batch_in
             .into_par_iter()
-            .map(|rec| worker.process(&rec))
+            .map(|rec| {
+                let mut worker = worker_shared.clone();
+                worker.process(&rec)
+            })
             .collect();
 
         for (rec_opt, tag_opt, stats) in batch_out {

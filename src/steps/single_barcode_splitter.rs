@@ -3,8 +3,10 @@ use crate::types::{SingeRecordDto, TrimEnd};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::SequenceWithId;
-use crate::multi_aligner::MultiAligner;
+use crate::multi_aligner::{MultiAligner, MultiAlignerSetup};
 use crate::multi_aligner::result::MultiAlignerResult;
+
+use std::any::Any;
 
 pub struct SingleBarcodeSplitter {
     barcodes: Vec<SequenceWithId>,
@@ -17,10 +19,26 @@ pub struct SingleBarcodeSplitter {
     trace: bool,
 }
 
-impl<'a> GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>) -> RecordInTransformation<SingeRecordDto> {
+pub struct SingleBarcodeSplitterSetup {
+    pub multi_aligner_setup: MultiAlignerSetup,
+}
+
+impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
+    type Setup = Box<dyn Any + Send + Sync>;
+    fn create_setup(&self) -> Box<dyn Any + Send + Sync> {
+        Box::new(SingleBarcodeSplitterSetup {
+            multi_aligner_setup: self.multi_aligner.create_setup(),
+        })
+    }
+
+    fn clone_setup(&self, _setup: &Box<dyn Any + Send + Sync>) -> Box<dyn Any + Send + Sync> {
+        self.create_setup()
+    }
+
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, setup: &mut Box<dyn Any + Send + Sync>) -> RecordInTransformation<SingeRecordDto> {
+        let setup = setup.downcast_mut::<SingleBarcodeSplitterSetup>().unwrap();
         let sequence = rec.get_sequence();
-        let best_alignment = self.multi_aligner.align(&sequence);
+        let best_alignment = self.multi_aligner.align(&mut setup.multi_aligner_setup, &sequence);
         
         match best_alignment {
             Some(best) => {
@@ -146,8 +164,10 @@ mod tests {
             }
         ];
         let splitter = SingleBarcodeSplitter::new(&args, barcodes);
+        let mut setup = splitter.create_setup();
         splitter.apply(
-            record.get_record_in_transformation()
+            record.get_record_in_transformation(),
+            &mut setup
         )
     }
 
@@ -474,7 +494,8 @@ mod tests {
         ]), barcodes);
         
         let rec = SingeRecordDto::with_attrs("read1", None, b"AAAAATTTTTAAATTT", b"IIIIIIIIIIIIIIII");
-        let res = splitter.apply(rec.get_record_in_transformation());
+        let mut setup = splitter.create_setup();
+        let res = splitter.apply(rec.get_record_in_transformation(), &mut setup);
         
         // In this case:
         // Primary multi_aligner (RIGHT) finds:
