@@ -8,6 +8,7 @@ pub struct BandedExtraConfig {
     pub k: usize,
 }
 
+#[derive(Clone)]
 pub struct BandedAlignerData {
     kmer_hash: Vec<HashMapFx<Vec<u8>, Vec<u32>>>,
 }

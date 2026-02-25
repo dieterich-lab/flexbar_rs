@@ -1,90 +1,135 @@
 use crate::context::Context;
 use crate::args::Args;
 use crate::types::{SingeRecordDto, QualTrimType};
-use crate::steps::single_adapter_remover::SingleAdapterRemover;
-use crate::steps::single_uncalled_sequence_filter::SingleUncalledSequenceFilter;
-use crate::steps::single_barcode_splitter::SingleBarcodeSplitter;
-use crate::steps::single_quality_trim::SingleQualityTrim;
-use crate::steps::single_filter_length::SingleFilterLength;
+use crate::steps::single_adapter_remover::{SingleAdapterRemover, SingleAdapterRemoverSetup};
+use crate::steps::single_uncalled_sequence_filter::{SingleUncalledSequenceFilter, SingleUncalledSequenceFilterSetup};
+use crate::steps::single_barcode_splitter::{SingleBarcodeSplitter, SingleBarcodeSplitterSetup};
+use crate::steps::single_quality_trim::{SingleQualityTrim, SingleQualityTrimSetup};
+use crate::steps::single_filter_length::{SingleFilterLength, SingleFilterLengthSetup};
 use crate::steps::single_finalize::SingleFinalizeStep;
-use crate::steps::generic::GenericStep;
+use crate::steps::generic::{GenericStep, FinalizeStep, Transformable};
 use crate::workers::generic::GenericWorker;
-use std::sync::Arc;
+use crate::statistics::WorkerStatistics;
 use log::debug;
 
-use std::any::Any;
-
-#[derive(Clone)]
-pub struct SingleWorker (GenericWorker<SingeRecordDto> );
+pub struct SingleWorker {
+    uncalled_filter: Option<(SingleUncalledSequenceFilter, SingleUncalledSequenceFilterSetup)>,
+    pre_quality_trim: Option<(SingleQualityTrim, SingleQualityTrimSetup)>,
+    barcode_splitter: Option<(SingleBarcodeSplitter, SingleBarcodeSplitterSetup)>,
+    adapter_remover: Option<(SingleAdapterRemover, SingleAdapterRemoverSetup)>,
+    post_quality_trim: Option<(SingleQualityTrim, SingleQualityTrimSetup)>,
+    length_filter: (SingleFilterLength, SingleFilterLengthSetup),
+    finalize: SingleFinalizeStep,
+}
 
 impl SingleWorker {
     pub fn new(args: &Args, context: &Context) -> Self {
-        let mut steps: Vec<Arc<dyn GenericStep<SingeRecordDto, Setup = Box<dyn Any + Send + Sync>>>> = Vec::new();
         debug!("Creating new single worker pipeline:");
 
-        if args.max_uncalled > 0 {
-            debug!(
-                "- Step SingleUncalledSequenceFilter (max_uncalled: {})", args.max_uncalled
-            );
-            steps.push(
-                Arc::new(SingleUncalledSequenceFilter::new(args))
-            );
-        }
-        if args.qtrim != QualTrimType::Off && !args.qtrim_post_removal {
-            debug!(
-                "- Step SingleQualityTrim (mode {:?}, format {:?}, window size {})",
-                args.qtrim,
-                context.format,
-                args.qtrim_win_size
-            );
-            steps.push(
-                Arc::new(SingleQualityTrim::new(args, context.format))
-            );
-        }
-        if !context.barcodes.is_empty() {
-            debug!(
-                "- Step SingleBarcodeSplitter (min overlap {:?}, err rate {}, trim end {:?}, keep: {})",
-                args.barcode_min_overlap,
-                args.barcode_error_rate,
-                args.barcode_trim_end,
-                args.barcode_keep
-            );
-            steps.push(
-                Arc::new(SingleBarcodeSplitter::new(args, context.barcodes.clone()))
-            );
-        }
-        if !context.adapters.is_empty() {
-            debug!(
-                "- Step SingleAdapterRemover (min overlap {}, err rate {}, trim_end {:?}, , revcomp {:?})",
-                args.adapter_min_overlap,
-                args.adapter_error_rate,
-                args.adapter_trim_end,
-                args.adapter_revcomp,
-            );
-            steps.push(
-                Arc::new(SingleAdapterRemover::new(args, &context.adapters))
-            );
-        }
+        let uncalled_filter = if args.max_uncalled > 0 {
+            debug!("- Step SingleUncalledSequenceFilter (max_uncalled: {})", args.max_uncalled);
+            let setup = SingleUncalledSequenceFilter::create_setup(args, context);
+            Some((SingleUncalledSequenceFilter::new(setup.clone()), setup))
+        } else {
+            None
+        };
 
-        if args.qtrim != QualTrimType::Off && args.qtrim_post_removal {
-            debug!(
-                "- Step SingleQualityTrim (mode {:?}, format {:?}, window size {})",
-                args.qtrim,
-                context.format,
-                args.qtrim_win_size
-            );
-            steps.push(
-                Arc::new(SingleQualityTrim::new(args, context.format))
-            )
-        }
+        let (pre_quality_trim, post_quality_trim) = if args.qtrim != QualTrimType::Off {
+            let setup = SingleQualityTrim::create_setup(args, context);
+            if args.qtrim_post_removal {
+                debug!("- Step SingleQualityTrim (post-removal)");
+                (None, Some((SingleQualityTrim::new(setup.clone()), setup)))
+            } else {
+                debug!("- Step SingleQualityTrim (pre-removal)");
+                (Some((SingleQualityTrim::new(setup.clone()), setup)), None)
+            }
+        } else {
+            (None, None)
+        };
 
-        steps.push(Arc::new(SingleFilterLength::new(args)));
+        let barcode_splitter = if !context.barcodes.is_empty() {
+            debug!("- Step SingleBarcodeSplitter");
+            let setup = SingleBarcodeSplitter::create_setup(args, context);
+            Some((SingleBarcodeSplitter::new(setup.clone()), setup))
+        } else {
+            None
+        };
+
+        let adapter_remover = if !context.adapters.is_empty() {
+            debug!("- Step SingleAdapterRemover");
+            let setup = SingleAdapterRemover::create_setup(args, context);
+            Some((SingleAdapterRemover::new(setup.clone()), setup))
+        } else {
+            None
+        };
+
+        let length_filter_setup = SingleFilterLength::create_setup(args, context);
+        let length_filter = (SingleFilterLength::new(length_filter_setup.clone()), length_filter_setup);
+
         debug!("Single worker pipeline created.");
-        Self (GenericWorker::new(steps, Arc::new(SingleFinalizeStep)))
+
+        Self {
+            uncalled_filter,
+            pre_quality_trim,
+            barcode_splitter,
+            adapter_remover,
+            post_quality_trim,
+            length_filter,
+            finalize: SingleFinalizeStep,
+        }
     }
-    
-    pub fn process(&mut self, record: &SingeRecordDto) -> (Option<SingeRecordDto>, Option<String>, crate::statistics::WorkerStatistics) {
-        self.0.process(record)
+
+    pub fn process(&mut self, record: &SingeRecordDto) -> (Option<SingeRecordDto>, Option<String>, WorkerStatistics) {
+        let mut rec_in = record.get_record_in_transformation();
+
+        if let Some((step, setup)) = &mut self.uncalled_filter {
+            rec_in = step.apply(rec_in, setup);
+            if rec_in.alignment_results.record_dropped { return self.finalize.apply(rec_in); }
+        }
+
+        if let Some((step, setup)) = &mut self.pre_quality_trim {
+            rec_in = step.apply(rec_in, setup);
+            if rec_in.alignment_results.record_dropped { return self.finalize.apply(rec_in); }
+        }
+
+        if let Some((step, setup)) = &mut self.barcode_splitter {
+            rec_in = step.apply(rec_in, setup);
+            if rec_in.alignment_results.record_dropped { return self.finalize.apply(rec_in); }
+        }
+
+        if let Some((step, setup)) = &mut self.adapter_remover {
+            rec_in = step.apply(rec_in, setup);
+            if rec_in.alignment_results.record_dropped { return self.finalize.apply(rec_in); }
+        }
+
+        if let Some((step, setup)) = &mut self.post_quality_trim {
+            rec_in = step.apply(rec_in, setup);
+            if rec_in.alignment_results.record_dropped { return self.finalize.apply(rec_in); }
+        }
+
+        rec_in = self.length_filter.0.apply(rec_in, &self.length_filter.1);
+        
+        self.finalize.apply(rec_in)
+    }
+}
+
+impl GenericWorker<SingeRecordDto> for SingleWorker {
+    fn process(&mut self, record: &SingeRecordDto) -> (Option<SingeRecordDto>, Option<String>, WorkerStatistics) {
+        self.process(record)
+    }
+}
+
+impl Clone for SingleWorker {
+    fn clone(&self) -> Self {
+        Self {
+            uncalled_filter: self.uncalled_filter.as_ref().map(|(_step, setup)| (SingleUncalledSequenceFilter::new(setup.clone()), setup.clone())),
+            pre_quality_trim: self.pre_quality_trim.as_ref().map(|(_step, setup)| (SingleQualityTrim::new(setup.clone()), setup.clone())),
+            barcode_splitter: self.barcode_splitter.as_ref().map(|(_step, setup)| (SingleBarcodeSplitter::new(setup.clone()), setup.clone())),
+            adapter_remover: self.adapter_remover.as_ref().map(|(_step, setup)| (SingleAdapterRemover::new(setup.clone()), setup.clone())),
+            post_quality_trim: self.post_quality_trim.as_ref().map(|(_step, setup)| (SingleQualityTrim::new(setup.clone()), setup.clone())),
+            length_filter: (SingleFilterLength::new(self.length_filter.1.clone()), self.length_filter.1.clone()),
+            finalize: SingleFinalizeStep,
+        }
     }
 }
 
@@ -99,7 +144,8 @@ mod tests {
     #[test]
     fn test_process_right() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
-        let context = Context::new(&args);
+        let mut context = Context::default();
+        context.adapters = vec!["AGATCGGAAGAG".to_string()];
         
         let mut worker = SingleWorker::new(&args, &context);
         
@@ -114,9 +160,8 @@ mod tests {
     #[test]
     fn test_process_left() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "LEFT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
-        let context = Context::new(&args);
-         
-         
+        let mut context = Context::default();
+        context.adapters = vec!["AGATCGGAAGAG".to_string()];
         
         let mut worker = SingleWorker::new(&args, &context);
         
@@ -131,7 +176,7 @@ mod tests {
     #[test]
     fn test_process_barcode() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--min-read-length", "0"]);
-        let mut context = Context::new(&args);
+        let mut context = Context::default();
         context.barcodes = vec![SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}];
         
         let mut worker = SingleWorker::new(&args, &context);
@@ -143,14 +188,12 @@ mod tests {
         
         assert_eq!(tag_opt, Some("barcode_bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
-        // Stats are now in writer, so worker.process doesn't see them yet.
-        // We'll trust GenericWriter to handle it.
     }
 
     #[test]
     fn test_max_uncalled() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--max-uncalled", "2"]);
-        let context = Context::new(&args);
+        let mut context = Context::default();
          
         let mut worker = SingleWorker::new(&args, &context);
 
@@ -168,7 +211,7 @@ mod tests {
     #[test]
     fn test_removal_tags_barcode() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--removal-tags", "--min-read-length", "0"]);
-        let mut context = Context::new(&args);
+        let mut context = Context::default();
         context.barcodes = vec![
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         ];
@@ -186,7 +229,7 @@ mod tests {
     #[test]
     fn test_removal_tags_adapter() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--removal-tags", "--min-read-length", "0"]);
-        let mut context = Context::new(&args);
+        let mut context = Context::default();
         context.adapters = vec!["AGATCGGAAGAG".to_string()];
         
         let mut worker = SingleWorker::new(&args, &context);
@@ -205,7 +248,7 @@ mod tests {
             "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4",
             "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5",
             "--removal-tags", "--min-read-length", "0"]);
-        let mut context = Context::new(&args);
+        let mut context = Context::default();
         context.adapters = vec!["AGATCGGAAGAG".to_string()];
         context.barcodes = vec![
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
@@ -226,7 +269,8 @@ mod tests {
     #[test]
     fn test_quality_trim_tail() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "TAIL", "--qtrim-threshold", "20", "--min-read-length", "0"]);
-        let context = Context::new(&args);
+        let mut context = Context::default();
+        context.format = crate::types::FileFormat::Fastq;
          
         let mut worker = SingleWorker::new(&args, &context);
 
@@ -242,7 +286,8 @@ mod tests {
     #[test]
     fn test_quality_trim_win() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "WIN", "--qtrim-threshold", "20", "--qtrim-win-size", "5", "--min-read-length", "0"]);
-        let context = Context::new(&args);
+        let mut context = Context::default();
+        context.format = crate::types::FileFormat::Fastq;
          
         let mut worker = SingleWorker::new(&args, &context);
 
@@ -259,7 +304,8 @@ mod tests {
     #[test]
     fn test_quality_trim_bwa() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "BWA", "--qtrim-threshold", "20", "--min-read-length", "0"]);
-        let context = Context::new(&args);
+        let mut context = Context::default();
+        context.format = crate::types::FileFormat::Fastq;
          
         let mut worker = SingleWorker::new(&args, &context);
 
@@ -273,7 +319,7 @@ mod tests {
     #[test]
     fn test_umi_tags_barcode() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "4", "--umi-tags", "--min-read-length", "0"]);
-        let mut context = Context::new(&args);
+        let mut context = Context::default();
         context.barcodes = vec![
             SequenceWithId{id: "bc1".to_string(), sequence: "NNGGGGNN".to_string()}
         ];
@@ -294,7 +340,7 @@ mod tests {
     #[test]
     fn test_umi_tags_adapter() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATNNNN", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "4", "--umi-tags", "--min-read-length", "0"]);
-        let mut context = Context::new(&args);
+        let mut context = Context::default();
         context.adapters = vec!["AGATNNNN".to_string()];
         
         let mut worker = SingleWorker::new(&args, &context);
@@ -311,7 +357,7 @@ mod tests {
     #[test]
     fn test_min_read_length() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
-        let context = Context::new(&args);
+        let mut context = Context::default();
          
         let mut worker = SingleWorker::new(&args, &context);
 

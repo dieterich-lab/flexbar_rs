@@ -2,48 +2,74 @@ use crate::args::Args;
 use crate::types::{SingeRecordDto, TrimEnd};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
-use crate::context::SequenceWithId;
+use crate::context::{Context, SequenceWithId};
 use crate::multi_aligner::{MultiAligner, MultiAlignerSetup};
 use crate::multi_aligner::result::MultiAlignerResult;
 
 use std::any::Any;
 
 pub struct SingleBarcodeSplitter {
-    barcodes: Vec<SequenceWithId>,
     multi_aligner: MultiAligner,
-    trim_end: TrimEnd,
-    barcode_keep: bool,
-    barcode_unassigned: bool,
-    removal_tags: bool,
-    umi_tags: bool,
-    trace: bool,
 }
 
+#[derive(Clone)]
 pub struct SingleBarcodeSplitterSetup {
+    pub barcodes: Vec<SequenceWithId>,
     pub multi_aligner_setup: MultiAlignerSetup,
+    pub trim_end: TrimEnd,
+    pub barcode_keep: bool,
+    pub barcode_unassigned: bool,
+    pub removal_tags: bool,
+    pub umi_tags: bool,
+    pub trace: bool,
 }
 
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
-    type Setup = Box<dyn Any + Send + Sync>;
-    fn create_setup(&self) -> Box<dyn Any + Send + Sync> {
-        Box::new(SingleBarcodeSplitterSetup {
-            multi_aligner_setup: self.multi_aligner.create_setup(),
-        })
+    type Setup = SingleBarcodeSplitterSetup;
+
+    fn create_setup(args: &Args, context: &Context) -> SingleBarcodeSplitterSetup {
+        let barcodes = context.barcodes.clone();
+        let multi_aligner_setup = MultiAlignerSetup::new(
+            "Barcode Splitter".to_string(),
+            args.barcode_trim_end,
+            barcodes.clone(),
+            crate::multi_aligner::AlignerConfig {
+                match_score: args.barcode_match,
+                mismatch_score: args.barcode_mismatch,
+                gap_open: args.barcode_gap_open,
+                gap_extend: args.barcode_gap_extend,
+                error_rate: args.barcode_error_rate,
+                min_overlap: args.barcode_min_overlap,
+            },
+            args.barcode_kmer
+        );
+
+        SingleBarcodeSplitterSetup {
+            barcodes,
+            multi_aligner_setup,
+            trim_end: args.barcode_trim_end,
+            barcode_keep: args.barcode_keep,
+            barcode_unassigned: args.barcode_unassigned,
+            removal_tags: args.removal_tags,
+            umi_tags: args.umi_tags,
+            trace: args.trace,
+        }
     }
 
-    fn clone_setup(&self, _setup: &Box<dyn Any + Send + Sync>) -> Box<dyn Any + Send + Sync> {
-        self.create_setup()
+    fn new(setup: SingleBarcodeSplitterSetup) -> Self {
+        Self {
+            multi_aligner: setup.multi_aligner_setup.create_aligner(),
+        }
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, setup: &mut Box<dyn Any + Send + Sync>) -> RecordInTransformation<SingeRecordDto> {
-        let setup = setup.downcast_mut::<SingleBarcodeSplitterSetup>().unwrap();
+    fn apply(&mut self, mut rec: RecordInTransformation<SingeRecordDto>, setup: &SingleBarcodeSplitterSetup) -> RecordInTransformation<SingeRecordDto> {
         let sequence = rec.get_sequence();
-        let best_alignment = self.multi_aligner.align(&mut setup.multi_aligner_setup, &sequence);
+        let best_alignment = self.multi_aligner.align(&setup.multi_aligner_setup, &sequence);
         
         match best_alignment {
             Some(best) => {
-                let barcode = &self.barcodes[best.reference_index];
-                if self.trace {
+                let barcode = &setup.barcodes[best.reference_index];
+                if setup.trace {
                     let bar_seq = barcode.sequence.as_bytes();
                     trace!(
                             "Barcode splitter on {} selected the following alignment:", 
@@ -51,13 +77,13 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
                         );
                     trace!("{}", best.format(sequence, bar_seq));
                 }
-                self.assign_barcode_tag(&mut rec, format!("barcode_{}", barcode.id));
-                self.handle_umi_tags(&mut rec, &best, barcode);
-                self.remove_barcode(&mut rec, &best);
+                self.assign_barcode_tag(&mut rec, format!("barcode_{}", barcode.id), setup);
+                self.handle_umi_tags(&mut rec, &best, barcode, setup);
+                self.remove_barcode(&mut rec, &best, setup);
             },
             None => {
-                if self.barcode_unassigned {
-                    self.assign_barcode_tag(&mut rec, "barcode_unassigned_".to_string());
+                if setup.barcode_unassigned {
+                    self.assign_barcode_tag(&mut rec, "barcode_unassigned_".to_string(), setup);
                 } else {
                     Self::drop_record(&mut rec);
                 }
@@ -68,50 +94,31 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 }
 
 impl<'a> SingleBarcodeSplitter {
-    pub fn new(args: &Args, barcodes: Vec<SequenceWithId>) -> Self {
-        let multi_aligner = MultiAligner::new(
-            "Barcode Splitter".to_string(),
-            barcodes.clone(),
-            args.barcode_trim_end,
-            args.barcode_error_rate,
-            args.barcode_min_overlap,
-            args.barcode_match,
-            args.barcode_mismatch,
-            args.barcode_gap_open,
-            args.barcode_gap_extend,
-            args.barcode_kmer
-        );
-
+    pub fn new(setup: SingleBarcodeSplitterSetup) -> Self {
         Self {
-            barcodes,
-            multi_aligner,
-            trim_end: args.barcode_trim_end,
-            barcode_keep: args.barcode_keep,
-            barcode_unassigned: args.barcode_unassigned,
-            removal_tags: args.removal_tags,
-            umi_tags: args.umi_tags,
-            trace: args.trace,
+            multi_aligner: setup.multi_aligner_setup.create_aligner(),
         }
     }
 
-    fn assign_barcode_tag(&self, rec: &mut RecordInTransformation<SingeRecordDto>, tag: String) {
-        if self.trace {
+    fn assign_barcode_tag(&self, rec: &mut RecordInTransformation<SingeRecordDto>, tag: String, setup: &SingleBarcodeSplitterSetup) {
+        if setup.trace {
             trace!("Barcode splitter on {}: Assigned tag {}", rec.record.id(), tag);
         }
         rec.alignment_results.barcode_tag = Some(tag);
     }
 
     fn handle_umi_tags(
-        &self,
-        rec: &mut RecordInTransformation<SingeRecordDto>,
+        &self, 
+        rec: &mut RecordInTransformation<SingeRecordDto>, 
         best: &MultiAlignerResult,
-        barcode: &SequenceWithId
+        barcode: &SequenceWithId,
+        setup: &SingleBarcodeSplitterSetup,
     ) {
-        if !self.umi_tags { return; }
+        if !setup.umi_tags { return; }
         let new_umi_tags = best.get_umi_tags(
             rec.get_sequence(), barcode.sequence.as_bytes()
         );
-        if self.trace {
+        if setup.trace {
             trace!(
                 "Barcode splitter on {}: Extracted UMI tags {:?}",
                 rec.record.id(), new_umi_tags.clone()
@@ -123,19 +130,20 @@ impl<'a> SingleBarcodeSplitter {
     fn remove_barcode(
         &self, 
         rec: &mut RecordInTransformation<SingeRecordDto>, 
-        best: &MultiAlignerResult
+        best: &MultiAlignerResult,
+        setup: &SingleBarcodeSplitterSetup,
     ) {
-        if self.barcode_keep { return; }
-        rec.trim(self.trim_end, best.get_start_index(), best.get_end_index());
-        if self.removal_tags {
+        if setup.barcode_keep { return; }
+        rec.trim(setup.trim_end, best.get_start_index(), best.get_end_index());
+        if setup.removal_tags {
             rec.alignment_results.removal_tags.push("Flexbar_removal".to_string());
         }
-        if self.trace {
+        if setup.trace {
             trace!(
                 "Barcode splitter on {} shortened sequence to:\n{}",
                 rec.record.id(), rec.get_sequence_as_str()
             );
-            if self.removal_tags {
+            if setup.removal_tags {
                 trace!("Barcode splitter on {}: Added removal tag", rec.record.id());
             }
         }
@@ -163,11 +171,15 @@ mod tests {
                 sequence: "NNNNNNTAGCTCTGTAGGCACCATCAAT".to_string()
             }
         ];
-        let splitter = SingleBarcodeSplitter::new(&args, barcodes);
-        let mut setup = splitter.create_setup();
+        let context = Context {
+            barcodes: barcodes.clone(),
+            ..Context::empty()
+        };
+        let setup = SingleBarcodeSplitter::create_setup(&args, &context);
+        let mut splitter = SingleBarcodeSplitter::new(setup.clone());
         splitter.apply(
             record.get_record_in_transformation(),
-            &mut setup
+            &setup
         )
     }
 
@@ -481,21 +493,26 @@ mod tests {
         // To test the fallback, we need a case where RIGHT finds a DIFFERENT (invalid) alignment
         // than RTAIL (which finds a valid one).
         
+        let args = Args::parse_from(&[
+            "flexbar_rs", "--reads", "test.fq", 
+            "--barcode-trim-end", "RIGHT", 
+            "--barcode-min-overlap", "6"
+        ]);
         let barcodes = vec![
             SequenceWithId {
                 id: "bc1".to_string(),
                 sequence: "NNNTTTTTCCCC".to_string()
             }
         ];
-        let splitter = SingleBarcodeSplitter::new(&Args::parse_from(&[
-            "flexbar_rs", "--reads", "test.fq", 
-            "--barcode-trim-end", "RIGHT", 
-            "--barcode-min-overlap", "6"
-        ]), barcodes);
+        let context = Context {
+            barcodes: barcodes.clone(),
+            ..Context::empty()
+        };
+        let setup = SingleBarcodeSplitter::create_setup(&args, &context);
+        let mut splitter = SingleBarcodeSplitter::new(setup.clone());
         
         let rec = SingeRecordDto::with_attrs("read1", None, b"AAAAATTTTTAAATTT", b"IIIIIIIIIIIIIIII");
-        let mut setup = splitter.create_setup();
-        let res = splitter.apply(rec.get_record_in_transformation(), &mut setup);
+        let res = splitter.apply(rec.get_record_in_transformation(), &setup);
         
         // In this case:
         // Primary multi_aligner (RIGHT) finds:

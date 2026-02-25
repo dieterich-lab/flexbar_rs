@@ -28,6 +28,20 @@ pub struct Context {
 }
 
 impl Context {
+    pub fn empty() -> Self {
+        Self {
+            adapters: Vec::new(),
+            adapters2: Vec::new(),
+            barcodes: Vec::new(),
+            barcodes2: Vec::new(),
+            use_rc_trim_end: false,
+            format: crate::types::FileFormat::Fasta,
+            run_type: crate::types::RunType::Single,
+            bar_detect: crate::types::BarcodeDetect::Off,
+            adapter_removal: crate::types::AdapterRemoval::Off,
+        }
+    }
+
     pub fn new(args: &Args) -> Self {
         let has_adapters = Self::determine_has_adapters(args);
         let format = get_file_type(args.reads.as_ref());

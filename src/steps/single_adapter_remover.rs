@@ -8,13 +8,14 @@ use crate::multi_aligner::result::MultiAlignerResult;
 
 use std::any::Any;
 
+#[derive(Clone)]
 pub struct SingleAdapterRemoverSetup {
-    adapters: Vec<String>,
-    multi_aligner_setup: MultiAlignerSetup,
-    trim_end: TrimEnd,
-    removal_tags: bool,
-    umi_tags: bool,
-    trace: bool,
+    pub adapters: Vec<String>,
+    pub multi_aligner_setup: MultiAlignerSetup,
+    pub trim_end: TrimEnd,
+    pub removal_tags: bool,
+    pub umi_tags: bool,
+    pub trace: bool,
 }
 
 pub struct SingleAdapterRemover {
@@ -63,7 +64,9 @@ impl SingleAdapterRemover {
     }
 }
 
-impl GenericStep<SingeRecordDto, SingleAdapterRemoverSetup> for SingleAdapterRemover {
+impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
+    type Setup = SingleAdapterRemoverSetup;
+    
     fn create_setup(args: &Args, context: &Context) -> SingleAdapterRemoverSetup {
         let adapters = context.adapters.clone();
         let references: Vec<SequenceWithId> = adapters.iter().enumerate()

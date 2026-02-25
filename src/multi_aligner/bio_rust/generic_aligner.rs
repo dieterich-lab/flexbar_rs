@@ -6,6 +6,7 @@ use crate::types::TrimEnd;
 
 pub type BoxedScoreFunction = Box<dyn Fn(u8, u8) -> i32 + Send + Sync>;
 
+#[derive(Clone)]
 pub struct BioRustAlignerParameters {
     pub match_score: i32,
     pub mismatch_score: i32,

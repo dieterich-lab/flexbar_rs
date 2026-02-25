@@ -31,16 +31,19 @@ pub struct MultiAligner {
     aligners: Vec<SpecificAligner>,
 }
 
+#[derive(Clone)]
 struct BioRustPairwiseAlignerSetup {
     config: BioRustAlignerConfig<()>,
     aux_data: ()
 }
 
+#[derive(Clone)]
 struct BioRustBandedPairwiseAlignerSetup {
     config: BioRustAlignerConfig<BandedExtraConfig>,
     aux_data: BandedAlignerData
 }
 
+#[derive(Clone)]
 pub enum SpecificAlignerSetup {
     BioRust(BioRustPairwiseAlignerSetup),
     BioRustBanded(BioRustBandedPairwiseAlignerSetup),
@@ -48,6 +51,7 @@ pub enum SpecificAlignerSetup {
 
 pub type AlignerConfig = BioRustAlignerParameters;
 
+#[derive(Clone)]
 pub struct MultiAlignerSetup {
     name: String,
     trim_end: TrimEnd,
