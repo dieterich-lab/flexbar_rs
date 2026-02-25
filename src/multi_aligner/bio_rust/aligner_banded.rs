@@ -14,7 +14,10 @@ pub struct BandedAlignerData {
 
 pub type BandedBioRustAlignerConfig = BioRustAlignerConfig<BandedExtraConfig>;
 
-impl BioRustRawAligner<BandedExtraConfig, BandedAlignerData> for Aligner<BoxedScoreFunction> {
+pub type BioRustBandedRawAligner = Aligner<BoxedScoreFunction>;
+impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
+    type AuxData = BandedAlignerData;
+
     fn create_raw(
         config: &BandedBioRustAlignerConfig,
         x_capacity: usize, y_capacity: usize
@@ -28,7 +31,7 @@ impl BioRustRawAligner<BandedExtraConfig, BandedAlignerData> for Aligner<BoxedSc
     fn create_aux_data(
         config: &BioRustAlignerConfig<BandedExtraConfig>,
         references: &Vec<SequenceWithId>
-    ) -> BandedAlignerData {
+    ) -> Self::AuxData {
         BandedAlignerData {
             kmer_hash: references.iter()
                 .map( | r| {
@@ -59,6 +62,5 @@ impl BioRustRawAligner<BandedExtraConfig, BandedAlignerData> for Aligner<BoxedSc
 
 pub type BioRustBandedPairwiseAligner = BioRustAligner<
     Aligner<BoxedScoreFunction>,
-    BandedExtraConfig,
-    BandedAlignerData
+    BandedExtraConfig
 >;

@@ -7,11 +7,13 @@ use std::cmp::min;
 use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::aligner::BioRustPairwiseAligner;
-use crate::multi_aligner::bio_rust::aligner_banded::{BandedExtraConfig, BioRustBandedPairwiseAligner};
-use crate::multi_aligner::generic::{AlignerMode};
+use crate::multi_aligner::bio_rust::aligner_banded::{BandedAlignerData, BandedExtraConfig, BioRustBandedPairwiseAligner, BioRustBandedRawAligner};
+use crate::multi_aligner::generic::AlignerMode;
 use crate::multi_aligner::result::MultiAlignerResult;
 use log::{debug, info, warn};
-use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig};
+use bio_rust::generic_aligner::BioRustAlignerParameters;
+use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioRustRawAligner};
+
 
 fn get_minimum_kmer_k() -> usize {
     // If k becomes too low, two problems may arise:
@@ -20,99 +22,147 @@ fn get_minimum_kmer_k() -> usize {
     4
 }
 
-use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerState, BoxedScoreFunction};
-
 pub enum SpecificAligner {
-    BioRustPairwiseAligner(BioRustPairwiseAligner),
-    BioRustBandedPairwiseAligner(BioRustBandedPairwiseAligner),
-}
-
-pub enum SpecificAlignerState {
-    BioRustPairwiseAlignerState(BioRustAlignerState<bio::alignment::pairwise::Aligner<BoxedScoreFunction>>),
-    BioRustBandedPairwiseAlignerState(BioRustAlignerState<bio::alignment::pairwise::banded::Aligner<BoxedScoreFunction>>),
-}
-
-impl SpecificAligner {
-    pub fn align(&self, state: &mut SpecificAlignerState, sequence: &[u8], reference_index: usize) -> MultiAlignerResult {
-        match (self, state) {
-            (SpecificAligner::BioRustPairwiseAligner(aligner), SpecificAlignerState::BioRustPairwiseAlignerState(state)) =>
-                aligner.align(state, sequence, reference_index),
-            (SpecificAligner::BioRustBandedPairwiseAligner(aligner), SpecificAlignerState::BioRustBandedPairwiseAlignerState(state)) =>
-                aligner.align(state, sequence, reference_index),
-            _ => panic!("Aligner and state mismatch"),
-        }
-    }
+    BioRust(BioRustPairwiseAligner),
+    BioRustBanded(BioRustBandedPairwiseAligner),
 }
 
 pub struct MultiAligner {
-    name: String,
-    references: Vec<SequenceWithId>,
-    trim_end: TrimEnd,
-    min_overlap: Option<usize>,
-    error_rate: f32,
-    match_score: i32,
-    mismatch_score: i32,
-    gap_open: i32,
-    gap_extend: i32,
-    kmer_k: usize,
+    aligners: Vec<SpecificAligner>,
 }
+
+struct BioRustPairwiseAlignerSetup {
+    config: BioRustAlignerConfig<()>,
+    aux_data: ()
+}
+
+struct BioRustBandedPairwiseAlignerSetup {
+    config: BioRustAlignerConfig<BandedExtraConfig>,
+    aux_data: BandedAlignerData
+}
+
+pub enum SpecificAlignerSetup {
+    BioRust(BioRustPairwiseAlignerSetup),
+    BioRustBanded(BioRustBandedPairwiseAlignerSetup),
+}
+
+pub type AlignerConfig = BioRustAlignerParameters;
 
 pub struct MultiAlignerSetup {
-    pub cached_aligners: Vec<SpecificAligner>,
-    pub states: Vec<SpecificAlignerState>,
+    name: String,
+    trim_end: TrimEnd,
+    references: Vec<SequenceWithId>,
+    config: AlignerConfig,
+    kmer_k: usize,
+    aligner_setups: Vec<SpecificAlignerSetup>
 }
 
-
-impl MultiAligner {
+impl MultiAlignerSetup {
     pub fn new(
         name: String,
-        references: Vec<SequenceWithId>,
         trim_end: TrimEnd,
-        error_rate: f32,
-        min_overlap: Option<usize>,
-        match_score: i32,
-        mismatch_score: i32,
-        gap_open: i32,
-        gap_extend: i32,
+        references: Vec<SequenceWithId>,
+        config: BioRustAlignerParameters,
         k_override: Option<usize>,
     ) -> Self {
-        let kmer_k = determine_kmer_k(&name, &references, error_rate, min_overlap, k_override);
+        let kmer_k = determine_kmer_k(
+            &name, &references, config.error_rate, config.min_overlap, k_override
+        );
         if kmer_k > 0 {
             debug!("{}: Using banded aligner with k={} with trim end {:?}.", name, kmer_k, trim_end);
         } else {
             debug!("{}: Using non-banded aligner with trim end {:?}.", name, trim_end);
         }
-        Self {
-            name,
-            references,
-            trim_end,
-            error_rate,
-            min_overlap,
-            match_score,
-            mismatch_score,
-            gap_open,
-            gap_extend,
-            kmer_k,
+
+        let required_modes = match trim_end {
+            TrimEnd::Any => vec![
+                AlignerMode::Local, AlignerMode::LeftOverlap, AlignerMode::RightOverlap
+            ],
+            TrimEnd::Left => vec![AlignerMode::Local, AlignerMode::LeftOverlap],
+            TrimEnd::Right => vec![AlignerMode::Local, AlignerMode::RightOverlap],
+            TrimEnd::LTail => vec![AlignerMode::LeftOverlap],
+            TrimEnd::RTail => vec![AlignerMode::RightOverlap],
+        };
+
+        let mut aligner_setups:Vec<SpecificAlignerSetup> = Vec::new();
+        for mode in required_modes {
+            if kmer_k > 0 {
+                debug!(
+                    "{}: Using banded aligner for mode {:?}, k={}.", name, mode, kmer_k
+                );
+                let aligner_config = get_aligner_config(
+                    &config, mode, BandedExtraConfig { k: kmer_k }
+                );
+                let aux_data = BioRustBandedRawAligner::create_aux_data(
+                    &aligner_config, &references
+                );
+                aligner_setups.push(
+                    SpecificAlignerSetup::BioRustBanded(
+                        BioRustBandedPairwiseAlignerSetup { config: aligner_config, aux_data }
+                    )
+                )
+            } else {
+                debug!("{}: Using standard aligner for mode {:?}.", name, mode);
+                let aligner_config = get_aligner_config(&config, mode, ());
+                aligner_setups.push(SpecificAlignerSetup::BioRust(
+                    BioRustPairwiseAlignerSetup { config: aligner_config, aux_data: () }
+                ));
+            }
+
         }
+        MultiAlignerSetup { name, trim_end, references, config, kmer_k, aligner_setups }
     }
 
-    pub fn create_setup(&self) -> MultiAlignerSetup {
-        let cached_aligners = self.create_aligners();
-        let states = cached_aligners.iter().map(|a| match a {
-            SpecificAligner::BioRustPairwiseAligner(_) => SpecificAlignerState::BioRustPairwiseAlignerState(Default::default()),
-            SpecificAligner::BioRustBandedPairwiseAligner(_) => SpecificAlignerState::BioRustBandedPairwiseAlignerState(Default::default()),
-        }).collect();
-        MultiAlignerSetup { cached_aligners, states }
+    pub fn create_aligner(&self) -> MultiAligner {
+        let aligners: Vec<SpecificAligner> = self.aligner_setups.iter()
+        .map(|setup| match setup {
+                SpecificAlignerSetup::BioRust(x) 
+                    => SpecificAligner::BioRust(
+                        BioRustPairwiseAligner::new(&x.config, self.references.clone())
+                ),
+                SpecificAlignerSetup::BioRustBanded(x) 
+                    => SpecificAligner::BioRustBanded(
+                    BioRustBandedPairwiseAligner::new(&x.config, self.references.clone())
+                ),
+        })
+        .collect();
+        MultiAligner { aligners }
     }
+}
 
-    pub fn align(&self, setup: &mut MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
+fn get_aligner_config<Extra: Clone>(
+    config: &BioRustAlignerParameters, mode: AlignerMode, extra: Extra
+) -> BioRustAlignerConfig<Extra> {
+    BioRustAlignerConfig {
+        mode,
+        match_score: config.match_score,
+        mismatch_score: config.mismatch_score,
+        gap_open: config.gap_open,
+        gap_extend: config.gap_extend,
+        extra,
+    }
+}
+
+
+impl MultiAligner {
+    pub fn align(&mut self, setup: &MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
         let mut best: Option<MultiAlignerResult> = None;
-        for index in 0..self.references.len() {
-            for (aligner, state) in setup.cached_aligners.iter().zip(setup.states.iter_mut()) {
-                let result = aligner.align(state, sequence, index);
-                let reference = &self.references[index].sequence.as_bytes();
+        for index in 0..setup.references.len() {
+            for (some_setup, some_aligner) in 
+                setup.aligner_setups.iter().zip(self.aligners.iter_mut()
+            ) {
+                let result = match (some_aligner, some_setup) {
+                    (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup)) => {
+                        aligner.align(sequence, index, &())
+                    },
+                    (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup)) => {
+                        aligner.align(sequence, index, &a_setup.aux_data)
+                    }
+                    _ => panic!("Unexpected combination of aligner and setup"),
+                };
+                let reference = &setup.references[index].sequence.as_bytes();
                 if !result.validate(
-                    self.error_rate, sequence, reference, self.min_overlap, result.offset
+                    setup.config.error_rate, sequence, reference, setup.config.min_overlap, result.offset
                 ) {
                     continue;
                 }
@@ -128,49 +178,7 @@ impl MultiAligner {
         best
     }
 
-    fn create_aligners(&self) -> Vec<SpecificAligner> {
-        let mut aligners = Vec::new();
-        let required_modes = match self.trim_end {
-            TrimEnd::Any => vec![
-                AlignerMode::Local, AlignerMode::LeftOverlap, AlignerMode::RightOverlap
-            ],
-            TrimEnd::Left => vec![AlignerMode::Local, AlignerMode::LeftOverlap],
-            TrimEnd::Right => vec![AlignerMode::Local, AlignerMode::RightOverlap],
-            TrimEnd::LTail => vec![AlignerMode::LeftOverlap],
-            TrimEnd::RTail => vec![AlignerMode::RightOverlap],
-        };
 
-        for mode in required_modes {
-            let refs = self.references.clone();
-            if self.kmer_k > 0 {
-                let config = self.get_aligner_config(
-                    mode,
-                    BandedExtraConfig { k: self.kmer_k }
-                );
-                aligners.push(SpecificAligner::BioRustBandedPairwiseAligner(
-                    BioRustBandedPairwiseAligner::new(config, refs)
-                ));
-            } else {
-                debug!("{}: Using standard aligner for mode {:?}.", self.name, mode);
-                let config = self.get_aligner_config(mode, ());
-                aligners.push(SpecificAligner::BioRustPairwiseAligner(
-                    BioRustPairwiseAligner::new(config, refs)
-                ));
-            }
-        }
-        aligners
-    }
-
-    fn get_aligner_config<Extra>(&self, mode: AlignerMode, extra: Extra) -> BioRustAlignerConfig<Extra> {
-        BioRustAlignerConfig {
-            mode,
-            match_score: self.match_score,
-            mismatch_score: self.mismatch_score,
-            gap_open: self.gap_open,
-            gap_extend: self.gap_extend,
-            extra,
-        }
-    }
 }
 
 fn determine_kmer_k(
@@ -257,35 +265,27 @@ fn determine_kmer_k_for_sequence(
 #[cfg(test)]
 mod tests {
     use crate::context::SequenceWithId;
+    use crate::multi_aligner::bio_rust::generic_aligner::BioRustAlignerParameters;
     use crate::types::TrimEnd;
-    use super::MultiAligner;
+    use super::{MultiAligner, MultiAlignerSetup};
     use super::result::MultiAlignerResult;
 
     fn run_alignment(
         trim_end: TrimEnd,
-        error_rate: f32,
-        min_overlap: Option<usize>,
-        match_score: i32,
-        mismatch_score: i32,
-        gap_open: i32,
-        gap_extend: i32,
+        config: BioRustAlignerParameters,
+        k_overwrite: Option<usize>,
         seq_x: &[u8],
         references: Vec<SequenceWithId>
     ) -> Option<MultiAlignerResult> {
-        let aligner = MultiAligner::new(
+        let setup = MultiAlignerSetup::new(
             "Test Aligner".to_string(),
-            references,
             trim_end,
-            error_rate,
-            min_overlap,
-            match_score,
-            mismatch_score,
-            gap_open,
-            gap_extend,
-            None,
+            references,
+            config,
+            k_overwrite,
         );
-        let mut setup = aligner.create_setup();
-        aligner.align(&mut setup, seq_x)
+        let mut aligner = setup.create_aligner();
+        aligner.align(&setup, seq_x)
     }
 
     fn get_as_references(raw: &[u8]) -> Vec<SequenceWithId> {
@@ -295,11 +295,34 @@ mod tests {
        }]
     }
 
+    fn get_default_config() -> BioRustAlignerParameters {
+        BioRustAlignerParameters {
+            error_rate: 0.0,
+            min_overlap: Some(3),
+            match_score: 1,
+            mismatch_score: -1,
+            gap_open: -3,
+            gap_extend: -1,
+        }
+    }
+
+    fn get_overlap5_config() -> BioRustAlignerParameters {
+        let mut config = get_default_config();
+        config.min_overlap = Some(5);
+        config
+    }
+
+    fn get_with_tolerance_config() -> BioRustAlignerParameters {
+        let mut config = get_default_config();
+        config.error_rate = 0.2;
+        config
+    }
+
     #[test]
     fn test_aligner_trivial() {
         let references = get_as_references(b"ACGT");
         let result = run_alignment(
-            TrimEnd::Right, 0.0, Some(3), 1, -1, -1, -1,
+            TrimEnd::Right, get_default_config(), None,
             b"ACGT", references
         );
         assert!(result.is_some());
@@ -313,7 +336,7 @@ mod tests {
     fn test_aligner_right_overhang() {
         let references = get_as_references(b"NNNTTTTCCC");
         let result = run_alignment(
-            TrimEnd::Right, 0.0, Some(3), 1, -1, -1, -1,
+            TrimEnd::Right, get_default_config(), None,
             b"AAAAATTT", references
         );
         let alignment = result.unwrap();
@@ -327,7 +350,7 @@ mod tests {
     fn test_aligner_right_overhang_ambiguous() {
         let references = get_as_references(b"TTTT");
         let result = run_alignment(
-            TrimEnd::Right, 0.0, Some(3), 1, -1, -1, -1,
+            TrimEnd::Right, get_default_config(), None,
             b"AAAAATTT", references
         );
         let alignment = result.unwrap();
@@ -341,7 +364,7 @@ mod tests {
     fn test_aligner_right_overhang_with_error() {
         let references = get_as_references(b"TTTTTTT");
         let result = run_alignment(
-            TrimEnd::Right, 0.2,Some(5), 1, -1, -1, -1,
+            TrimEnd::Right, get_overlap5_config(), None,
             b"AAAAATTATT", references
         );
         let alignment = result.unwrap();
@@ -355,7 +378,7 @@ mod tests {
     fn test_aligner_right_embedded() {
         let references = get_as_references(b"TTTTT");
         let result = run_alignment(
-            TrimEnd::Right, 0.0, Some(5), 1, -1, -1, -1,
+            TrimEnd::Right, get_overlap5_config(), None,
             b"AAAAATTTTTAAA", references
         );
         let alignment = result.unwrap();
@@ -369,7 +392,7 @@ mod tests {
     fn test_aligner_right_embedded_with_error() {
         let references = get_as_references(b"TTTTT");
         let result = run_alignment(
-            TrimEnd::Right,  0.2, Some(5), 1, -1, -1, -1,
+            TrimEnd::Right, get_overlap5_config(), None,
             b"AAAAATTATTAAA", references
         );
         let alignment = result.unwrap();
@@ -383,7 +406,7 @@ mod tests {
     fn test_aligner_right_embedded_with_wildcard() {
         let references = get_as_references(b"TTNTT");
         let result = run_alignment(
-            TrimEnd::Right, 0.0, Some(5),1, -1, -1, -1,
+            TrimEnd::Right, get_overlap5_config(), None,
             b"AAAAATTATTAAA", references
         );
         let alignment = result.unwrap();
@@ -397,7 +420,7 @@ mod tests {
     fn test_aligner_right_wrong_side_overhang() {
         let references = get_as_references(b"TTTT");
         let result = run_alignment(
-            TrimEnd::Right, 0.2, Some(3), 1, -1, -1, -1,
+            TrimEnd::Right, get_with_tolerance_config(), None,
             b"TTTAAAA", references
         );
         assert!(result.is_none());
@@ -410,8 +433,10 @@ mod tests {
         // So the same read may be mapped to a barcode with TrimEnd::RTail but not
         // with TrimEnd::Right.
         let references = get_as_references(b"NNNTTTTTCCCC");
+        let mut config = get_default_config();
+        config.min_overlap = Some(6);
         let result = run_alignment(
-            TrimEnd::Right, 0.0, Some(6), 1, -1, -1, -1,
+            TrimEnd::Right, config, None,
             b"AAAAATTTTTAAATTT", references
         );
         let alignment = result.unwrap();
@@ -425,7 +450,7 @@ mod tests {
     fn test_aligner_left_overhang() {
         let references = get_as_references(b"TTTT");
         let result = run_alignment(
-            TrimEnd::Left, 0.0, Some(1), 1, -1, -1, -1,
+            TrimEnd::Left, get_default_config(), None,
             b"TTTAAAAA", references
         );
         let alignment = result.unwrap();
@@ -440,7 +465,7 @@ mod tests {
         // See also: test_aligner_right_partial_embedded()!!!
         let references = get_as_references(b"NNNTTTTTCCCC");
         let result = run_alignment(
-            TrimEnd::RTail, 0.0, Some(1), 1, -1, -1, -1,
+            TrimEnd::RTail, get_overlap5_config(), None,
             b"AAAAATTTTTAAATTT", references
         );
         let alignment = result.unwrap();
@@ -456,23 +481,14 @@ mod tests {
         // Default estimate_k for error_rate 0.0 is max_no_n = 12
         // 12 > 8, so default k would be 8 (banded aligner used since 8 >= 4)
         
-        let aligner = MultiAligner::new(
+        let setup = MultiAlignerSetup::new(
             "Test Aligner".to_string(),
-            references,
             TrimEnd::Right,
-            0.0,
-            Some(4),
-            1, -1, -1, -1,
-            Some(0), // Override k to 0 should force the old aligner
+            references,
+            get_overlap5_config(),
+            Some(0)  // Override k to 0 should force the old aligner
         );
-        
-        let aligners = aligner.create_aligners();
-        for a in aligners {
-            match a {
-                super::SpecificAligner::BioRustPairwiseAligner(_) => (),
-                _ => panic!("Expected BioRustPairwiseAligner when k_override is 0"),
-            }
-        }
+        assert_eq!(setup.kmer_k, 0);
     }
 
     #[test]
@@ -480,23 +496,14 @@ mod tests {
         let references = get_as_references(b"ACGT");
         // Default estimate_k for length 4 is 4.
         
-        let aligner = MultiAligner::new(
+        let setup = MultiAlignerSetup::new(
             "Test Aligner".to_string(),
-            references,
             TrimEnd::Right,
-            0.0,
-            Some(4),
-            1, -1, -1, -1,
+            references,
+            get_default_config(),
             Some(5), // Override k to 5 should use banded aligner even if k=4 was estimated
         );
-        
-        let aligners = aligner.create_aligners();
-        for a in aligners {
-            match a {
-                super::SpecificAligner::BioRustBandedPairwiseAligner(_) => (),
-                _ => panic!("Expected BioRustBandedPairwiseAligner when k_override is 5"),
-            }
-        }
+        assert_eq!(setup.kmer_k, 5);
     }
 
     #[test]
@@ -573,7 +580,10 @@ mod tests {
         let x = b"ACGTATCG";
         let y = b"ACGTNTCG";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.0, Some(1), 1, -1, -1, -1, x, references);
+        let result = run_alignment(
+            TrimEnd::Any, get_default_config(), None,
+            x, references
+        );
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
         assert!(formatted.contains("ACGTATCG"));
@@ -586,7 +596,10 @@ mod tests {
         let x = b"AAAAACCCCTTTTT";
         let y = b"CCCC";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.0, Some(1), 1, -1, -1, -1, x, references);
+        let result = run_alignment(
+            TrimEnd::Any, get_default_config(), None,
+            x, references
+        );
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
         // Expected alignment:
@@ -603,7 +616,10 @@ mod tests {
         let x = b"AAACCC";
         let y = b"CCCGGG";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.0, Some(1), 1, -1, -1, -1, x, references);
+        let result = run_alignment(
+            TrimEnd::Any, get_default_config(), None,
+            x, references
+        );
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
 
@@ -621,7 +637,10 @@ mod tests {
         let x = b"CCCGGG";
         let y = b"AAACCC";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.0, Some(1), 1, -1, -1, -1, x, references);
+        let result = run_alignment(
+            TrimEnd::Any, get_default_config(), None,
+            x, references
+        );
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
 
@@ -639,7 +658,10 @@ mod tests {
         let x = b"CCCCCGGG";
         let y = b"AAACCACC";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.2, Some(1), 1, -1, -1, -1, x, references);
+        let result = run_alignment(
+            TrimEnd::Any, get_default_config(), None,
+            x, references
+        );
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
 
@@ -653,7 +675,10 @@ mod tests {
         let x = b"CAATCCTTTT";
         let y = b"CCCCAACCT";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.2, Some(1), 1, -1, -1, -1, x, references);
+        let result = run_alignment(
+            TrimEnd::Any, get_default_config(), None,
+            x, references
+        );
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
 
@@ -666,7 +691,10 @@ mod tests {
         let x = b"CAACCTTTT";
         let y = b"CCCCAATCCT";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Any, 0.2, Some(1), 1, -1, -1, -1, x, references);
+        let result = run_alignment(
+            TrimEnd::Any, get_default_config(), None,
+            x, references
+        );
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
 
@@ -679,7 +707,10 @@ mod tests {
         let x = b"CAATCCTTT";
         let y = b"NNNTTT";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Right, 0.0, Some(6), 1, -1, -1, -1, x, references);
+        let result = run_alignment(
+            TrimEnd::Any, get_default_config(), None,
+            x, references
+        );
         let alignment = result.unwrap();
         assert_eq!(alignment.get_umi_tags(x, y), vec![String::from("TCC")])
     }
@@ -689,7 +720,10 @@ mod tests {
         let x = b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA";
         let y =b"NNNNNNTAGCTCTGTAGGCACCATCAAT";
         let references = get_as_references(y);
-        let result = run_alignment(TrimEnd::Right, 0.0, Some(11), 1, -1, -5, -1, x, references);
+        let result = run_alignment(
+            TrimEnd::Any, get_default_config(), None,
+            x, references
+        );
         assert!(result.is_some());
         let alignment = result.unwrap();
         let umi_tags = alignment.get_umi_tags(x, y);
@@ -713,7 +747,10 @@ mod tests {
         let y = b"NNNNNNTAGCTCTGTAGGCACCATCAAT";
         let references = get_as_references(y);
 
-        let result = run_alignment(TrimEnd::Right, 0.0, Some(11), 1, -1, -5, -1, x, references);
+        let result = run_alignment(
+            TrimEnd::Any, get_default_config(), None,
+            x, references
+        );
         assert!(result.is_none());
     }
 }

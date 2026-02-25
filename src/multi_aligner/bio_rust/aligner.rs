@@ -3,7 +3,11 @@ use bio::alignment::pairwise::Aligner;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioRustRawAligner, get_scoring, BoxedScoreFunction, BioRustAligner};
 
-impl BioRustRawAligner<(), ()> for Aligner<BoxedScoreFunction> {
+pub type BioRustPairwiseRawAligner = Aligner<BoxedScoreFunction>;
+
+impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
+    type AuxData = ();
+
     fn create_raw(
         config: &BioRustAlignerConfig<()>,
         x_capacity: usize, y_capacity: usize
@@ -12,7 +16,9 @@ impl BioRustRawAligner<(), ()> for Aligner<BoxedScoreFunction> {
         Aligner::with_capacity_and_scoring(x_capacity, y_capacity, scoring)
     }
 
-    fn create_aux_data(_config: &BioRustAlignerConfig<()>, _references: &Vec<SequenceWithId>) -> () {
+    fn create_aux_data(
+        _config: &BioRustAlignerConfig<()>, _references: &Vec<SequenceWithId>
+    ) -> Self::AuxData {
         ()
     }
 
@@ -28,4 +34,4 @@ impl BioRustRawAligner<(), ()> for Aligner<BoxedScoreFunction> {
     }
 }
 
-pub type BioRustPairwiseAligner = BioRustAligner<Aligner<BoxedScoreFunction>,(), ()>;
+pub type BioRustPairwiseAligner = BioRustAligner<Aligner<BoxedScoreFunction>,()>;

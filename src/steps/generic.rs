@@ -1,5 +1,7 @@
 use crate::statistics::WorkerStatistics;
 use crate::types::{SingeRecordDto, TrimEnd};
+use crate::args::Args;
+use crate::context::Context;
 
 #[derive(Default, Clone)]
 pub struct AlignmentResults {
@@ -65,14 +67,10 @@ impl Transformable for SingeRecordDto {
     }   
 }
 
-
-use std::any::Any;
-
-pub trait GenericStep<RecordType>: Send + Sync {
-    type Setup: Send + Sync;
-    fn create_setup(&self) -> Box<dyn Any + Send + Sync>;
-    fn clone_setup(&self, setup: &Box<dyn Any + Send + Sync>) -> Box<dyn Any + Send + Sync>;
-    fn apply(&self, rec: RecordInTransformation<RecordType>, setup: &mut Box<dyn Any + Send + Sync>) -> RecordInTransformation<RecordType>;
+pub trait GenericStep<RecordType, Setup>: Send + Sync {
+    fn create_setup(args: &Args, context: &Context) -> Setup;
+    fn new(setup: Setup) -> Self;
+    fn apply(&self, rec: RecordInTransformation<RecordType>, setup: &Setup) -> RecordInTransformation<RecordType>;
 }
 
 pub trait FinalizeStep<RecordType>: Send + Sync {

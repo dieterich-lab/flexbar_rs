@@ -14,10 +14,3 @@ pub trait GenericRawResult {
     fn get_umi_tags(&self, x: &[u8], y: &[u8], x_offset: usize) -> Vec<String>;
     fn format(&self, x: &[u8], y: &[u8], x_offset: usize) -> String;
 }
-
-pub trait GenericAligner {
-    fn align(&mut self, sequence: &[u8], reference_index: usize)
-        -> MultiAlignerResult;
-}
-
-

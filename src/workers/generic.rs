@@ -3,10 +3,14 @@ use crate::statistics::WorkerStatistics;
 use std::sync::Arc;
 use std::any::Any;
 
-pub struct GenericWorker<RecordType: Transformable> {
+struct StepDescriptor<RecordType: Transformable, WorkerSetup, Step: GenericStep<RecordType> {
+
+}
+
+pub struct GenericWorker<'s, RecordType: Transformable, WorkerSetup> {
     pub steps: Vec<Arc<dyn GenericStep<RecordType, Setup = Box<dyn Any + Send + Sync>>>>,
     pub finalize_step: Arc<dyn FinalizeStep<RecordType>>,
-    pub setups: Vec<Box<dyn Any + Send + Sync>>,
+    pub worker_setup: &'s WorkerSetup,
 }
 
 impl<RecordType: Transformable> Clone for GenericWorker<RecordType> {
