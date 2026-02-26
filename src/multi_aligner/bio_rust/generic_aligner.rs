@@ -2,7 +2,6 @@ use bio::alignment::pairwise::{Scoring, MIN_SCORE};
 use crate::context::SequenceWithId;
 use crate::multi_aligner::generic::AlignerMode;
 use crate::multi_aligner::result::{MultiAlignerResult, RawAlignment};
-use crate::types::TrimEnd;
 
 pub type BoxedScoreFunction = Box<dyn Fn(u8, u8) -> i32 + Send + Sync>;
 

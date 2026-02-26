@@ -4,8 +4,6 @@ use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 
-use std::any::Any;
-
 pub struct SingleFilterLength {}
 
 #[derive(Clone)]

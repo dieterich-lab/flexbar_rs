@@ -1,19 +1,21 @@
+use std::cell::{RefCell};
 use rayon::prelude::*;
 use crate::args::Args;
-use crate::context::Context;
 use crate::readers::fasta::SingleReaderFasta;
 use crate::readers::fastq::SingleReaderFastq;
 use crate::readers::{SequenceReader, get_batch_iter};
 use crate::writers::fasta::SingleWriterFasta;
 use crate::writers::fastq::SingleWriterFastq;
-use crate::types::{FileFormat, CompressionType, SingeRecordDto};
-use crate::workers::single::SingleWorker;
+use crate::types::{FileFormat, CompressionType, RecordDto};
+use crate::workers::single::{SingleWorkerSetup};
 use std::path::Path;
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
 use crate::logging::log_fatal;
 use log::{debug};
 use crate::context;
+use crate::steps::generic::FinalRecord;
+use crate::workers::{WorkerFactory, WorkerSetup};
 
 pub fn do_it(args: Args) {
     let context = context::Context::new(&args);
@@ -23,29 +25,24 @@ pub fn do_it(args: Args) {
     let output_prefix = args.output_reads.as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| args.target.clone());
+    let mut reader = get_single_reader(reads_path, context.format, &args);
+    let compression = get_compression(&reader, &args);
+    let worker_setup = WorkerSetup::Single(SingleWorkerSetup::new(&args, &context));
+    let mut writer = get_single_writer(&args, &output_prefix, compression);
 
-    let stats = process_single(&args, &context, reads_path, &output_prefix);
-    stats.print();
-}
+    let worker_stats = process_batch(&mut reader, &worker_setup, &mut writer, args.batch_size, args.count);
 
-fn process_single(args: &Args, context: &Context, reads_path: &Path, output_prefix: &str) -> Statistics {
-    let mut reader = get_single_reader(reads_path, context.format, args);
-    let compression = get_compression(&reader, args);
-    let worker = SingleWorker::new(args, context);
-    let mut writer = get_single_writer(args, output_prefix, compression);
-    let worker_stats = process_batch(&mut reader, &worker, &mut writer, args.batch_size, args.count);
-
-    Statistics {
+    let stats = Statistics {
         reader: reader.statistics(),
         worker: worker_stats,
         writer: writer.statistics(),
-    }
+    };
+    stats.print();
 }
-
 
 fn process_batch(
     reader: &mut Box<dyn SequenceReader + Send>,
-    worker_shared: &SingleWorker,
+    worker_setup: &WorkerSetup,
     writer: &mut Box<dyn Writer>,
     batch_size: usize,
     count: Option<usize>,
@@ -67,18 +64,16 @@ fn process_batch(
 
         let batch_len = batch_in.len();
         
-        let batch_out: Vec<(Option<SingeRecordDto>, Option<String>, WorkerStatistics)> = batch_in
+        let batch_out: Vec<FinalRecord<RecordDto>> = batch_in
             .into_par_iter()
-            .map(|rec| {
-                let mut worker = worker_shared.clone();
-                worker.proccess(&rec)
-            })
+            .map(|rec| process_record(&rec, worker_setup) )
             .collect();
 
-        for (rec_opt, tag_opt, stats) in batch_out {
-            worker_stats += stats;
-            if let Some(rec) = rec_opt {
-                writer.write(&rec, tag_opt.as_deref()).expect("Failed to write record");
+        for rec in batch_out {
+            worker_stats += rec.stats;
+            if let Some(r) = rec.record {
+                writer.write(&r, rec.output_tag.as_deref())
+                    .expect("Failed to write record");
             }
         }
 
@@ -122,4 +117,18 @@ fn get_single_writer(args: &crate::args::Args, output_prefix: &str, compression:
         Box::new(SingleWriterFastq::new(p, compression)
             .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ writer: {}", e))))
     }
+}
+
+thread_local! {
+    static WORKER_FACTORY: RefCell<WorkerFactory> = RefCell::new(WorkerFactory::new());
+}
+
+fn process_record(
+    record: &RecordDto, worker_setup: &WorkerSetup
+) -> FinalRecord<RecordDto> {
+    WORKER_FACTORY.with(|factory| {
+        let mut factory = factory.borrow_mut();
+        let worker = factory.get_or_create(worker_setup);
+        worker.process_record(record, worker_setup)
+    })
 }

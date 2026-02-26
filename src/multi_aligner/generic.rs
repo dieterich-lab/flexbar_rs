@@ -1,5 +1,3 @@
-use crate::multi_aligner::result::MultiAlignerResult;
-
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AlignerMode {
     Local,

@@ -258,3 +258,32 @@ impl FromStr for AdapterTrimmed {
 
 pub type SingeRecordDto = bio::io::fastq::Record;
 
+pub enum RecordDto {
+    Single(SingeRecordDto),
+}
+
+impl RecordDto {
+    pub fn id(&self) -> &str {
+        match self {
+            RecordDto::Single(record) => record.id(),
+        }
+    }
+    
+    pub fn desc(&self) -> Option<&str> {
+        match self {
+            RecordDto::Single(record) => record.desc(),
+        }
+    }
+    
+    pub fn seq(&self) -> &[u8] {
+        match self {
+            RecordDto::Single(record) => record.seq(),
+        }
+    }
+    
+    pub fn qual(&self) -> Option<&[u8]> {
+        match self {
+            RecordDto::Single(record) => Some(record.qual()),
+        }
+    }
+}

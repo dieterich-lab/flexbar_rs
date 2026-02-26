@@ -32,13 +32,12 @@ pub struct MultiAligner {
 }
 
 #[derive(Clone)]
-struct BioRustPairwiseAlignerSetup {
+pub struct BioRustPairwiseAlignerSetup {
     config: BioRustAlignerConfig<()>,
-    aux_data: ()
 }
 
 #[derive(Clone)]
-struct BioRustBandedPairwiseAlignerSetup {
+pub struct BioRustBandedPairwiseAlignerSetup {
     config: BioRustAlignerConfig<BandedExtraConfig>,
     aux_data: BandedAlignerData
 }
@@ -53,8 +52,6 @@ pub type AlignerConfig = BioRustAlignerParameters;
 
 #[derive(Clone)]
 pub struct MultiAlignerSetup {
-    name: String,
-    trim_end: TrimEnd,
     references: Vec<SequenceWithId>,
     config: AlignerConfig,
     kmer_k: usize,
@@ -109,12 +106,12 @@ impl MultiAlignerSetup {
                 debug!("{}: Using standard aligner for mode {:?}.", name, mode);
                 let aligner_config = get_aligner_config(&config, mode, ());
                 aligner_setups.push(SpecificAlignerSetup::BioRust(
-                    BioRustPairwiseAlignerSetup { config: aligner_config, aux_data: () }
+                    BioRustPairwiseAlignerSetup { config: aligner_config }
                 ));
             }
 
         }
-        MultiAlignerSetup { name, trim_end, references, config, kmer_k, aligner_setups }
+        MultiAlignerSetup { references, config, kmer_k, aligner_setups }
     }
 
     pub fn create_aligner(&self) -> MultiAligner {
@@ -150,13 +147,14 @@ fn get_aligner_config<Extra: Clone>(
 
 impl MultiAligner {
     pub fn align(&mut self, setup: &MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
+        if sequence.len() == 0 { return None }  // The aligner seems to go berserk on sequences of size 0
         let mut best: Option<MultiAlignerResult> = None;
         for index in 0..setup.references.len() {
             for (some_setup, some_aligner) in 
                 setup.aligner_setups.iter().zip(self.aligners.iter_mut()
             ) {
                 let result = match (some_aligner, some_setup) {
-                    (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup)) => {
+                    (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(_)) => {
                         aligner.align(sequence, index, &())
                     },
                     (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup)) => {
@@ -271,7 +269,7 @@ mod tests {
     use crate::context::SequenceWithId;
     use crate::multi_aligner::bio_rust::generic_aligner::BioRustAlignerParameters;
     use crate::types::TrimEnd;
-    use super::{MultiAligner, MultiAlignerSetup};
+    use super::{MultiAlignerSetup};
     use super::result::MultiAlignerResult;
 
     fn run_alignment(

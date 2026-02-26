@@ -78,7 +78,9 @@ pub trait GenericStep<RecordType>: Send + Sync {
     fn apply(&mut self, rec: RecordInTransformation<RecordType>, setup: &Self::Setup) -> RecordInTransformation<RecordType>;
 }
 
-pub trait FinalizeStep<RecordType>: Send + Sync {
-    fn apply(&self, rec: RecordInTransformation<RecordType>) -> (Option<RecordType>, Option<String>, WorkerStatistics);
+pub struct FinalRecord<RecordType> {
+    pub record: Option<RecordType>,
+    pub output_tag: Option<String>,
+    pub stats: WorkerStatistics,
 }
 

@@ -6,8 +6,6 @@ use crate::context::{Context, SequenceWithId};
 use crate::multi_aligner::{MultiAligner, MultiAlignerSetup};
 use crate::multi_aligner::result::MultiAlignerResult;
 
-use std::any::Any;
-
 pub struct SingleBarcodeSplitter {
     multi_aligner: MultiAligner,
 }

@@ -1,6 +1,6 @@
 use std::io;
 use bio::io::fastq;
-use crate::types::SingeRecordDto;
+use crate::types::{RecordDto};
 use crate::writers::generic::{GenericWriter, GenericWriterBackend};
 
 type FastqBackend<'a> = fastq::Writer<Box<dyn io::Write + Send + 'a>>;
@@ -10,8 +10,11 @@ impl<'a> GenericWriterBackend<'a> for FastqBackend<'a> {
         fastq::Writer::new(writer)
     }
 
-    fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()> {
-        self.write_record(record)
+    fn write_record(&mut self, record: &RecordDto) -> io::Result<()> {
+        match record {
+            RecordDto::Single(rec) => self.write_record(rec),
+            // _ => unimplemented!("Fastq write can handle only single records"),
+        }
     }
 
     fn get_extension() -> &'static str {
@@ -33,7 +36,9 @@ mod tests {
         let mut buffer = Vec::new();
         {
             let mut writer = SingleWriterFastq::from_writer(Box::new(&mut buffer));
-            let record = SingeRecordDto::with_attrs("id1", Some("desc1"), b"ACGT", b"!!!!");
+            let record = RecordDto::Single(SingeRecordDto::with_attrs(
+                "id1", Some("desc1"), b"ACGT", b"!!!!"
+            ));
             writer.write(&record, None).expect("Failed to write record");
         }
         

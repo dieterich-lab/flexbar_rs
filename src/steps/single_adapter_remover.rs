@@ -6,8 +6,6 @@ use crate::context::{Context, SequenceWithId};
 use crate::multi_aligner::{MultiAligner, MultiAlignerSetup, AlignerConfig};
 use crate::multi_aligner::result::MultiAlignerResult;
 
-use std::any::Any;
-
 #[derive(Clone)]
 pub struct SingleAdapterRemoverSetup {
     pub adapters: Vec<String>,

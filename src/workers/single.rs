@@ -1,3 +1,4 @@
+use log::trace;
 use crate::context::Context;
 use crate::args::Args;
 use crate::types::{SingeRecordDto, QualTrimType};
@@ -6,26 +7,19 @@ use crate::steps::single_uncalled_sequence_filter::{SingleUncalledSequenceFilter
 use crate::steps::single_barcode_splitter::{SingleBarcodeSplitter, SingleBarcodeSplitterSetup};
 use crate::steps::single_quality_trim::{SingleQualityTrim, SingleQualityTrimSetup};
 use crate::steps::single_filter_length::{SingleFilterLength, SingleFilterLengthSetup};
-use crate::steps::single_finalize::SingleFinalizeStep;
-use crate::steps::generic::{GenericStep, RecordInTransformation};
-use crate::workers::generic::{GenericWorker, WorkerResult};
-use std::sync::Arc;
-use log::{debug, trace};
-
-use std::any::Any;
+use crate::steps::generic::{AlignmentResults, FinalRecord, GenericStep, RecordInTransformation};
 use crate::statistics::WorkerStatistics;
 
-struct SingleWorkerSetup {
+pub struct SingleWorkerSetup {
     adapter_remover: Option<SingleAdapterRemoverSetup>,
     barcode_splitter: Option<SingleBarcodeSplitterSetup>,
     quality_trim: Option<SingleQualityTrimSetup>,
     filter_length: SingleFilterLengthSetup,
     uncalled_sequence_filter: Option<SingleUncalledSequenceFilterSetup>,
     qtrim_post_removal: bool,
-    trace: bool
 }
 
-struct SingleWorker {
+pub struct SingleWorker {
     adapter_remover: Option<SingleAdapterRemover>,
     barcode_splitter: Option<SingleBarcodeSplitter>,
     quality_trim: Option<SingleQualityTrim>,
@@ -55,8 +49,7 @@ impl SingleWorkerSetup {
         let filter_length = SingleFilterLength::create_setup(args, context);
         
         let qtrim_post_removal = args.qtrim_post_removal;
-        let trace = args.trace;
-        if trace {
+        if args.trace {
             trace!("Single worker pipeline:");
             if let Some(s) = &uncalled_sequence_filter {
                 trace!("- Step SingleUncalledSequenceFilter (max_uncalled: {})",
@@ -93,13 +86,12 @@ impl SingleWorkerSetup {
             filter_length,
             uncalled_sequence_filter,
             qtrim_post_removal,
-            trace
         }
     }
 }
 
 impl SingleWorker {
-    fn new(setup: &SingleWorkerSetup) -> Self {
+    pub fn new(setup: &SingleWorkerSetup) -> Self {
         Self {
             adapter_remover: match &setup.adapter_remover {
                 Some(s) => Some(SingleAdapterRemover::new(s)),
@@ -121,14 +113,22 @@ impl SingleWorker {
             filter_length: SingleFilterLength::new(&setup.filter_length),
         }
     }
-    fn process_record(
+    
+    pub fn process_record(
         &mut self,
         record: &SingeRecordDto,
         setup: &SingleWorkerSetup
-    ) -> WorkerResult<SingeRecordDto> {
+    ) -> FinalRecord<SingeRecordDto> {
         let mut rec_in = RecordInTransformation {
             record: record.clone(),
-            alignment_results: Default::default(),
+            alignment_results: AlignmentResults {
+                barcode_tag: None,
+                umi_tags: vec![],
+                removal_tags: vec![],
+                seq_start: 0,
+                seq_end: record.seq().len(),
+                record_dropped: false,
+            },
             stats: WorkerStatistics::default(),
         };
 
@@ -148,23 +148,50 @@ impl SingleWorker {
             rec_in = self.quality_trim.as_mut().unwrap().apply(rec_in, &s);
         }
         rec_in = self.filter_length.apply(rec_in, &setup.filter_length);
+        
+        finalize(rec_in)
+    }
+}
 
-        let output_record = match rec_in.alignment_results.record_dropped {
-            true => None,
-            false => Some(
-                SingeRecordDto::with_attrs(
-                    rec_in.record.id(),
-                    rec_in.record.desc(),
-                    rec_in.get_sequence(),
-                    rec_in.get_qual(),
-                )
-            )
-        };
-        WorkerResult {
-            record: output_record,
-            output_tag: rec_in.alignment_results.barcode_tag,
-            stats: rec_in.stats,
+fn finalize(rec: RecordInTransformation<SingeRecordDto>) -> FinalRecord<SingeRecordDto> {
+    if rec.alignment_results.record_dropped {
+        return FinalRecord {
+            record: None,
+            output_tag: None,
+            stats: rec.stats,
         }
+    }
+
+    let mut desc_parts = Vec::new();
+    match {rec.record.desc()} {
+        Some(desc) => desc_parts.push(desc),
+        None => (),
+    }
+
+    for tag in &rec.alignment_results.removal_tags {
+        desc_parts.push(tag);
+    }
+
+    for tag in &rec.alignment_results.umi_tags {
+        desc_parts.push(tag);
+    }
+
+    let new_desc: Option<&str> = match desc_parts.is_empty() {
+        true => None,
+        false => Some(&desc_parts.join("_")),
+    };
+
+    let final_record = SingeRecordDto::with_attrs(
+        rec.record.id(),
+        new_desc,
+        rec.get_sequence(),
+        rec.get_qual(),
+    );
+
+    FinalRecord {
+        record: Some(final_record),
+        output_tag: rec.alignment_results.barcode_tag,
+        stats: rec.stats,
     }
 }
 
@@ -177,7 +204,7 @@ mod tests {
     use crate::types::SingeRecordDto;
     use clap::Parser;
     
-    fn process_record(args: &Args, record: &SingeRecordDto) -> WorkerResult<SingeRecordDto> {
+    fn process_record(args: &Args, record: &SingeRecordDto) -> FinalRecord<SingeRecordDto> {
         let context = Context::new(args);
         let setup = SingleWorkerSetup::new(args, &context);
         let mut worker = SingleWorker::new(&setup);
@@ -187,13 +214,9 @@ mod tests {
     #[test]
     fn test_process_right() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
-        let context = Context::new(&args);
-        
-        let mut worker = SingleWorker::new(&args, &context);
-        
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let (processed_opt, _, _stats) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = process_record(&args, &record);
+        let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -202,15 +225,10 @@ mod tests {
     #[test]
     fn test_process_left() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "LEFT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
-        let context = Context::new(&args);
-         
-         
-        
-        let mut worker = SingleWorker::new(&args, &context);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
-        let (processed_opt, _, _stats) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = process_record(&args, &record);
+        let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -222,14 +240,15 @@ mod tests {
         let mut context = Context::new(&args);
         context.barcodes = vec![SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}];
         
-        let mut worker = SingleWorker::new(&args, &context);
+        let setup = SingleWorkerSetup::new(&args, &context);
+        let mut worker = SingleWorker::new(&setup);
         
         // Barcode at start
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
-        let (processed_opt, tag_opt, _stats) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = worker.process_record(&record, &setup);
+        let processed = result.record.expect("Should not be dropped by length filter");
         
-        assert_eq!(tag_opt, Some("barcode_bc1".to_string()));
+        assert_eq!(result.output_tag, Some("barcode_bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
         // Stats are now in writer, so worker.process doesn't see them yet.
         // We'll trust GenericWriter to handle it.
@@ -238,19 +257,16 @@ mod tests {
     #[test]
     fn test_max_uncalled() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--max-uncalled", "2"]);
-        let context = Context::new(&args);
-         
-        let mut worker = SingleWorker::new(&args, &context);
 
         // 2 'N's - should keep
         let record = SingeRecordDto::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
-        let (_, _, stats) = worker.process(&record);
-        assert_eq!(stats.total_discarded_uncalled, 0);
+        let result = process_record(&args, &record);
+        assert_eq!(result.stats.total_discarded_uncalled, 0);
 
         // 3 'N's - should discard
         let record = SingeRecordDto::with_attrs("read2", None, b"ACNNGN", b"IIIIII");
-        let (_, _, stats) = worker.process(&record);
-        assert_eq!(stats.total_discarded_uncalled, 1);
+        let result = process_record(&args, &record);
+        assert_eq!(result.stats.total_discarded_uncalled, 1);
     }
 
     #[test]
@@ -261,11 +277,12 @@ mod tests {
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         ];
         
-        let mut worker = SingleWorker::new(&args, &context);
+        let setup = SingleWorkerSetup::new(&args, &context);
+        let mut worker = SingleWorker::new(&setup);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
-        let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = worker.process_record(&record, &setup);
+        let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.id(), "read1");
         assert_eq!(processed.desc(), Some("Flexbar_removal"));
@@ -277,11 +294,12 @@ mod tests {
         let mut context = Context::new(&args);
         context.adapters = vec!["AGATCGGAAGAG".to_string()];
         
-        let mut worker = SingleWorker::new(&args, &context);
+        let setup = SingleWorkerSetup::new(&args, &context);
+        let mut worker = SingleWorker::new(&setup);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = worker.process_record(&record, &setup);
+        let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.id(), "read1");
         assert_eq!(processed.desc(), Some("Flexbar_removal_0"));
@@ -299,11 +317,12 @@ mod tests {
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         ];
         
-        let mut worker = SingleWorker::new(&args, &context);
+        let setup = SingleWorkerSetup::new(&args, &context);
+        let mut worker = SingleWorker::new(&setup);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
-        let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = worker.process_record(&record, &setup);
+        let processed = result.record.expect("Should not be dropped by length filter");
         
         // barcode removal appends _Flexbar_removal
         // adapter removal appends _Flexbar_removal_0
@@ -314,14 +333,11 @@ mod tests {
     #[test]
     fn test_quality_trim_tail() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "TAIL", "--qtrim-threshold", "20", "--min-read-length", "0"]);
-        let context = Context::new(&args);
-         
-        let mut worker = SingleWorker::new(&args, &context);
-
+        
         // Threshold 20 + 33 (sanger) = 53 ('5')
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
-        let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = process_record(&args, &record);
+        let processed = result.record.expect("Should not be dropped by length filter");
 
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), b"IIIII");
@@ -330,16 +346,13 @@ mod tests {
     #[test]
     fn test_quality_trim_win() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "WIN", "--qtrim-threshold", "20", "--qtrim-win-size", "5", "--min-read-length", "0"]);
-        let context = Context::new(&args);
-         
-        let mut worker = SingleWorker::new(&args, &context);
-
+        
         // Threshold 53. Window size 5.
         // "IIIII" sum = 5 * 73 = 365. Threshold sum = 5 * 53 = 265.
         // "44444" sum = 5 * 52 = 260.
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGTACGT", b"IIIII44444III");
-        let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = process_record(&args, &record);
+        let processed = result.record.expect("Should not be dropped by length filter");
 
         assert_eq!(processed.seq(), b"ACTGT");
     }
@@ -347,13 +360,10 @@ mod tests {
     #[test]
     fn test_quality_trim_bwa() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "BWA", "--qtrim-threshold", "20", "--min-read-length", "0"]);
-        let context = Context::new(&args);
-         
-        let mut worker = SingleWorker::new(&args, &context);
-
+        
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
-        let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = process_record(&args, &record);
+        let processed = result.record.expect("Should not be dropped by length filter");
 
         assert_eq!(processed.seq(), b"ACTGT");
     }
@@ -366,14 +376,15 @@ mod tests {
             SequenceWithId{id: "bc1".to_string(), sequence: "NNGGGGNN".to_string()}
         ];
 
-        let mut worker = SingleWorker::new(&args, &context);
+        let setup = SingleWorkerSetup::new(&args, &context);
+        let mut worker = SingleWorker::new(&setup);
         
         // Barcode NNGGGGNN matches AAGGGGTT
         let record = SingeRecordDto::with_attrs("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
-        let (processed_opt, tag_opt, _) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = worker.process_record(&record, &setup);
+        let processed = result.record.expect("Should not be dropped by length filter");
         
-        assert_eq!(tag_opt, Some("barcode_bc1".to_string()));
+        assert_eq!(result.output_tag, Some("barcode_bc1".to_string()));
         assert_eq!(processed.id(), "read1");
         assert_eq!(processed.desc(), Some("AA_TT"));
         assert_eq!(processed.seq(), b"ACGT");
@@ -385,11 +396,12 @@ mod tests {
         let mut context = Context::new(&args);
         context.adapters = vec!["AGATNNNN".to_string()];
         
-        let mut worker = SingleWorker::new(&args, &context);
+        let setup = SingleWorkerSetup::new(&args, &context);
+        let mut worker = SingleWorker::new(&setup);
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCCCC", b"IIIIIIIIIIIII");
-        let (processed_opt, _, _) = worker.process(&record);
-        let processed = processed_opt.expect("Should not be dropped by length filter");
+        let result = worker.process_record(&record, &setup);
+        let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.id(), "read1");
         assert_eq!(processed.desc(), Some("CCCC"));
@@ -399,20 +411,17 @@ mod tests {
     #[test]
     fn test_min_read_length() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
-        let context = Context::new(&args);
-         
-        let mut worker = SingleWorker::new(&args, &context);
 
         // Length 10 - should keep
         let record = SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");
-        let (processed_opt, _, stats) = worker.process(&record);
-        assert!(processed_opt.is_some(), "Should keep read of length 10 when min is 10");
-        assert_eq!(stats.total_discarded_length, 0);
+        let result = process_record(&args, &record);
+        assert!(result.record.is_some(), "Should keep read of length 10 when min is 10");
+        assert_eq!(result.stats.total_discarded_length, 0);
 
         // Length 9 - should discard
         let record = SingeRecordDto::with_attrs("read2", None, b"012345678", b"IIIIIIIII");
-        let (processed_opt, _, stats) = worker.process(&record);
-        assert!(processed_opt.is_none(), "Should discard read of length 9 when min is 10");
-        assert_eq!(stats.total_discarded_length, 1);
+        let result = process_record(&args, &record);
+        assert!(result.record.is_none(), "Should discard read of length 9 when min is 10");
+        assert_eq!(result.stats.total_discarded_length, 1);
     }
 }

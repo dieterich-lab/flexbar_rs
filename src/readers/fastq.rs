@@ -1,7 +1,7 @@
 use std::io::BufRead;
 use bio::io::fastq;
 use bio::io::fastq::{FastqRead};
-use crate::types::SingeRecordDto;
+use crate::types::{RecordDto, SingeRecordDto};
 use crate::readers::generic::{GenericReader, GenericReaderBackend};
 
 pub struct FastqBackend<R: BufRead + Send> {
@@ -16,13 +16,13 @@ impl<R: BufRead + Send> GenericReaderBackend<R> for FastqBackend<R> {
         }
     }
 
-    fn read_record(&mut self) -> Result<Option<SingeRecordDto>, Self::Error> {
+    fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
         let mut record = SingeRecordDto::new();
         self.reader.read(&mut record)?;
         if record.is_empty() {
             Ok(None)
         } else {
-            Ok(Some(record))
+            Ok(Some(RecordDto::Single(record)))
         }
     }
 }
@@ -40,7 +40,7 @@ mod tests {
         let data = b"@id1\nACGT\n+\n!!!!\n";
         let cursor = Cursor::new(data);
         let reader = SingleReaderFastq::new(
-            cursor, "test.fq".to_string(), CompressionType::Uncompressed, 0, None
+            cursor, "test.fq".to_string(), CompressionType::Uncompressed, 0, None, true
         );
         
         let records: Vec<_> = reader.collect();
@@ -48,6 +48,6 @@ mod tests {
         let ref r = records[0];
         assert_eq!(r.id(), "id1");
         assert_eq!(r.seq(), b"ACGT");
-        assert_eq!(r.qual(), b"!!!!");
+        assert_eq!(r.qual().unwrap(), b"!!!!");
     }
 }
