@@ -25,6 +25,10 @@ impl RecordInTransformation<SingeRecordDto> {
         &self.record.seq()[self.alignment_results.seq_start..self.alignment_results.seq_end]
     }
     
+    pub fn get_qual(&self) -> &[u8] {
+        &self.record.qual()[self.alignment_results.seq_start..self.alignment_results.seq_end]
+    }
+    
     pub fn get_sequence_as_str(&self) -> String {
         String::from_utf8_lossy(self.get_sequence()).to_string()
     }
@@ -70,7 +74,7 @@ impl Transformable for SingeRecordDto {
 pub trait GenericStep<RecordType>: Send + Sync {
     type Setup;
     fn create_setup(args: &Args, context: &Context) -> Self::Setup;
-    fn new(setup: Self::Setup) -> Self;
+    fn new(setup: &Self::Setup) -> Self;
     fn apply(&mut self, rec: RecordInTransformation<RecordType>, setup: &Self::Setup) -> RecordInTransformation<RecordType>;
 }
 

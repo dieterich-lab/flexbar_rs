@@ -22,7 +22,7 @@ impl GenericStep<SingeRecordDto> for SingleUncalledSequenceFilter {
         }
     }
 
-    fn new(_setup: SingleUncalledSequenceFilterSetup) -> Self {
+    fn new(_setup: &SingleUncalledSequenceFilterSetup) -> Self {
         Self {}
     }
 

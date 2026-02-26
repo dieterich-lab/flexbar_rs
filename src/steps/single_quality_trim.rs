@@ -101,7 +101,7 @@ impl GenericStep<SingeRecordDto> for SingleQualityTrim {
         }
     }
 
-    fn new(_setup: SingleQualityTrimSetup) -> Self {
+    fn new(_setup: &SingleQualityTrimSetup) -> Self {
         Self {}
     }
 

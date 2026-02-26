@@ -56,7 +56,7 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
         }
     }
 
-    fn new(setup: SingleBarcodeSplitterSetup) -> Self {
+    fn new(setup: &SingleBarcodeSplitterSetup) -> Self {
         Self {
             multi_aligner: setup.multi_aligner_setup.create_aligner(),
         }
@@ -94,7 +94,7 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 }
 
 impl<'a> SingleBarcodeSplitter {
-    pub fn new(setup: SingleBarcodeSplitterSetup) -> Self {
+    pub fn new(setup: &SingleBarcodeSplitterSetup) -> Self {
         Self {
             multi_aligner: setup.multi_aligner_setup.create_aligner(),
         }
@@ -176,7 +176,7 @@ mod tests {
             ..Context::empty()
         };
         let setup = SingleBarcodeSplitter::create_setup(&args, &context);
-        let mut splitter = SingleBarcodeSplitter::new(setup.clone());
+        let mut splitter = SingleBarcodeSplitter::new(&setup);
         splitter.apply(
             record.get_record_in_transformation(),
             &setup
@@ -509,7 +509,7 @@ mod tests {
             ..Context::empty()
         };
         let setup = SingleBarcodeSplitter::create_setup(&args, &context);
-        let mut splitter = SingleBarcodeSplitter::new(setup.clone());
+        let mut splitter = SingleBarcodeSplitter::new(&setup);
         
         let rec = SingeRecordDto::with_attrs("read1", None, b"AAAAATTTTTAAATTT", b"IIIIIIIIIIIIIIII");
         let res = splitter.apply(rec.get_record_in_transformation(), &setup);

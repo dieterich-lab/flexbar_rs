@@ -71,7 +71,7 @@ fn process_batch(
             .into_par_iter()
             .map(|rec| {
                 let mut worker = worker_shared.clone();
-                worker.process(&rec)
+                worker.proccess(&rec)
             })
             .collect();
 

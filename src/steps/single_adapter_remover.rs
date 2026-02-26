@@ -99,7 +99,7 @@ impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
         }
     }
 
-    fn new(setup: SingleAdapterRemoverSetup) -> Self {
+    fn new(setup: &SingleAdapterRemoverSetup) -> Self {
         Self {
             multi_aligner: setup.multi_aligner_setup.create_aligner(),
         }

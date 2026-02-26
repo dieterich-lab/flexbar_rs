@@ -22,7 +22,7 @@ impl GenericStep<SingeRecordDto> for SingleFilterLength {
         }
     }
 
-    fn new(_setup: SingleFilterLengthSetup) -> Self {
+    fn new(_setup: &SingleFilterLengthSetup) -> Self {
         Self {}
     }
 
@@ -52,7 +52,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
         let context = Context::empty();
         let setup = SingleFilterLength::create_setup(&args, &context);
-        let mut filter = SingleFilterLength::new(SingleFilterLength::create_setup(&args, &context));
+        let mut filter = SingleFilterLength::new(&SingleFilterLength::create_setup(&args, &context));
         
         let record = SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");
         let rec_in = RecordInTransformation {
@@ -75,7 +75,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
         let context = Context::empty();
         let setup = SingleFilterLength::create_setup(&args, &context);
-        let mut filter = SingleFilterLength::new(SingleFilterLength::create_setup(&args, &context));
+        let mut filter = SingleFilterLength::new(&SingleFilterLength::create_setup(&args, &context));
         
         let record = SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII");
         let rec_in = RecordInTransformation {
@@ -98,7 +98,7 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "0"]);
         let context = Context::empty();
         let setup = SingleFilterLength::create_setup(&args, &context);
-        let mut filter = SingleFilterLength::new(SingleFilterLength::create_setup(&args, &context));
+        let mut filter = SingleFilterLength::new(&SingleFilterLength::create_setup(&args, &context));
         
         let record = SingeRecordDto::with_attrs("read1", None, b"A", b"I");
         let rec_in = RecordInTransformation {
