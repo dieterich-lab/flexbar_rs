@@ -303,7 +303,7 @@ mod tests {
             min_overlap: Some(3),
             match_score: 1,
             mismatch_score: -1,
-            gap_open: -3,
+            gap_open: -1,
             gap_extend: -1,
         }
     }
@@ -366,7 +366,7 @@ mod tests {
     fn test_aligner_right_overhang_with_error() {
         let references = get_as_references(b"TTTTTTT");
         let result = run_alignment(
-            TrimEnd::Right, get_overlap5_config(), None,
+            TrimEnd::Right, get_with_tolerance_config(), None,
             b"AAAAATTATT", references
         );
         let alignment = result.unwrap();
@@ -394,7 +394,7 @@ mod tests {
     fn test_aligner_right_embedded_with_error() {
         let references = get_as_references(b"TTTTT");
         let result = run_alignment(
-            TrimEnd::Right, get_overlap5_config(), None,
+            TrimEnd::Right, get_with_tolerance_config(), None,
             b"AAAAATTATTAAA", references
         );
         let alignment = result.unwrap();
@@ -661,7 +661,7 @@ mod tests {
         let y = b"AAACCACC";
         let references = get_as_references(y);
         let result = run_alignment(
-            TrimEnd::Any, get_default_config(), None,
+            TrimEnd::Any, get_with_tolerance_config(), None,
             x, references
         );
         let alignment = result.unwrap();
@@ -678,14 +678,18 @@ mod tests {
         let y = b"CCCCAACCT";
         let references = get_as_references(y);
         let result = run_alignment(
-            TrimEnd::Any, get_default_config(), None,
+            TrimEnd::Any, get_with_tolerance_config(), None,
             x, references
         );
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
 
-        assert!(formatted.contains("CAATCCTTT"));
-        assert!(formatted.contains("CCCCAA CCT"));
+        assert_eq!(formatted, concat!(
+        "Alignment with score 4:\n",
+        "     CAATCCTTTT\n",
+        "  ,,,||| |||´´ \n",
+        "  CCCCAA CCT   \n"
+        ));
     }
 
     #[test]
@@ -694,14 +698,18 @@ mod tests {
         let y = b"CCCCAATCCT";
         let references = get_as_references(y);
         let result = run_alignment(
-            TrimEnd::Any, get_default_config(), None,
+            TrimEnd::Any, get_with_tolerance_config(), None,
             x, references
         );
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
 
-        assert!(formatted.contains("CAA CCTTTT"));
-        assert!(formatted.contains("CCCCAATCCT"));
+        assert_eq!(formatted, concat!(
+        "Alignment with score 4:\n",
+        "     CAA CCTTTT\n",
+        "  ,,,||| |||´´´\n",
+        "  CCCCAATCCT   \n"
+        ));
     }
 
     #[test]
@@ -736,7 +744,7 @@ mod tests {
         // Check format
         let formatted = alignment.format(x, y);
         assert_eq!(formatted, concat!(
-            "Alignment with score 21:\n",
+            "Alignment with score 25:\n",
             "  CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA \n",
             "  ´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´......||||||||||||||||||||| \n",
             "                                              NNNNNNTAGCTCTGTAGGCACCATCAAT\n"
