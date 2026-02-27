@@ -11,8 +11,8 @@ pub struct SingleFilterLengthSetup {
     pub min_read_length: usize,
 }
 
-impl GenericStep<SingeRecordDto> for SingleFilterLength {
-    type Setup = SingleFilterLengthSetup;
+impl<'s> GenericStep<'s, SingeRecordDto> for SingleFilterLength {
+    type Setup<'a> = SingleFilterLengthSetup;
 
     fn create_setup(args: &Args, _context: &Context) -> SingleFilterLengthSetup {
         SingleFilterLengthSetup {

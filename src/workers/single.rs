@@ -9,9 +9,9 @@ use crate::steps::single_quality_trim::{SingleQualityTrim, SingleQualityTrimSetu
 use crate::steps::single_filter_length::{SingleFilterLength, SingleFilterLengthSetup};
 use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
 
-pub struct SingleWorkerSetup {
-    adapter_remover: Option<SingleAdapterRemoverSetup>,
-    barcode_splitter: Option<SingleBarcodeSplitterSetup>,
+pub struct SingleWorkerSetup<'a> {
+    adapter_remover: Option<SingleAdapterRemoverSetup<'a>>,
+    barcode_splitter: Option<SingleBarcodeSplitterSetup<'a>>,
     quality_trim: Option<SingleQualityTrimSetup>,
     filter_length: SingleFilterLengthSetup,
     uncalled_sequence_filter: Option<SingleUncalledSequenceFilterSetup>,
@@ -26,8 +26,8 @@ pub struct SingleWorker {
     uncalled_sequence_filter: Option<SingleUncalledSequenceFilter>,
 }
 
-impl SingleWorkerSetup {
-    pub fn new(args: &Args, context: &Context) -> Self {
+impl<'a> SingleWorkerSetup<'a> {
+    pub fn new(args: &Args, context: &'a Context) -> Self {
         // Setups
         let uncalled_sequence_filter = match args.max_uncalled {
             0 => None,
@@ -280,7 +280,7 @@ mod tests {
     fn test_removal_tags_adapter() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--removal-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.adapters = vec!["AGATCGGAAGAG".to_string()];
+        context.adapters = vec![SequenceWithId { id: "adapter".to_string(), sequence: "AGATCGGAAGAG".to_string() }];
         
         let setup = SingleWorkerSetup::new(&args, &context);
         let mut worker = SingleWorker::new(&setup);
@@ -300,7 +300,7 @@ mod tests {
             "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5",
             "--removal-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.adapters = vec!["AGATCGGAAGAG".to_string()];
+        context.adapters = vec![SequenceWithId { id: "adapter".to_string(), sequence: "AGATCGGAAGAG".to_string() }];
         context.barcodes = vec![
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         ];
@@ -382,7 +382,7 @@ mod tests {
     fn test_umi_tags_adapter() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATNNNN", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "4", "--umi-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.adapters = vec!["AGATNNNN".to_string()];
+        context.adapters = vec![SequenceWithId { id: "adapter".to_string(), sequence: "AGATNNNN".to_string() }];
         
         let setup = SingleWorkerSetup::new(&args, &context);
         let mut worker = SingleWorker::new(&setup);

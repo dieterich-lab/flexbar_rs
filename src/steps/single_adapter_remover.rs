@@ -7,9 +7,9 @@ use crate::multi_aligner::{MultiAligner, MultiAlignerSetup, AlignerConfig};
 use crate::multi_aligner::result::MultiAlignerResult;
 
 #[derive(Clone)]
-pub struct SingleAdapterRemoverSetup {
-    pub adapters: Vec<String>,
-    pub multi_aligner_setup: MultiAlignerSetup,
+pub struct SingleAdapterRemoverSetup<'s> {
+    pub adapters: &'s Vec<SequenceWithId>,
+    pub multi_aligner_setup: MultiAlignerSetup<'s>,
     pub trim_end: TrimEnd,
     pub removal_tags: bool,
     pub umi_tags: bool,
@@ -25,7 +25,7 @@ impl SingleAdapterRemover {
         let current_seq = &rec.get_sequence();
         let best_alignment = self.multi_aligner.align(&setup.multi_aligner_setup, current_seq);
         if let Some(alignment) = best_alignment {
-            let adapter = &setup.adapters[alignment.reference_index];
+            let adapter = &setup.adapters[alignment.reference_index].sequence;
             self.handle_umi_tags(rec, &alignment, adapter, setup);
             self.trim_record(rec, &alignment, setup);
             rec.stats.total_adapters_removed += 1;
@@ -62,16 +62,10 @@ impl SingleAdapterRemover {
     }
 }
 
-impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
-    type Setup = SingleAdapterRemoverSetup;
+impl<'s> GenericStep<'s, SingeRecordDto> for SingleAdapterRemover {
+    type Setup<'a> = SingleAdapterRemoverSetup<'a>;
     
-    fn create_setup(args: &Args, context: &Context) -> SingleAdapterRemoverSetup {
-        let adapters = context.adapters.clone();
-        let references: Vec<SequenceWithId> = adapters.iter().enumerate()
-            .map(|(index, seq)|
-                SequenceWithId{id: format!("adapter_{}", index), sequence: seq.to_string()}
-            )
-            .collect();
+    fn create_setup<'a>(args: &Args, context: &'a Context) -> SingleAdapterRemoverSetup<'a> {
         let config = AlignerConfig {
             match_score: args.adapter_match,
             mismatch_score: args.adapter_mismatch,
@@ -83,12 +77,12 @@ impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
         let multi_aligner_setup = MultiAlignerSetup::new(
             "Adapter Remover".to_string(),
             args.adapter_trim_end,
-            references,
+            &context.adapters,
             config,
-            args.adapter_kmer
+            args.adapter_kmer,
         );
         SingleAdapterRemoverSetup {
-            adapters,
+            adapters: &context.adapters,
             multi_aligner_setup,
             trim_end: args.adapter_trim_end,
             removal_tags: args.removal_tags,

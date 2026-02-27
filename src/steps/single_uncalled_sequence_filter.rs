@@ -11,8 +11,8 @@ pub struct SingleUncalledSequenceFilterSetup {
     pub max_uncalled: usize,
 }
 
-impl GenericStep<SingeRecordDto> for SingleUncalledSequenceFilter {
-    type Setup = SingleUncalledSequenceFilterSetup;
+impl<'s> GenericStep<'s, SingeRecordDto> for SingleUncalledSequenceFilter {
+    type Setup<'a> = SingleUncalledSequenceFilterSetup;
 
     fn create_setup(args: &Args, _context: &Context) -> SingleUncalledSequenceFilterSetup {
         SingleUncalledSequenceFilterSetup {

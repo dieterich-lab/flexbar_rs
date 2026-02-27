@@ -9,15 +9,16 @@ pub struct BandedExtraConfig {
 }
 
 #[derive(Clone)]
-pub struct BandedAlignerData {
-    kmer_hash: Vec<HashMapFx<Vec<u8>, Vec<u32>>>,
+pub struct BandedAlignerData<'s> {
+    references: &'s [SequenceWithId],
+    kmer_hashes: Vec<HashMapFx<&'s [u8], Vec<u32>>>,
 }
 
 pub type BandedBioRustAlignerConfig = BioRustAlignerConfig<BandedExtraConfig>;
 
 pub type BioRustBandedRawAligner = Aligner<BoxedScoreFunction>;
 impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
-    type AuxData = BandedAlignerData;
+    type AuxData<'a> = BandedAlignerData<'a>;
 
     fn create_raw(
         config: &BandedBioRustAlignerConfig,
@@ -29,19 +30,17 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
         )
     }
 
-    fn create_aux_data(
+    fn create_aux_data<'s>(
         config: &BioRustAlignerConfig<BandedExtraConfig>,
-        references: &Vec<SequenceWithId>
-    ) -> Self::AuxData {
+        references: &'s [SequenceWithId]
+    ) -> Self::AuxData<'s> {
+        let mut kmer_hash: Vec<HashMapFx<&'s [u8], Vec<u32>>> = Vec::new();
+        for r in references.iter() {
+            kmer_hash.push(hash_kmers(r.sequence.as_bytes(), config.extra.k));
+        }
         BandedAlignerData {
-            kmer_hash: references.iter()
-                .map( | r| {
-                    hash_kmers(r.sequence.as_bytes(), config.extra.k)
-                    .into_iter()
-                    .map( | (k, v) | (k.to_vec(), v))
-                    .collect()
-                })
-                .collect()
+            kmer_hashes: kmer_hash,
+            references,
         }
     }
 
@@ -49,15 +48,11 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
         &mut self,
         sequence: &[u8],
         reference_index: usize,
-        references: &[SequenceWithId],
         extra_data: &BandedAlignerData,
     ) -> bio::alignment::Alignment {
-        let ref_hash = &extra_data.kmer_hash[reference_index];
-        let temp_hash: HashMapFx<&[u8], Vec<u32>> = ref_hash.iter()
-            .map(|(k, v)| (k.as_slice(), v.clone()))
-            .collect();
-        let reference = references[reference_index].sequence.as_bytes();
-        self.custom_with_prehash(sequence, reference, &temp_hash)
+        let reference = &extra_data.references[reference_index].sequence.as_bytes();
+        let ref_hash = &extra_data.kmer_hashes[reference_index];
+        self.custom_with_prehash(sequence, reference, ref_hash)
     }
 }
 

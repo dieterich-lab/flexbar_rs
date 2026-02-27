@@ -5,8 +5,13 @@ use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioR
 
 pub type BioRustPairwiseRawAligner = Aligner<BoxedScoreFunction>;
 
+#[derive(Clone)]
+pub struct AlignerData<'s> {
+    references: &'s [SequenceWithId],
+}
+
 impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
-    type AuxData = ();
+    type AuxData<'s> = AlignerData<'s>;
 
     fn create_raw(
         config: &BioRustAlignerConfig<()>,
@@ -16,20 +21,19 @@ impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
         Aligner::with_capacity_and_scoring(x_capacity, y_capacity, scoring)
     }
 
-    fn create_aux_data(
-        _config: &BioRustAlignerConfig<()>, _references: &Vec<SequenceWithId>
-    ) -> Self::AuxData {
-        ()
+    fn create_aux_data<'s>(
+        _config: &BioRustAlignerConfig<()>, references: &'s [SequenceWithId]
+    ) -> Self::AuxData<'s> {
+        AlignerData { references }
     }
 
     fn perform_align(
         &mut self,
         sequence: &[u8],
         reference_index: usize,
-        references: &[SequenceWithId],
-        _extra_data: &()
+        extra_data: &AlignerData
     ) -> Alignment {
-        let reference = &references[reference_index].sequence.as_bytes();
+        let reference = &extra_data.references[reference_index].sequence.as_bytes();
         self.custom(sequence, reference)
     }
 }

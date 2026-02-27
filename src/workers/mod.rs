@@ -4,8 +4,8 @@ use crate::workers::single::{SingleWorker, SingleWorkerSetup};
 
 pub mod single;
 
-pub enum WorkerSetup {
-    Single(SingleWorkerSetup)
+pub enum WorkerSetup<'a> {
+    Single(SingleWorkerSetup<'a>)
 }
 
 pub enum Worker {
@@ -16,7 +16,7 @@ pub struct WorkerFactory {
     cache: Option<Worker>,
 }
 
-impl<'s> WorkerFactory {
+impl WorkerFactory {
     pub fn new() -> Self {
         Self { cache: None }
     }

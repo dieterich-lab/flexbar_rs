@@ -27,43 +27,43 @@ pub struct BioRustAlignerConfig<ExtraConfig: Clone> {
 
 pub struct BioRustAligner<Raw: Send, ExtraConfig: Clone> {
     pub config: BioRustAlignerConfig<ExtraConfig>,
-    pub references: Vec<SequenceWithId>,
     pub x_capacity: usize,
     pub y_capacity: usize,
+    pub reference_lengths: Vec<usize>,
     pub raw: Option<Raw>,
 }
 
 pub trait BioRustRawAligner<ExtraConfig: Clone> {
-    type AuxData;
+    type AuxData<'s>;
     fn create_raw(
         config: &BioRustAlignerConfig<ExtraConfig>,
         x_capacity: usize, y_capacity: usize
     ) -> Self;
 
-    fn create_aux_data(
+    fn create_aux_data<'s>(
         config: &BioRustAlignerConfig<ExtraConfig>,
-        references: &Vec<SequenceWithId>
-    ) -> Self::AuxData;
+        references: &'s [SequenceWithId]
+    ) -> Self::AuxData<'s>;
 
-    fn perform_align(
+    fn perform_align<'s>(
         &mut self,
         sequence: &[u8],
         reference_index: usize,
-        references: &[SequenceWithId],
-        aux_data: &Self::AuxData,
+        aux_data: &Self::AuxData<'s>,
     ) -> bio::alignment::Alignment;
 }
 
-impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
+impl<'s, ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
     BioRustAligner<Raw, ExtraConfig>
 {
-    pub fn new(config: &BioRustAlignerConfig<ExtraConfig>, references: Vec<SequenceWithId>) -> Self {
-        let y_capacity = references.iter().map(|r| r.sequence.len()).max().unwrap_or(0);
+    pub fn new(config: &BioRustAlignerConfig<ExtraConfig>, references: &'s [SequenceWithId]) -> Self {
+        let reference_lengths: Vec<usize> = references.iter().map(|r| r.sequence.len()).collect();
+        let y_capacity = *reference_lengths.iter().max().unwrap_or(&0);
         BioRustAligner {
-            references,
             config: config.clone(),
             x_capacity: 0,
             y_capacity,
+            reference_lengths,
             raw: None,
         }
     }
@@ -81,17 +81,16 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         self.raw = Some(Raw::create_raw(&self.config, self.x_capacity, self.y_capacity));
     }
 
-    pub fn align(
+    pub fn align<'a>(
         &mut self,
         sequence: &[u8],
         reference_index: usize,
-        aux_data: &Raw::AuxData
+        aux_data: &'a Raw::AuxData<'a>
     ) -> MultiAlignerResult {
         self.setup_aligner(sequence.len());
         let aligner = self.raw.as_mut().unwrap();
-        let reference = &self.references[reference_index];
         let seq_len = sequence.len();
-        let ref_len = reference.sequence.len();
+        let ref_len = self.reference_lengths[reference_index];
         let mode = self.config.mode;
 
         let offset = if mode == AlignerMode::RightOverlap && seq_len > ref_len {
@@ -107,7 +106,7 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         };
 
         let relevant_seq = &sequence[offset..offset + length];
-        let raw = aligner.perform_align(relevant_seq, reference_index, &self.references, &aux_data);
+        let raw = aligner.perform_align(relevant_seq, reference_index, &aux_data);
         MultiAlignerResult {
             raw: RawAlignment::BioRust(raw),
             offset,

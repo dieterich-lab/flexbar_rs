@@ -75,8 +75,8 @@ impl SingleQualityTrim {
     }
 }
 
-impl GenericStep<SingeRecordDto> for SingleQualityTrim {
-    type Setup = SingleQualityTrimSetup;
+impl<'s> GenericStep<'s, SingeRecordDto> for SingleQualityTrim {
+    type Setup<'a> = SingleQualityTrimSetup;
 
     fn create_setup(args: &Args, context: &Context) -> SingleQualityTrimSetup {
         let format = context.format;

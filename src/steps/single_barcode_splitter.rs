@@ -11,9 +11,9 @@ pub struct SingleBarcodeSplitter {
 }
 
 #[derive(Clone)]
-pub struct SingleBarcodeSplitterSetup {
-    pub barcodes: Vec<SequenceWithId>,
-    pub multi_aligner_setup: MultiAlignerSetup,
+pub struct SingleBarcodeSplitterSetup<'s> {
+    pub barcodes: &'s [SequenceWithId],
+    pub multi_aligner_setup: MultiAlignerSetup<'s>,
     pub trim_end: TrimEnd,
     pub barcode_keep: bool,
     pub barcode_unassigned: bool,
@@ -22,15 +22,14 @@ pub struct SingleBarcodeSplitterSetup {
     pub trace: bool,
 }
 
-impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
-    type Setup = SingleBarcodeSplitterSetup;
+impl<'s> GenericStep<'s, SingeRecordDto> for SingleBarcodeSplitter {
+    type Setup<'a> = SingleBarcodeSplitterSetup<'a>;
 
-    fn create_setup(args: &Args, context: &Context) -> SingleBarcodeSplitterSetup {
-        let barcodes = context.barcodes.clone();
+    fn create_setup<'a>(args: &Args, context: &'a Context) -> SingleBarcodeSplitterSetup<'a> {
         let multi_aligner_setup = MultiAlignerSetup::new(
             "Barcode Splitter".to_string(),
             args.barcode_trim_end,
-            barcodes.clone(),
+            &context.barcodes,
             crate::multi_aligner::AlignerConfig {
                 match_score: args.barcode_match,
                 mismatch_score: args.barcode_mismatch,
@@ -43,7 +42,7 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
         );
 
         SingleBarcodeSplitterSetup {
-            barcodes,
+            barcodes: &context.barcodes,
             multi_aligner_setup,
             trim_end: args.barcode_trim_end,
             barcode_keep: args.barcode_keep,
