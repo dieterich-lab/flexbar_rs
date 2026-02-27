@@ -2,7 +2,7 @@ use std::io::{BufRead, self};
 use std::path::Path;
 use log::{trace};
 use crate::readers::SequenceReader;
-use crate::types::{CompressionType, RecordDto, SingeRecordDto};
+use crate::types::{CompressionType, RecordDto};
 use crate::logging::log_fatal;
 use crate::args::Args;
 use crate::utils::io::get_raw_reader;
@@ -142,6 +142,7 @@ mod tests {
     use std::io;
     use super::*;
     use std::io::BufReader;
+    use crate::types::SingeRecordDto;
 
     struct TestBackend {
         count: usize,

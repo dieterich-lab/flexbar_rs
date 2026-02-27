@@ -54,7 +54,6 @@ pub type AlignerConfig = BioRustAlignerParameters;
 pub struct MultiAlignerSetup {
     references: Vec<SequenceWithId>,
     config: AlignerConfig,
-    kmer_k: usize,
     aligner_setups: Vec<SpecificAlignerSetup>
 }
 
@@ -111,7 +110,7 @@ impl MultiAlignerSetup {
             }
 
         }
-        MultiAlignerSetup { references, config, kmer_k, aligner_setups }
+        MultiAlignerSetup { references, config, aligner_setups }
     }
 
     pub fn create_aligner(&self) -> MultiAligner {
@@ -269,7 +268,7 @@ mod tests {
     use crate::context::SequenceWithId;
     use crate::multi_aligner::bio_rust::generic_aligner::BioRustAlignerParameters;
     use crate::types::TrimEnd;
-    use super::{MultiAlignerSetup};
+    use super::{MultiAlignerSetup, SpecificAlignerSetup};
     use super::result::MultiAlignerResult;
 
     fn run_alignment(
@@ -318,6 +317,13 @@ mod tests {
         let mut config = get_default_config();
         config.error_rate = 0.2;
         config
+    }
+
+    fn is_banded_setup(setup: &MultiAlignerSetup) -> bool {
+        match setup.aligner_setups.get(0) {
+            Some(SpecificAlignerSetup::BioRustBanded(_)) => true,
+            _ => false,
+        }
     }
 
     #[test]
@@ -490,7 +496,8 @@ mod tests {
             get_overlap5_config(),
             Some(0)  // Override k to 0 should force the old aligner
         );
-        assert_eq!(setup.kmer_k, 0);
+
+        assert!(!is_banded_setup(&setup));
     }
 
     #[test]
@@ -505,7 +512,7 @@ mod tests {
             get_default_config(),
             Some(5), // Override k to 5 should use banded aligner even if k=4 was estimated
         );
-        assert_eq!(setup.kmer_k, 5);
+        assert!(is_banded_setup(&setup));
     }
 
     #[test]

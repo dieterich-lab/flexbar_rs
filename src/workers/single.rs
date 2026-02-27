@@ -7,8 +7,7 @@ use crate::steps::single_uncalled_sequence_filter::{SingleUncalledSequenceFilter
 use crate::steps::single_barcode_splitter::{SingleBarcodeSplitter, SingleBarcodeSplitterSetup};
 use crate::steps::single_quality_trim::{SingleQualityTrim, SingleQualityTrimSetup};
 use crate::steps::single_filter_length::{SingleFilterLength, SingleFilterLengthSetup};
-use crate::steps::generic::{AlignmentResults, FinalRecord, GenericStep, RecordInTransformation};
-use crate::statistics::WorkerStatistics;
+use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
 
 pub struct SingleWorkerSetup {
     adapter_remover: Option<SingleAdapterRemoverSetup>,
@@ -119,18 +118,7 @@ impl SingleWorker {
         record: &SingeRecordDto,
         setup: &SingleWorkerSetup
     ) -> FinalRecord<SingeRecordDto> {
-        let mut rec_in = RecordInTransformation {
-            record: record.clone(),
-            alignment_results: AlignmentResults {
-                barcode_tag: None,
-                umi_tags: vec![],
-                removal_tags: vec![],
-                seq_start: 0,
-                seq_end: record.seq().len(),
-                record_dropped: false,
-            },
-            stats: WorkerStatistics::default(),
-        };
+        let mut rec_in = record.get_record_in_transformation();
 
         if let Some(s) = &setup.uncalled_sequence_filter {
             rec_in = self.uncalled_sequence_filter.as_mut().unwrap().apply(rec_in, &s);
