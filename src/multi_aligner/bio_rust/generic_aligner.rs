@@ -135,11 +135,13 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
     }
 }
 
-pub fn get_scoring<ExtraConfig: Clone>(config: &BioRustAlignerConfig<ExtraConfig>) -> Scoring<Box<dyn Fn(u8, u8) -> i32 + Send + Sync>> {
+pub fn get_scoring<ExtraConfig: Clone>(config: &BioRustAlignerConfig<ExtraConfig>) -> Scoring<BoxedScoreFunction> {
     let match_score = config.match_score;
     let mismatch_score = config.mismatch_score;
 
-    let match_fn: Box<dyn Fn(u8, u8) -> i32 + Send + Sync> = Box::new(move |a, b| {
+    let match_scores = (mismatch_score, match_score);
+
+    let match_fn: BoxedScoreFunction = Box::new(move |a, b| {
         if a == b || a == b'N' || b == b'N' {
             match_score
         } else {
@@ -166,7 +168,7 @@ pub fn get_scoring<ExtraConfig: Clone>(config: &BioRustAlignerConfig<ExtraConfig
 
     Scoring {
         match_fn,
-        match_scores: None,
+        match_scores: Some(match_scores),
         gap_open: config.gap_open,
         gap_extend: config.gap_extend,
         xclip_prefix,
