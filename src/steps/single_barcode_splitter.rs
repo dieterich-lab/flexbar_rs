@@ -3,11 +3,12 @@ use crate::types::{SingeRecordDto, TrimEnd};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::{Context, SequenceWithId};
-use crate::multi_aligner::{MultiAligner, MultiAlignerSetup};
+use crate::multi_aligner::{MultiAligner, MultiAlignerSetup, MultiAlignerState};
 use crate::multi_aligner::result::MultiAlignerResult;
 
 pub struct SingleBarcodeSplitter {
     pub barcodes: Vec<SequenceWithId>,
+    pub multi_aligner: MultiAligner,
     pub multi_aligner_setup: MultiAlignerSetup,
     pub trim_end: TrimEnd,
     pub barcode_keep: bool,
@@ -18,7 +19,7 @@ pub struct SingleBarcodeSplitter {
 }
 
 pub struct SingleBarcodeSplitterState {
-    pub multi_aligner: MultiAligner,
+    pub multi_aligner_state: MultiAlignerState,
 }
 
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
@@ -39,9 +40,11 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
             },
             args.barcode_kmer
         );
+        let multi_aligner = multi_aligner_setup.create_aligner();
 
         Self {
             barcodes: context.barcodes.clone(),
+            multi_aligner,
             multi_aligner_setup,
             trim_end: args.barcode_trim_end,
             barcode_keep: args.barcode_keep,
@@ -54,13 +57,13 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 
     fn create_state(&self) -> Self::State {
         Self::State {
-            multi_aligner: self.multi_aligner_setup.create_aligner(),
+            multi_aligner_state: self.multi_aligner_setup.create_state(&self.multi_aligner),
         }
     }
 
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, state: &mut Self::State) -> RecordInTransformation<SingeRecordDto> {
         let sequence = rec.get_sequence();
-        let best_alignment = state.multi_aligner.align(&self.multi_aligner_setup, &sequence);
+        let best_alignment = self.multi_aligner.align(&mut state.multi_aligner_state, &self.multi_aligner_setup, &sequence);
         
         match best_alignment {
             Some(best) => {

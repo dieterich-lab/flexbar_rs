@@ -12,7 +12,7 @@ use crate::multi_aligner::generic::AlignerMode;
 use crate::multi_aligner::result::MultiAlignerResult;
 use log::{debug, info, warn};
 use bio_rust::generic_aligner::BioRustAlignerParameters;
-use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioRustRawAligner};
+use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioRustRawAligner, BioRustAlignerState};
 
 
 fn get_minimum_kmer_k() -> usize {
@@ -27,8 +27,17 @@ pub enum SpecificAligner {
     BioRustBanded(BioRustBandedPairwiseAligner),
 }
 
+pub enum SpecificAlignerState {
+    BioRust(BioRustAlignerState<BioRustPairwiseRawAligner>),
+    BioRustBanded(BioRustAlignerState<BioRustBandedRawAligner>),
+}
+
 pub struct MultiAligner {
     aligners: Vec<SpecificAligner>,
+}
+
+pub struct MultiAlignerState {
+    aligner_states: Vec<SpecificAlignerState>,
 }
 
 #[derive(Clone)]
@@ -134,6 +143,14 @@ impl MultiAlignerSetup {
         .collect();
         MultiAligner { aligners }
     }
+
+    pub fn create_state(&self, aligner: &MultiAligner) -> MultiAlignerState {
+        let aligner_states = aligner.aligners.iter().map(|a| match a {
+            SpecificAligner::BioRust(a) => SpecificAlignerState::BioRust(a.create_state()),
+            SpecificAligner::BioRustBanded(a) => SpecificAlignerState::BioRustBanded(a.create_state()),
+        }).collect();
+        MultiAlignerState { aligner_states }
+    }
 }
 
 fn get_aligner_config<Extra: Clone>(
@@ -151,27 +168,29 @@ fn get_aligner_config<Extra: Clone>(
 
 
 impl MultiAligner {
-    pub fn align(&mut self, setup: &MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
+    pub fn align(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
         if sequence.len() == 0 { return None }  // The aligner seems to go berserk on sequences of size 0
         
-        for aligner in self.aligners.iter_mut() {
-            match aligner {
-                SpecificAligner::BioRust(a) => a.setup_aligner(sequence.len()),
-                SpecificAligner::BioRustBanded(a) => a.setup_aligner(sequence.len()),
+        for (aligner, state) in self.aligners.iter().zip(state.aligner_states.iter_mut()) {
+            match (aligner, state) {
+                (SpecificAligner::BioRust(a), SpecificAlignerState::BioRust(s)) => a.setup_aligner(s, sequence.len()),
+                (SpecificAligner::BioRustBanded(a), SpecificAlignerState::BioRustBanded(s)) => a.setup_aligner(s, sequence.len()),
+                _ => panic!("Unexpected combination of aligner and state"),
             }
         }
 
         let mut best: Option<MultiAlignerResult> = None;
         for index in 0..setup.references.len() {
-            for (some_setup, some_aligner) in 
-                setup.aligner_setups.iter().zip(self.aligners.iter_mut()
-            ) {
-                let result = match (some_aligner, some_setup) {
-                    (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup)) => {
-                        aligner.align(sequence, index, &a_setup.aux_data)
+            for ((some_setup, some_aligner), some_state) in 
+                setup.aligner_setups.iter().zip(self.aligners.iter())
+                .zip(state.aligner_states.iter_mut())
+            {
+                let result = match (some_aligner, some_setup, some_state) {
+                    (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup), SpecificAlignerState::BioRust(s)) => {
+                        aligner.align(s, sequence, index, &a_setup.aux_data)
                     },
-                    (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup)) => {
-                        aligner.align(sequence, index, &a_setup.aux_data)
+                    (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup), SpecificAlignerState::BioRustBanded(s)) => {
+                        aligner.align(s, sequence, index, &a_setup.aux_data)
                     }
                     _ => panic!("Unexpected combination of aligner and setup"),
                 };
@@ -315,8 +334,9 @@ mod tests {
             config,
             k_overwrite,
         );
-        let mut aligner = setup.create_aligner();
-        aligner.align(&setup, seq_x)
+        let aligner = setup.create_aligner();
+        let mut state = setup.create_state(&aligner);
+        aligner.align(&mut state, &setup, seq_x)
     }
 
     fn get_as_references(raw: &[u8]) -> Vec<SequenceWithId> {

@@ -27,9 +27,13 @@ pub struct BioRustAlignerConfig<ExtraConfig: Clone> {
 
 pub struct BioRustAligner<Raw: Send, ExtraConfig: Clone> {
     pub config: BioRustAlignerConfig<ExtraConfig>,
-    pub x_capacity: usize,
     pub y_capacity: usize,
     pub reference_lengths: Vec<usize>,
+    _phantom: std::marker::PhantomData<Raw>,
+}
+
+pub struct BioRustAlignerState<Raw: Send> {
+    pub x_capacity: usize,
     pub raw: Option<Raw>,
 }
 
@@ -61,33 +65,40 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         let y_capacity = *reference_lengths.iter().max().unwrap_or(&0);
         BioRustAligner {
             config: config.clone(),
-            x_capacity: 0,
             y_capacity,
             reference_lengths,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    pub fn create_state(&self) -> BioRustAlignerState<Raw> {
+        BioRustAlignerState {
+            x_capacity: 0,
             raw: None,
         }
     }
 
-    pub fn setup_aligner(&mut self, x_capacity: usize) {
-        if self.raw.is_some() && x_capacity <= self.x_capacity { return; }
+    pub fn setup_aligner(&self, state: &mut BioRustAlignerState<Raw>, x_capacity: usize) {
+        if state.raw.is_some() && x_capacity <= state.x_capacity { return; }
         
-        let new_x_capacity = if self.x_capacity == 0 {
+        let new_x_capacity = if state.x_capacity == 0 {
             x_capacity
         } else {
             x_capacity + x_capacity / 10
         };
 
-        self.x_capacity = new_x_capacity;
-        self.raw = Some(Raw::create_raw(&self.config, self.x_capacity, self.y_capacity));
+        state.x_capacity = new_x_capacity;
+        state.raw = Some(Raw::create_raw(&self.config, state.x_capacity, self.y_capacity));
     }
 
     pub fn align(
-        &mut self,
+        &self,
+        state: &mut BioRustAlignerState<Raw>,
         sequence: &[u8],
         reference_index: usize,
         aux_data: &Raw::AuxData
     ) -> MultiAlignerResult {
-        let aligner = self.raw.as_mut().expect("Aligner not setup. Call setup_aligner first.");
+        let aligner = state.raw.as_mut().expect("Aligner not setup. Call setup_aligner first.");
         let seq_len = sequence.len();
         let ref_len = self.reference_lengths[reference_index];
         let mode = self.config.mode;

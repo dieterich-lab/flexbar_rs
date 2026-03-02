@@ -3,11 +3,12 @@ use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::{Context, SequenceWithId};
-use crate::multi_aligner::{MultiAligner, MultiAlignerSetup, AlignerConfig};
+use crate::multi_aligner::{MultiAligner, MultiAlignerSetup, AlignerConfig, MultiAlignerState};
 use crate::multi_aligner::result::MultiAlignerResult;
 
 pub struct SingleAdapterRemover {
     pub adapters: Vec<SequenceWithId>,
+    pub multi_aligner: MultiAligner,
     pub multi_aligner_setup: MultiAlignerSetup,
     pub trim_end: TrimEnd,
     pub removal_tags: bool,
@@ -16,13 +17,13 @@ pub struct SingleAdapterRemover {
 }
 
 pub struct SingleAdapterRemoverState {
-    pub multi_aligner: MultiAligner,
+    pub multi_aligner_state: MultiAlignerState,
 }
 
 impl SingleAdapterRemover {
     pub fn remove_adapters(&self, state: &mut SingleAdapterRemoverState, rec: &mut RecordInTransformation<SingeRecordDto>) {
         let current_seq = &rec.get_sequence();
-        let best_alignment = state.multi_aligner.align(&self.multi_aligner_setup, current_seq);
+        let best_alignment = self.multi_aligner.align(&mut state.multi_aligner_state, &self.multi_aligner_setup, current_seq);
         if let Some(alignment) = best_alignment {
             let adapter = &self.adapters[alignment.reference_index].sequence;
             self.handle_umi_tags(rec, &alignment, adapter);
@@ -78,8 +79,10 @@ impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
             config,
             args.adapter_kmer,
         );
+        let multi_aligner = multi_aligner_setup.create_aligner();
         Self {
             adapters: context.adapters.clone(),
+            multi_aligner,
             multi_aligner_setup,
             trim_end: args.adapter_trim_end,
             removal_tags: args.removal_tags,
@@ -90,7 +93,7 @@ impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
 
     fn create_state(&self) -> Self::State {
         Self::State {
-            multi_aligner: self.multi_aligner_setup.create_aligner(),
+            multi_aligner_state: self.multi_aligner_setup.create_state(&self.multi_aligner),
         }
     }
 
