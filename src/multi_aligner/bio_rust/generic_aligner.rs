@@ -32,17 +32,25 @@ pub struct BioRustAligner<Raw: Send, ExtraConfig: Clone> {
     _phantom: std::marker::PhantomData<Raw>,
 }
 
-pub struct BioRustAlignerState<Raw: Send> {
+pub struct BioRustAlignerState<Raw: Send, Extra: Send> {
     pub x_capacity: usize,
     pub raw: Option<Raw>,
+    pub extra: Extra,
 }
 
 pub trait BioRustRawAligner<ExtraConfig: Clone> {
     type AuxData;
+    type StateExtra: Send;
+
     fn create_raw(
         config: &BioRustAlignerConfig<ExtraConfig>,
         x_capacity: usize, y_capacity: usize
     ) -> Self;
+
+    fn create_state_extra(
+        config: &BioRustAlignerConfig<ExtraConfig>,
+        references: &[SequenceWithId],
+    ) -> Self::StateExtra;
 
     fn create_aux_data(
         config: &BioRustAlignerConfig<ExtraConfig>,
@@ -54,6 +62,7 @@ pub trait BioRustRawAligner<ExtraConfig: Clone> {
         sequence: &[u8],
         reference_index: usize,
         aux_data: &Self::AuxData,
+        state_extra: &mut Self::StateExtra,
     ) -> bio::alignment::Alignment;
 }
 
@@ -71,14 +80,15 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         }
     }
 
-    pub fn create_state(&self) -> BioRustAlignerState<Raw> {
+    pub fn create_state(&self, references: &[SequenceWithId]) -> BioRustAlignerState<Raw, Raw::StateExtra> {
         BioRustAlignerState {
             x_capacity: 0,
             raw: None,
+            extra: Raw::create_state_extra(&self.config, references),
         }
     }
 
-    pub fn setup_aligner(&self, state: &mut BioRustAlignerState<Raw>, x_capacity: usize) {
+    pub fn setup_aligner(&self, state: &mut BioRustAlignerState<Raw, Raw::StateExtra>, x_capacity: usize) {
         if state.raw.is_some() && x_capacity <= state.x_capacity { return; }
         
         let new_x_capacity = if state.x_capacity == 0 {
@@ -93,7 +103,7 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
 
     pub fn align(
         &self,
-        state: &mut BioRustAlignerState<Raw>,
+        state: &mut BioRustAlignerState<Raw, Raw::StateExtra>,
         sequence: &[u8],
         reference_index: usize,
         aux_data: &Raw::AuxData
@@ -116,7 +126,7 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         };
 
         let relevant_seq = &sequence[offset..offset + length];
-        let raw = aligner.perform_align(relevant_seq, reference_index, &aux_data);
+        let raw = aligner.perform_align(relevant_seq, reference_index, &aux_data, &mut state.extra);
         MultiAlignerResult {
             raw: RawAlignment::BioRust(raw),
             offset,

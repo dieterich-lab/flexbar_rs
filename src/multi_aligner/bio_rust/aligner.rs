@@ -12,6 +12,7 @@ pub struct AlignerData {
 
 impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
     type AuxData = AlignerData;
+    type StateExtra = ();
 
     fn create_raw(
         config: &BioRustAlignerConfig<()>,
@@ -19,6 +20,13 @@ impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
     ) -> Self {
         let scoring = get_scoring(config);
         Aligner::with_capacity_and_scoring(x_capacity, y_capacity, scoring)
+    }
+
+    fn create_state_extra(
+        _config: &BioRustAlignerConfig<()>,
+        _references: &[SequenceWithId],
+    ) -> Self::StateExtra {
+        ()
     }
 
     fn create_aux_data(
@@ -31,7 +39,8 @@ impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
         &mut self,
         sequence: &[u8],
         reference_index: usize,
-        extra_data: &AlignerData
+        extra_data: &AlignerData,
+        _state_extra: &mut Self::StateExtra,
     ) -> Alignment {
         let reference = &extra_data.references[reference_index].sequence.as_bytes();
         self.custom(sequence, reference)

@@ -7,7 +7,7 @@ use std::cmp::min;
 use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::aligner::{AlignerData, BioRustPairwiseAligner, BioRustPairwiseRawAligner};
-use crate::multi_aligner::bio_rust::aligner_banded::{BandedAlignerData, BandedExtraConfig, BioRustBandedPairwiseAligner, BioRustBandedRawAligner};
+use crate::multi_aligner::bio_rust::aligner_banded::{BandedAlignerData, BandedExtraConfig, BioRustBandedPairwiseAligner, BioRustBandedRawAligner, BandedStateExtra};
 use crate::multi_aligner::generic::AlignerMode;
 use crate::multi_aligner::result::MultiAlignerResult;
 use log::{debug, info, warn};
@@ -28,8 +28,8 @@ pub enum SpecificAligner {
 }
 
 pub enum SpecificAlignerState {
-    BioRust(BioRustAlignerState<BioRustPairwiseRawAligner>),
-    BioRustBanded(BioRustAlignerState<BioRustBandedRawAligner>),
+    BioRust(BioRustAlignerState<BioRustPairwiseRawAligner, ()>),
+    BioRustBanded(BioRustAlignerState<BioRustBandedRawAligner, BandedStateExtra>),
 }
 
 pub struct MultiAligner {
@@ -146,8 +146,8 @@ impl MultiAlignerSetup {
 
     pub fn create_state(&self, aligner: &MultiAligner) -> MultiAlignerState {
         let aligner_states = aligner.aligners.iter().map(|a| match a {
-            SpecificAligner::BioRust(a) => SpecificAlignerState::BioRust(a.create_state()),
-            SpecificAligner::BioRustBanded(a) => SpecificAlignerState::BioRustBanded(a.create_state()),
+            SpecificAligner::BioRust(a) => SpecificAlignerState::BioRust(a.create_state(&self.references)),
+            SpecificAligner::BioRustBanded(a) => SpecificAlignerState::BioRustBanded(a.create_state(&self.references)),
         }).collect();
         MultiAlignerState { aligner_states }
     }
