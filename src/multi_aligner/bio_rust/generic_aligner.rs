@@ -68,7 +68,7 @@ impl<'s, ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         }
     }
 
-    fn setup_aligner(&mut self, x_capacity: usize) {
+    pub fn setup_aligner(&mut self, x_capacity: usize) {
         if self.raw.is_some() && x_capacity <= self.x_capacity { return; }
         
         let new_x_capacity = if self.x_capacity == 0 {
@@ -87,8 +87,7 @@ impl<'s, ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         reference_index: usize,
         aux_data: &'a Raw::AuxData<'a>
     ) -> MultiAlignerResult {
-        self.setup_aligner(sequence.len());
-        let aligner = self.raw.as_mut().unwrap();
+        let aligner = self.raw.as_mut().expect("Aligner not setup. Call setup_aligner first.");
         let seq_len = sequence.len();
         let ref_len = self.reference_lengths[reference_index];
         let mode = self.config.mode;

@@ -153,6 +153,14 @@ fn get_aligner_config<Extra: Clone>(
 impl MultiAligner {
     pub fn align(&mut self, setup: &MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
         if sequence.len() == 0 { return None }  // The aligner seems to go berserk on sequences of size 0
+        
+        for aligner in self.aligners.iter_mut() {
+            match aligner {
+                SpecificAligner::BioRust(a) => a.setup_aligner(sequence.len()),
+                SpecificAligner::BioRustBanded(a) => a.setup_aligner(sequence.len()),
+            }
+        }
+
         let mut best: Option<MultiAlignerResult> = None;
         for index in 0..setup.references.len() {
             for (some_setup, some_aligner) in 
@@ -179,7 +187,11 @@ impl MultiAligner {
                 };
                 if old_score >= result.score() { continue; }
                 best = Some(result);
-                break;
+            }
+            if let Some(ref b) = best {
+                if b.score() >= setup.config.match_score as i32 * (setup.references[index].sequence.len() as i32) {
+                    break;
+                }
             }
         }
         best

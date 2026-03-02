@@ -164,14 +164,15 @@ fn finalize(rec: RecordInTransformation<SingeRecordDto>) -> FinalRecord<SingeRec
         desc_parts.push(tag);
     }
 
-    let new_desc: Option<&str> = match desc_parts.is_empty() {
-        true => None,
-        false => Some(&desc_parts.join("_")),
+    let new_desc: Option<String> = if desc_parts.is_empty() {
+        None
+    } else {
+        Some(desc_parts.join("_"))
     };
 
     let final_record = SingeRecordDto::with_attrs(
         rec.record.id(),
-        new_desc,
+        new_desc.as_deref(),
         rec.get_sequence(),
         rec.get_qual(),
     );
