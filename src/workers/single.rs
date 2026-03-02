@@ -2,50 +2,49 @@ use log::trace;
 use crate::context::Context;
 use crate::args::Args;
 use crate::types::{SingeRecordDto, QualTrimType};
-use crate::steps::single_adapter_remover::{SingleAdapterRemover, SingleAdapterRemoverSetup};
-use crate::steps::single_uncalled_sequence_filter::{SingleUncalledSequenceFilter, SingleUncalledSequenceFilterSetup};
-use crate::steps::single_barcode_splitter::{SingleBarcodeSplitter, SingleBarcodeSplitterSetup};
-use crate::steps::single_quality_trim::{SingleQualityTrim, SingleQualityTrimSetup};
-use crate::steps::single_filter_length::{SingleFilterLength, SingleFilterLengthSetup};
+use crate::steps::single_adapter_remover::{SingleAdapterRemover, SingleAdapterRemoverState};
+use crate::steps::single_uncalled_sequence_filter::{SingleUncalledSequenceFilter, SingleUncalledSequenceFilterState};
+use crate::steps::single_barcode_splitter::{SingleBarcodeSplitter, SingleBarcodeSplitterState};
+use crate::steps::single_quality_trim::{SingleQualityTrim, SingleQualityTrimState};
+use crate::steps::single_filter_length::{SingleFilterLength, SingleFilterLengthState};
 use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
 
-pub struct SingleWorkerSetup<'a> {
-    adapter_remover: Option<SingleAdapterRemoverSetup<'a>>,
-    barcode_splitter: Option<SingleBarcodeSplitterSetup<'a>>,
-    quality_trim: Option<SingleQualityTrimSetup>,
-    filter_length: SingleFilterLengthSetup,
-    uncalled_sequence_filter: Option<SingleUncalledSequenceFilterSetup>,
-    qtrim_post_removal: bool,
-}
-
 pub struct SingleWorker {
-    adapter_remover: Option<SingleAdapterRemover>,
-    barcode_splitter: Option<SingleBarcodeSplitter>,
-    quality_trim: Option<SingleQualityTrim>,
-    filter_length: SingleFilterLength,
-    uncalled_sequence_filter: Option<SingleUncalledSequenceFilter>,
+    pub adapter_remover: Option<SingleAdapterRemover>,
+    pub barcode_splitter: Option<SingleBarcodeSplitter>,
+    pub quality_trim: Option<SingleQualityTrim>,
+    pub filter_length: SingleFilterLength,
+    pub uncalled_sequence_filter: Option<SingleUncalledSequenceFilter>,
+    pub qtrim_post_removal: bool,
 }
 
-impl<'a> SingleWorkerSetup<'a> {
-    pub fn new(args: &Args, context: &'a Context) -> Self {
-        // Setups
+pub struct SingleWorkerState {
+    pub adapter_remover: Option<SingleAdapterRemoverState>,
+    pub barcode_splitter: Option<SingleBarcodeSplitterState>,
+    pub quality_trim: Option<SingleQualityTrimState>,
+    pub filter_length: SingleFilterLengthState,
+    pub uncalled_sequence_filter: Option<SingleUncalledSequenceFilterState>,
+}
+
+impl SingleWorker {
+    pub fn new(args: &Args, context: &Context) -> Self {
         let uncalled_sequence_filter = match args.max_uncalled {
             0 => None,
-            _ =>Some(SingleUncalledSequenceFilter::create_setup(args, context))
+            _ => Some(SingleUncalledSequenceFilter::new(args, context))
         };
         let quality_trim = match args.qtrim {
             QualTrimType::Off => None,
-            _ => Some(SingleQualityTrim::create_setup(args,context))
+            _ => Some(SingleQualityTrim::new(args, context))
         };
         let barcode_splitter = match context.barcodes.is_empty() {
             true => None,
-            _ => Some(SingleBarcodeSplitter::create_setup(args, context))
+            _ => Some(SingleBarcodeSplitter::new(args, context))
         };
         let adapter_remover = match context.adapters.is_empty() {
             true => None,
-            _ => Some(SingleAdapterRemover::create_setup(args, context))
+            _ => Some(SingleAdapterRemover::new(args, context))
         };
-        let filter_length = SingleFilterLength::create_setup(args, context);
+        let filter_length = SingleFilterLength::new(args, context);
         
         let qtrim_post_removal = args.qtrim_post_removal;
         if args.trace {
@@ -87,55 +86,40 @@ impl<'a> SingleWorkerSetup<'a> {
             qtrim_post_removal,
         }
     }
-}
 
-impl SingleWorker {
-    pub fn new(setup: &SingleWorkerSetup) -> Self {
-        Self {
-            adapter_remover: match &setup.adapter_remover {
-                Some(s) => Some(SingleAdapterRemover::new(s)),
-                None => None,
-            },
-            barcode_splitter: match &setup.barcode_splitter {
-                Some(s) => Some(SingleBarcodeSplitter::new(s)),
-                None => None,
-            },
-
-            quality_trim: match &setup.quality_trim {
-                Some(s) => Some(SingleQualityTrim::new(s)),
-                None => None,
-            },
-            uncalled_sequence_filter: match &setup.uncalled_sequence_filter { 
-                Some(s) => Some(SingleUncalledSequenceFilter::new(s)),
-                None => None,
-            },
-            filter_length: SingleFilterLength::new(&setup.filter_length),
+    pub fn create_state(&self) -> SingleWorkerState {
+        SingleWorkerState {
+            adapter_remover: self.adapter_remover.as_ref().map(|s| s.create_state()),
+            barcode_splitter: self.barcode_splitter.as_ref().map(|s| s.create_state()),
+            quality_trim: self.quality_trim.as_ref().map(|s| s.create_state()),
+            filter_length: self.filter_length.create_state(),
+            uncalled_sequence_filter: self.uncalled_sequence_filter.as_ref().map(|s| s.create_state()),
         }
     }
     
     pub fn process_record(
-        &mut self,
+        &self,
         record: &SingeRecordDto,
-        setup: &SingleWorkerSetup
+        state: &mut SingleWorkerState
     ) -> FinalRecord<SingeRecordDto> {
         let mut rec_in = record.get_record_in_transformation();
 
-        if let Some(s) = &setup.uncalled_sequence_filter {
-            rec_in = self.uncalled_sequence_filter.as_mut().unwrap().apply(rec_in, &s);
+        if let Some(step) = &self.uncalled_sequence_filter {
+            rec_in = step.apply(rec_in, state.uncalled_sequence_filter.as_mut().unwrap());
         }
-        if !setup.qtrim_post_removal && let Some(s) = &setup.quality_trim {
-            rec_in = self.quality_trim.as_mut().unwrap().apply(rec_in, &s);
+        if !self.qtrim_post_removal && let Some(step) = &self.quality_trim {
+            rec_in = step.apply(rec_in, state.quality_trim.as_mut().unwrap());
         }
-        if let Some(s) = &setup.barcode_splitter {
-            rec_in = self.barcode_splitter.as_mut().unwrap().apply(rec_in, &s);
+        if let Some(step) = &self.barcode_splitter {
+            rec_in = step.apply(rec_in, state.barcode_splitter.as_mut().unwrap());
         }
-        if let Some(s) = &setup.adapter_remover {
-            rec_in = self.adapter_remover.as_mut().unwrap().apply(rec_in, &s);
+        if let Some(step) = &self.adapter_remover {
+            rec_in = step.apply(rec_in, state.adapter_remover.as_mut().unwrap());
         }
-        if setup.qtrim_post_removal && let Some(s) = &setup.quality_trim {
-            rec_in = self.quality_trim.as_mut().unwrap().apply(rec_in, &s);
+        if self.qtrim_post_removal && let Some(step) = &self.quality_trim {
+            rec_in = step.apply(rec_in, state.quality_trim.as_mut().unwrap());
         }
-        rec_in = self.filter_length.apply(rec_in, &setup.filter_length);
+        rec_in = self.filter_length.apply(rec_in, &mut state.filter_length);
         
         finalize(rec_in)
     }
@@ -195,9 +179,9 @@ mod tests {
     
     fn process_record(args: &Args, record: &SingeRecordDto) -> FinalRecord<SingeRecordDto> {
         let context = Context::new(args);
-        let setup = SingleWorkerSetup::new(args, &context);
-        let mut worker = SingleWorker::new(&setup);
-        worker.process_record(record, &setup)
+        let worker = SingleWorker::new(args, &context);
+        let mut state = worker.create_state();
+        worker.process_record(record, &mut state)
     }
 
     #[test]
@@ -229,12 +213,12 @@ mod tests {
         let mut context = Context::new(&args);
         context.barcodes = vec![SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}];
         
-        let setup = SingleWorkerSetup::new(&args, &context);
-        let mut worker = SingleWorker::new(&setup);
+        let worker = SingleWorker::new(&args, &context);
+        let mut state = worker.create_state();
         
         // Barcode at start
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
-        let result = worker.process_record(&record, &setup);
+        let result = worker.process_record(&record, &mut state);
         let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(result.output_tag, Some("barcode_bc1".to_string()));
@@ -266,11 +250,11 @@ mod tests {
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         ];
         
-        let setup = SingleWorkerSetup::new(&args, &context);
-        let mut worker = SingleWorker::new(&setup);
+        let worker = SingleWorker::new(&args, &context);
+        let mut state = worker.create_state();
         
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
-        let result = worker.process_record(&record, &setup);
+        let result = worker.process_record(&record, &mut state);
         let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.id(), "read1");
@@ -283,11 +267,11 @@ mod tests {
         let mut context = Context::new(&args);
         context.adapters = vec![SequenceWithId { id: "adapter".to_string(), sequence: "AGATCGGAAGAG".to_string() }];
         
-        let setup = SingleWorkerSetup::new(&args, &context);
-        let mut worker = SingleWorker::new(&setup);
+        let worker = SingleWorker::new(&args, &context);
+        let mut state = worker.create_state();
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let result = worker.process_record(&record, &setup);
+        let result = worker.process_record(&record, &mut state);
         let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.id(), "read1");
@@ -306,11 +290,11 @@ mod tests {
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         ];
         
-        let setup = SingleWorkerSetup::new(&args, &context);
-        let mut worker = SingleWorker::new(&setup);
+        let worker = SingleWorker::new(&args, &context);
+        let mut state = worker.create_state();
         
         let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
-        let result = worker.process_record(&record, &setup);
+        let result = worker.process_record(&record, &mut state);
         let processed = result.record.expect("Should not be dropped by length filter");
         
         // barcode removal appends _Flexbar_removal
@@ -365,12 +349,12 @@ mod tests {
             SequenceWithId{id: "bc1".to_string(), sequence: "NNGGGGNN".to_string()}
         ];
 
-        let setup = SingleWorkerSetup::new(&args, &context);
-        let mut worker = SingleWorker::new(&setup);
+        let worker = SingleWorker::new(&args, &context);
+        let mut state = worker.create_state();
         
         // Barcode NNGGGGNN matches AAGGGGTT
         let record = SingeRecordDto::with_attrs("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
-        let result = worker.process_record(&record, &setup);
+        let result = worker.process_record(&record, &mut state);
         let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(result.output_tag, Some("barcode_bc1".to_string()));
@@ -385,11 +369,11 @@ mod tests {
         let mut context = Context::new(&args);
         context.adapters = vec![SequenceWithId { id: "adapter".to_string(), sequence: "AGATNNNN".to_string() }];
         
-        let setup = SingleWorkerSetup::new(&args, &context);
-        let mut worker = SingleWorker::new(&setup);
+        let worker = SingleWorker::new(&args, &context);
+        let mut state = worker.create_state();
         
         let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCCCC", b"IIIIIIIIIIIII");
-        let result = worker.process_record(&record, &setup);
+        let result = worker.process_record(&record, &mut state);
         let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.id(), "read1");

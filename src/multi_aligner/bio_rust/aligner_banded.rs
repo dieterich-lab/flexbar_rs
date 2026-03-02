@@ -9,16 +9,16 @@ pub struct BandedExtraConfig {
 }
 
 #[derive(Clone)]
-pub struct BandedAlignerData<'s> {
-    references: &'s [SequenceWithId],
-    kmer_hashes: Vec<HashMapFx<&'s [u8], Vec<u32>>>,
+pub struct BandedAlignerData {
+    references: Vec<SequenceWithId>,
+    kmer_hashes: Vec<HashMapFx<Vec<u8>, Vec<u32>>>,
 }
 
 pub type BandedBioRustAlignerConfig = BioRustAlignerConfig<BandedExtraConfig>;
 
 pub type BioRustBandedRawAligner = Aligner<BoxedScoreFunction>;
 impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
-    type AuxData<'a> = BandedAlignerData<'a>;
+    type AuxData = BandedAlignerData;
 
     fn create_raw(
         config: &BandedBioRustAlignerConfig,
@@ -30,17 +30,22 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
         )
     }
 
-    fn create_aux_data<'s>(
+    fn create_aux_data(
         config: &BioRustAlignerConfig<BandedExtraConfig>,
-        references: &'s [SequenceWithId]
-    ) -> Self::AuxData<'s> {
-        let mut kmer_hash: Vec<HashMapFx<&'s [u8], Vec<u32>>> = Vec::new();
+        references: &[SequenceWithId]
+    ) -> Self::AuxData {
+        let mut kmer_hash: Vec<HashMapFx<Vec<u8>, Vec<u32>>> = Vec::new();
         for r in references.iter() {
-            kmer_hash.push(hash_kmers(r.sequence.as_bytes(), config.extra.k));
+            let hash = hash_kmers(r.sequence.as_bytes(), config.extra.k);
+            let mut owned_hash = HashMapFx::default();
+            for (k, v) in hash {
+                owned_hash.insert(k.to_vec(), v);
+            }
+            kmer_hash.push(owned_hash);
         }
         BandedAlignerData {
             kmer_hashes: kmer_hash,
-            references,
+            references: references.to_vec(),
         }
     }
 
@@ -52,7 +57,14 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
     ) -> bio::alignment::Alignment {
         let reference = &extra_data.references[reference_index].sequence.as_bytes();
         let ref_hash = &extra_data.kmer_hashes[reference_index];
-        self.custom_with_prehash(sequence, reference, ref_hash)
+        // We need to convert ref_hash back to &[u8] for the aligner if it expects that.
+        // bio-rust's custom_with_prehash expects HashMapFx<&[u8], Vec<u32>>.
+        // This is tricky because we store Vec<u8> keys.
+        let mut temp_hash = HashMapFx::default();
+        for (k, v) in ref_hash {
+            temp_hash.insert(k.as_slice(), v.clone());
+        }
+        self.custom_with_prehash(sequence, reference, &temp_hash)
     }
 }
 

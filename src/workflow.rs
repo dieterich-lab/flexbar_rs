@@ -7,7 +7,6 @@ use crate::readers::{SequenceReader, get_batch_iter};
 use crate::writers::fasta::SingleWriterFasta;
 use crate::writers::fastq::SingleWriterFastq;
 use crate::types::{FileFormat, CompressionType, RecordDto};
-use crate::workers::single::{SingleWorkerSetup};
 use std::path::Path;
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
@@ -15,7 +14,7 @@ use crate::logging::log_fatal;
 use log::{debug};
 use crate::context;
 use crate::steps::generic::FinalRecord;
-use crate::workers::{WorkerFactory, WorkerSetup};
+use crate::workers::{Worker, WorkerState};
 
 pub fn do_it(args: Args) {
     let context = context::Context::new(&args);
@@ -27,10 +26,10 @@ pub fn do_it(args: Args) {
         .unwrap_or_else(|| args.target.clone());
     let mut reader = get_single_reader(reads_path, context.format, &args);
     let compression = get_compression(&reader, &args);
-    let worker_setup = WorkerSetup::Single(SingleWorkerSetup::new(&args, &context));
+    let worker = Worker::new(&args, &context);
     let mut writer = get_single_writer(&args, &output_prefix, compression);
 
-    let worker_stats = process_batch(&mut reader, &worker_setup, &mut writer, args.batch_size, args.count);
+    let worker_stats = process_batch(&mut reader, &worker, &mut writer, args.batch_size, args.count);
 
     let stats = Statistics {
         reader: reader.statistics(),
@@ -42,7 +41,7 @@ pub fn do_it(args: Args) {
 
 fn process_batch(
     reader: &mut Box<dyn SequenceReader + Send>,
-    worker_setup: &WorkerSetup,
+    worker: &Worker,
     writer: &mut Box<dyn Writer>,
     batch_size: usize,
     count: Option<usize>,
@@ -66,7 +65,7 @@ fn process_batch(
         
         let batch_out: Vec<FinalRecord<RecordDto>> = batch_in
             .into_par_iter()
-            .map(|rec| process_record(&rec, worker_setup) )
+            .map(|rec| process_record(&rec, worker) )
             .collect();
 
         for rec in batch_out {
@@ -120,15 +119,17 @@ fn get_single_writer(args: &crate::args::Args, output_prefix: &str, compression:
 }
 
 thread_local! {
-    static WORKER_FACTORY: RefCell<WorkerFactory> = RefCell::new(WorkerFactory::new());
+    static WORKER_STATE: RefCell<Option<WorkerState>> = RefCell::new(None);
 }
 
 fn process_record(
-    record: &RecordDto, worker_setup: &WorkerSetup
+    record: &RecordDto, worker: &Worker
 ) -> FinalRecord<RecordDto> {
-    WORKER_FACTORY.with(|factory| {
-        let mut factory = factory.borrow_mut();
-        let worker = factory.get_or_create(worker_setup);
-        worker.process_record(record, worker_setup)
+    WORKER_STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        if state.is_none() {
+            *state = Some(worker.create_state());
+        }
+        worker.process_record(record, state.as_mut().unwrap())
     })
 }

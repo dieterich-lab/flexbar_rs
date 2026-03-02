@@ -71,12 +71,12 @@ impl Transformable for SingeRecordDto {
     }   
 }
 
-pub trait GenericStep<'s, RecordType>: Send + Sync {
-    type Setup<'a>;
-    fn create_setup<'a>(args: &Args, context: &'a Context) -> Self::Setup<'a>;
-    fn new(setup: &Self::Setup<'s>) -> Self;
-    fn apply<'a>(
-        &mut self, rec: RecordInTransformation<RecordType>, setup: &Self::Setup<'a>
+pub trait GenericStep<RecordType>: Send + Sync {
+    type State: Send;
+    fn new(args: &Args, context: &Context) -> Self;
+    fn create_state(&self) -> Self::State;
+    fn apply(
+        &self, rec: RecordInTransformation<RecordType>, state: &mut Self::State
     ) -> RecordInTransformation<RecordType>;
 }
 

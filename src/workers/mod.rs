@@ -1,49 +1,36 @@
 use crate::steps::generic::FinalRecord;
 use crate::types::{RecordDto};
-use crate::workers::single::{SingleWorker, SingleWorkerSetup};
+use crate::workers::single::{SingleWorker, SingleWorkerState};
+use crate::args::Args;
+use crate::context::Context;
 
 pub mod single;
-
-pub enum WorkerSetup<'a> {
-    Single(SingleWorkerSetup<'a>)
-}
 
 pub enum Worker {
     Single(SingleWorker)
 }
 
-pub struct WorkerFactory {
-    cache: Option<Worker>,
-}
-
-impl WorkerFactory {
-    pub fn new() -> Self {
-        Self { cache: None }
-    }
-    
-    pub fn get_or_create(&mut self, setup: &WorkerSetup) -> &mut Worker {
-        match &self.cache {
-            Some(_) => (),
-            None => {
-                self.cache = Some(
-                    match setup {
-                        WorkerSetup::Single(setup)
-                            => Worker::Single(SingleWorker::new(setup)),
-                    }
-                )
-            }
-        }
-        self.cache.as_mut().unwrap()
-    }
+pub enum WorkerState {
+    Single(SingleWorkerState)
 }
 
 impl Worker {
-    pub fn process_record(&mut self, record: &RecordDto, setup: &WorkerSetup) -> FinalRecord<RecordDto> {
-        match (self, record, setup) {
+    pub fn new(args: &Args, context: &Context) -> Self {
+        Worker::Single(SingleWorker::new(args, context))
+    }
+
+    pub fn create_state(&self) -> WorkerState {
+        match self {
+            Worker::Single(w) => WorkerState::Single(w.create_state()),
+        }
+    }
+
+    pub fn process_record(&self, record: &RecordDto, state: &mut WorkerState) -> FinalRecord<RecordDto> {
+        match (self, record, state) {
             (
                 Worker::Single(w), 
                 RecordDto::Single(r), 
-                WorkerSetup::Single(s)
+                WorkerState::Single(s)
             ) => {
                 let raw     = w.process_record(r, s);
                 FinalRecord {

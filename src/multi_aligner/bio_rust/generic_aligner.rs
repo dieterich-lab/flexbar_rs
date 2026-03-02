@@ -34,29 +34,29 @@ pub struct BioRustAligner<Raw: Send, ExtraConfig: Clone> {
 }
 
 pub trait BioRustRawAligner<ExtraConfig: Clone> {
-    type AuxData<'s>;
+    type AuxData;
     fn create_raw(
         config: &BioRustAlignerConfig<ExtraConfig>,
         x_capacity: usize, y_capacity: usize
     ) -> Self;
 
-    fn create_aux_data<'s>(
+    fn create_aux_data(
         config: &BioRustAlignerConfig<ExtraConfig>,
-        references: &'s [SequenceWithId]
-    ) -> Self::AuxData<'s>;
+        references: &[SequenceWithId]
+    ) -> Self::AuxData;
 
-    fn perform_align<'s>(
+    fn perform_align(
         &mut self,
         sequence: &[u8],
         reference_index: usize,
-        aux_data: &Self::AuxData<'s>,
+        aux_data: &Self::AuxData,
     ) -> bio::alignment::Alignment;
 }
 
-impl<'s, ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
+impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
     BioRustAligner<Raw, ExtraConfig>
 {
-    pub fn new(config: &BioRustAlignerConfig<ExtraConfig>, references: &'s [SequenceWithId]) -> Self {
+    pub fn new(config: &BioRustAlignerConfig<ExtraConfig>, references: &[SequenceWithId]) -> Self {
         let reference_lengths: Vec<usize> = references.iter().map(|r| r.sequence.len()).collect();
         let y_capacity = *reference_lengths.iter().max().unwrap_or(&0);
         BioRustAligner {
@@ -81,11 +81,11 @@ impl<'s, ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         self.raw = Some(Raw::create_raw(&self.config, self.x_capacity, self.y_capacity));
     }
 
-    pub fn align<'a>(
+    pub fn align(
         &mut self,
         sequence: &[u8],
         reference_index: usize,
-        aux_data: &'a Raw::AuxData<'a>
+        aux_data: &Raw::AuxData
     ) -> MultiAlignerResult {
         let aligner = self.raw.as_mut().expect("Aligner not setup. Call setup_aligner first.");
         let seq_len = sequence.len();

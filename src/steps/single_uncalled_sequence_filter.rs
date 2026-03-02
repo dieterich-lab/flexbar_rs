@@ -4,32 +4,31 @@ use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 
-pub struct SingleUncalledSequenceFilter {}
-
-#[derive(Clone)]
-pub struct SingleUncalledSequenceFilterSetup {
+pub struct SingleUncalledSequenceFilter {
     pub max_uncalled: usize,
 }
 
-impl<'s> GenericStep<'s, SingeRecordDto> for SingleUncalledSequenceFilter {
-    type Setup<'a> = SingleUncalledSequenceFilterSetup;
+pub struct SingleUncalledSequenceFilterState {}
 
-    fn create_setup(args: &Args, _context: &Context) -> SingleUncalledSequenceFilterSetup {
-        SingleUncalledSequenceFilterSetup {
+impl GenericStep<SingeRecordDto> for SingleUncalledSequenceFilter {
+    type State = SingleUncalledSequenceFilterState;
+
+    fn new(args: &Args, _context: &Context) -> Self {
+        Self {
             max_uncalled: args.max_uncalled,
         }
     }
 
-    fn new(_setup: &SingleUncalledSequenceFilterSetup) -> Self {
-        Self {}
+    fn create_state(&self) -> Self::State {
+        SingleUncalledSequenceFilterState {}
     }
 
-    fn apply(&mut self, mut rec: RecordInTransformation<SingeRecordDto>, setup: &SingleUncalledSequenceFilterSetup) -> RecordInTransformation<SingeRecordDto> {
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto> {
         if !rec.alignment_results.record_dropped {
             trace!("Uncalled filter processing record: {}", rec.record.id());
             let seq = &rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
             let uncalled_count = seq.iter().filter(|&&b| b == b'N' || b == b'n').count();
-            if uncalled_count > setup.max_uncalled {
+            if uncalled_count > self.max_uncalled {
                 trace!("Uncalled filter dropped record: {}", rec.record.id());
                 rec.alignment_results.record_dropped = true;
                 rec.stats.total_discarded_uncalled += 1;

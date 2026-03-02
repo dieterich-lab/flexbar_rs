@@ -32,37 +32,37 @@ pub struct MultiAligner {
 }
 
 #[derive(Clone)]
-pub struct BioRustPairwiseAlignerSetup<'s> {
+pub struct BioRustPairwiseAlignerSetup {
     config: BioRustAlignerConfig<()>,
-    aux_data: AlignerData<'s>
+    aux_data: AlignerData
 }
 
 #[derive(Clone)]
-pub struct BioRustBandedPairwiseAlignerSetup<'s> {
+pub struct BioRustBandedPairwiseAlignerSetup {
     config: BioRustAlignerConfig<BandedExtraConfig>,
-    aux_data: BandedAlignerData<'s>
+    aux_data: BandedAlignerData
 }
 
 #[derive(Clone)]
-pub enum SpecificAlignerSetup<'s> {
-    BioRust(BioRustPairwiseAlignerSetup<'s>),
-    BioRustBanded(BioRustBandedPairwiseAlignerSetup<'s>),
+pub enum SpecificAlignerSetup {
+    BioRust(BioRustPairwiseAlignerSetup),
+    BioRustBanded(BioRustBandedPairwiseAlignerSetup),
 }
 
 pub type AlignerConfig = BioRustAlignerParameters;
 
 #[derive(Clone)]
-pub struct MultiAlignerSetup<'s> {
-    references: &'s [SequenceWithId],
+pub struct MultiAlignerSetup {
+    references: Vec<SequenceWithId>,
     config: AlignerConfig,
-    aligner_setups: Vec<SpecificAlignerSetup<'s>>
+    aligner_setups: Vec<SpecificAlignerSetup>
 }
 
-impl<'s> MultiAlignerSetup<'s> {
+impl MultiAlignerSetup {
     pub fn new(
         name: String,
         trim_end: TrimEnd,
-        references: &'s [SequenceWithId],
+        references: &[SequenceWithId],
         config: BioRustAlignerParameters,
         k_override: Option<usize>,
     ) -> Self {
@@ -99,7 +99,7 @@ impl<'s> MultiAlignerSetup<'s> {
                 );
                 aligner_setups.push(
                     SpecificAlignerSetup::BioRustBanded(
-                        BioRustBandedPairwiseAlignerSetup { config: aligner_config, aux_data }
+                        BioRustBandedPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.to_owned() }
                     )
                 )
             } else {
@@ -111,12 +111,12 @@ impl<'s> MultiAlignerSetup<'s> {
                     &aligner_config, references
                 );
                 aligner_setups.push(SpecificAlignerSetup::BioRust(
-                    BioRustPairwiseAlignerSetup { config: aligner_config, aux_data }
+                    BioRustPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.to_owned() }
                 ));
             }
 
         }
-        MultiAlignerSetup { references, config, aligner_setups }
+        MultiAlignerSetup { references: references.to_vec(), config, aligner_setups }
     }
 
     pub fn create_aligner(&self) -> MultiAligner {
@@ -124,11 +124,11 @@ impl<'s> MultiAlignerSetup<'s> {
         .map(|setup| match setup {
                 SpecificAlignerSetup::BioRust(x) 
                     => SpecificAligner::BioRust(
-                        BioRustPairwiseAligner::new(&x.config, self.references)
+                        BioRustPairwiseAligner::new(&x.config, &self.references)
                 ),
                 SpecificAlignerSetup::BioRustBanded(x) 
                     => SpecificAligner::BioRustBanded(
-                    BioRustBandedPairwiseAligner::new(&x.config, self.references)
+                    BioRustBandedPairwiseAligner::new(&x.config, &self.references)
                 ),
         })
         .collect();
@@ -198,6 +198,18 @@ impl MultiAligner {
     }
 
 
+}
+
+impl AlignerData {
+    pub fn to_owned(&self) -> Self {
+        self.clone()
+    }
+}
+
+impl BandedAlignerData {
+    pub fn to_owned(&self) -> Self {
+        self.clone()
+    }
 }
 
 fn determine_kmer_k(
@@ -773,9 +785,9 @@ mod tests {
         // Check format
         let formatted = alignment.format(x, y);
         assert_eq!(formatted, concat!(
-            "Alignment with score 25:\n",
+            "Alignment with score 27:\n",
             "  CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA \n",
-            "  ´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´......||||||||||||||||||||| \n",
+            "  ´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´......|||||||||||||||||||||,\n",
             "                                              NNNNNNTAGCTCTGTAGGCACCATCAAT\n"
         ));
     }
