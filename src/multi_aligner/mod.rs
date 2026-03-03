@@ -111,7 +111,7 @@ impl MultiAlignerSetup {
                 );
                 aligner_setups.push(
                     SpecificAlignerSetup::BioRustBanded(
-                        BioRustBandedPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.to_owned() }
+                        BioRustBandedPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.clone() }
                     )
                 )
             } else {
@@ -123,7 +123,7 @@ impl MultiAlignerSetup {
                     &aligner_config, references
                 );
                 aligner_setups.push(SpecificAlignerSetup::BioRust(
-                    BioRustPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.to_owned() }
+                    BioRustPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.clone() }
                 ));
             }
 
@@ -269,24 +269,12 @@ impl MultiAligner {
                 best = Some(result);
             }
             if let Some(ref b) = best {
-                if b.score() >= setup.config.match_score as i32 * (setup.references[index].sequence.len() as i32) {
+                if b.score() >= setup.config.match_score * (setup.references[index].sequence.len() as i32) {
                     break;
                 }
             }
         }
         best
-    }
-}
-
-impl AlignerData {
-    pub fn to_owned(&self) -> Self {
-        self.clone()
-    }
-}
-
-impl BandedAlignerData {
-    pub fn to_owned(&self) -> Self {
-        self.clone()
     }
 }
 
