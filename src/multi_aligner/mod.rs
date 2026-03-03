@@ -96,7 +96,10 @@ impl MultiAlignerSetup {
 
         let mut aligner_setups:Vec<SpecificAlignerSetup> = Vec::new();
         for mode in required_modes {
-            if kmer_k > 0 {
+            // Banded aligners seem to perform poorly on short sequences as we use them
+            // to find semi-global alignments with the prefix or suffix of the
+            // sequence. So we use them only for local alignments.
+            if kmer_k > 0 && mode == AlignerMode::Local {
                 debug!(
                     "{}: Using banded aligner for mode {:?}, k={}.", name, mode, kmer_k
                 );
@@ -168,6 +171,60 @@ fn get_aligner_config<Extra: Clone>(
 
 
 impl MultiAligner {
+    fn align_local(
+        aligner: &SpecificAligner,
+        state: &mut SpecificAlignerState,
+        setup: &SpecificAlignerSetup,
+        sequence: &[u8],
+        index: usize,
+    ) -> MultiAlignerResult {
+        match (aligner, setup, state) {
+            (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup), SpecificAlignerState::BioRust(s)) => {
+                aligner.align(s, sequence, index, &a_setup.aux_data)
+            },
+            (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup), SpecificAlignerState::BioRustBanded(s)) => {
+                aligner.align(s, sequence, index, &a_setup.aux_data)
+            }
+            _ => panic!("Unexpected combination of aligner and setup"),
+        }
+    }
+
+    fn align_left_overlap(
+        aligner: &SpecificAligner,
+        state: &mut SpecificAlignerState,
+        setup: &SpecificAlignerSetup,
+        sequence: &[u8],
+        index: usize,
+    ) -> MultiAlignerResult {
+        match (aligner, setup, state) {
+            (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup), SpecificAlignerState::BioRust(s)) => {
+                aligner.align(s, sequence, index, &a_setup.aux_data)
+            },
+            (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup), SpecificAlignerState::BioRustBanded(s)) => {
+                aligner.align(s, sequence, index, &a_setup.aux_data)
+            }
+            _ => panic!("Unexpected combination of aligner and setup"),
+        }
+    }
+
+    fn align_right_overlap(
+        aligner: &SpecificAligner,
+        state: &mut SpecificAlignerState,
+        setup: &SpecificAlignerSetup,
+        sequence: &[u8],
+        index: usize,
+    ) -> MultiAlignerResult {
+        match (aligner, setup, state) {
+            (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup), SpecificAlignerState::BioRust(s)) => {
+                aligner.align(s, sequence, index, &a_setup.aux_data)
+            },
+            (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup), SpecificAlignerState::BioRustBanded(s)) => {
+                aligner.align(s, sequence, index, &a_setup.aux_data)
+            }
+            _ => panic!("Unexpected combination of aligner and setup"),
+        }
+    }
+
     pub fn align(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
         if sequence.len() == 0 { return None }  // The aligner seems to go berserk on sequences of size 0
         
@@ -185,14 +242,18 @@ impl MultiAligner {
                 setup.aligner_setups.iter().zip(self.aligners.iter())
                 .zip(state.aligner_states.iter_mut())
             {
-                let result = match (some_aligner, some_setup, some_state) {
-                    (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup), SpecificAlignerState::BioRust(s)) => {
-                        aligner.align(s, sequence, index, &a_setup.aux_data)
-                    },
-                    (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup), SpecificAlignerState::BioRustBanded(s)) => {
-                        aligner.align(s, sequence, index, &a_setup.aux_data)
-                    }
-                    _ => panic!("Unexpected combination of aligner and setup"),
+                let mode = match some_setup {
+                    SpecificAlignerSetup::BioRust(s) => s.config.mode,
+                    SpecificAlignerSetup::BioRustBanded(s) => s.config.mode,
+                };
+                // The split by mode is technically completely unnecessary. Its only purpose
+                // is to allow more meaningful profiling runs. Hopefully, the optimizer will
+                // inline the three functions called below and remove the match because all
+                // do exactly the same.
+                let result = match mode {
+                    AlignerMode::Local => Self::align_local(some_aligner, some_state, some_setup, sequence, index),
+                    AlignerMode::LeftOverlap => Self::align_left_overlap(some_aligner, some_state, some_setup, sequence, index),
+                    AlignerMode::RightOverlap => Self::align_right_overlap(some_aligner, some_state, some_setup, sequence, index),
                 };
                 let reference = &setup.references[index].sequence.as_bytes();
                 if !result.validate(
