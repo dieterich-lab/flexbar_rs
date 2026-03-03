@@ -10,7 +10,6 @@ pub struct BandedExtraConfig {
 
 #[derive(Clone)]
 pub struct BandedAlignerData {
-    references: Vec<SequenceWithId>,
 }
 
 pub type BandedBioRustAlignerConfig = BioRustAlignerConfig<BandedExtraConfig>;
@@ -18,8 +17,11 @@ pub type BandedBioRustAlignerConfig = BioRustAlignerConfig<BandedExtraConfig>;
 pub type BioRustBandedRawAligner = Aligner<BoxedScoreFunction>;
 
 pub struct BandedStateExtra {
-    pub kmer_hashes: Vec<HashMapFx<Vec<u8>, Vec<u32>>>,
+    pub owned_references: Vec<Vec<u8>>,
+    pub kmer_hashes: Vec<HashMapFx<&'static [u8], Vec<u32>>>,
 }
+
+unsafe impl Send for BandedStateExtra {}
 
 impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
     type AuxData = BandedAlignerData;
@@ -39,44 +41,47 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
         config: &BioRustAlignerConfig<BandedExtraConfig>,
         references: &[SequenceWithId],
     ) -> Self::StateExtra {
-        let mut kmer_hash: Vec<HashMapFx<Vec<u8>, Vec<u32>>> = Vec::new();
+        let mut owned_references = Vec::new();
         for r in references.iter() {
-            let hash = hash_kmers(r.sequence.as_bytes(), config.extra.k);
-            let mut owned_hash = HashMapFx::default();
+            owned_references.push(r.sequence.as_bytes().to_vec());
+        }
+
+        let mut kmer_hashes: Vec<HashMapFx<&'static [u8], Vec<u32>>> = Vec::new();
+        for r in owned_references.iter() {
+            let hash = hash_kmers(r, config.extra.k);
+            let mut pre_hash = HashMapFx::default();
             for (k, v) in hash {
-                owned_hash.insert(k.to_vec(), v);
+                // SAFETY: We are casting the reference to the owned sequence to 'static.
+                // This is safe because BandedStateExtra owns both 'owned_references' and 'kmer_hashes',
+                // and 'owned_references' is never modified or moved individually after creation.
+                let static_k: &'static [u8] = unsafe { std::mem::transmute(k) };
+                pre_hash.insert(static_k, v);
             }
-            kmer_hash.push(owned_hash);
+            kmer_hashes.push(pre_hash);
         }
         BandedStateExtra {
-            kmer_hashes: kmer_hash,
+            owned_references,
+            kmer_hashes,
         }
     }
 
     fn create_aux_data(
         _config: &BioRustAlignerConfig<BandedExtraConfig>,
-        references: &[SequenceWithId]
+        _references: &[SequenceWithId]
     ) -> Self::AuxData {
-        BandedAlignerData {
-            references: references.to_vec(),
-        }
+        BandedAlignerData {}
     }
 
     fn perform_align(
         &mut self,
         sequence: &[u8],
         reference_index: usize,
-        extra_data: &BandedAlignerData,
+        _extra_data: &BandedAlignerData,
         state_extra: &mut Self::StateExtra,
     ) -> bio::alignment::Alignment {
-        let reference = &extra_data.references[reference_index].sequence.as_bytes();
-        let ref_hash = &state_extra.kmer_hashes[reference_index];
-        
-        let mut temp_hash = HashMapFx::default();
-        for (k, v) in ref_hash {
-            temp_hash.insert(k.as_slice(), v.clone());
-        }
-        self.custom_with_prehash(sequence, reference, &temp_hash)
+        let reference = &state_extra.owned_references[reference_index];
+        let kmer_hash = &state_extra.kmer_hashes[reference_index];
+        self.custom_with_prehash(sequence, reference, kmer_hash)
     }
 }
 
