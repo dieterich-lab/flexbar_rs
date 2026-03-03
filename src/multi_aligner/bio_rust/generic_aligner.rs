@@ -139,8 +139,6 @@ pub fn get_scoring<ExtraConfig: Clone>(config: &BioRustAlignerConfig<ExtraConfig
     let match_score = config.match_score;
     let mismatch_score = config.mismatch_score;
 
-    let match_scores = (mismatch_score, match_score);
-
     let match_fn: BoxedScoreFunction = Box::new(move |a, b| {
         if a == b || a == b'N' || b == b'N' {
             match_score
@@ -168,7 +166,7 @@ pub fn get_scoring<ExtraConfig: Clone>(config: &BioRustAlignerConfig<ExtraConfig
 
     Scoring {
         match_fn,
-        match_scores: Some(match_scores),
+        match_scores: None,
         gap_open: config.gap_open,
         gap_extend: config.gap_extend,
         xclip_prefix,
