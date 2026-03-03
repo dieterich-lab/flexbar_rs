@@ -11,6 +11,11 @@ mod workflow;
 mod steps;
 mod multi_aligner;
 
+extern crate jemallocator;
+
+#[global_allocator]
+static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
+
 use std::env;
 use log::info;
 

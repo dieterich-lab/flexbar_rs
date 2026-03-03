@@ -99,7 +99,7 @@ impl MultiAlignerSetup {
             // Banded aligners seem to perform poorly on short sequences as we use them
             // to find semi-global alignments with the prefix or suffix of the
             // sequence. So we use them only for local alignments.
-            if kmer_k > 0 && mode == AlignerMode::Local {
+            if kmer_k > 0 {
                 debug!(
                     "{}: Using banded aligner for mode {:?}, k={}.", name, mode, kmer_k
                 );
@@ -276,8 +276,6 @@ impl MultiAligner {
         }
         best
     }
-
-
 }
 
 impl AlignerData {
