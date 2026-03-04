@@ -29,9 +29,22 @@ Dropped features:
 
 ## Building
 
-To create an optimized production binary, run:
+To create an optimized production binary, you need to first get some support software:
+
 ```bash
-cargo +nightly multivers
+cargo install --locked cargo-multivers
+cargo install cargo-pgo
+rustup component add llvm-tools-preview
+```
+
+For details see:
+* https://crates.io/crates/cargo-multivers
+* https://github.com/Kobzol/cargo-pgo
+
+To create binary run:
+
+```bash
+./scripts/do_prod_build.sh
 ```
 
 The binary will be created in `target/cargo-multivers/x86_64-unknown-linux-gnu/release/flexbar_rs`.
