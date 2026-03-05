@@ -11,11 +11,13 @@ use std::path::Path;
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
 use crate::logging::log_fatal;
+use log::{debug};
 use crate::context;
 use crate::steps::generic::FinalRecord;
 use crate::workers::{Worker, WorkerState};
-use crossbeam_channel::{bounded};
+use crossbeam_channel::{bounded, Receiver, Sender};
 use std::thread;
+use std::thread::JoinHandle;
 
 pub fn do_it(args: Args) {
     let context = context::Context::new(&args);
@@ -25,28 +27,50 @@ pub fn do_it(args: Args) {
     let output_prefix = args.output_reads.as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| args.target.clone());
-    let mut reader = get_single_reader(reads_path, context.format, &args);
+    let reader = get_single_reader(reads_path, context.format, &args);
     let compression = get_compression(&reader, &args);
     let worker = Worker::new(&args, &context);
-    let mut writer = get_single_writer(&args, &output_prefix, compression);
+    let writer = get_single_writer(&args, &output_prefix, compression);
 
     let (batch_in_tx, batch_in_rx) = bounded::<Vec<RecordDto>>(16);
     let (batch_out_tx, batch_out_rx) = bounded::<ProcessedBatch>(16);
 
-    let batch_size = args.batch_size;
+    let reader_handle = spawn_reader_thread(reader, batch_in_tx, args.batch_size);
+    let writer_handle = spawn_writer_thread(writer, batch_out_rx);
 
-    // Reader thread
-    let reader_handle = thread::spawn(move || {
+    process_batch_orchestrator(batch_in_rx, batch_out_tx, &worker);
+
+    let reader = reader_handle.join().expect("Reader thread panicked");
+    let (writer, worker_stats) = writer_handle.join().expect("Writer thread panicked");
+
+    let stats = Statistics {
+        reader: reader.statistics(),
+        worker: worker_stats,
+        writer: writer.statistics(),
+    };
+    stats.print();
+}
+
+fn spawn_reader_thread(
+    mut reader: Box<dyn SequenceReader + Send>,
+    batch_in_tx: Sender<Vec<RecordDto>>,
+    batch_size: usize,
+) -> JoinHandle<Box<dyn SequenceReader + Send>> {
+    thread::spawn(move || {
         for batch in get_batch_iter(reader.as_mut(), batch_size) {
             if batch_in_tx.send(batch).is_err() {
                 break;
             }
         }
         reader
-    });
+    })
+}
 
-    // Writer thread
-    let writer_handle = thread::spawn(move || {
+fn spawn_writer_thread(
+    mut writer: Box<dyn Writer>,
+    batch_out_rx: Receiver<ProcessedBatch>,
+) -> JoinHandle<(Box<dyn Writer>, WorkerStatistics)> {
+    thread::spawn(move || {
         let mut worker_stats = WorkerStatistics::default();
         while let Ok(batch_out) = batch_out_rx.recv() {
             worker_stats += batch_out.stats;
@@ -56,13 +80,22 @@ pub fn do_it(args: Args) {
             }
         }
         (writer, worker_stats)
-    });
+    })
+}
 
-    // Worker bridge (orchestrator in main thread)
+fn process_batch_orchestrator(
+    batch_in_rx: Receiver<Vec<RecordDto>>,
+    batch_out_tx: Sender<ProcessedBatch>,
+    worker: &Worker,
+) {
+    let mut batch_num = 0;
     while let Ok(batch_in) = batch_in_rx.recv() {
+        batch_num += 1;
+        debug!("Processing batch {}", batch_num);
+
         let batch_out: Vec<FinalRecord<RecordDto>> = batch_in
             .into_par_iter()
-            .map(|rec| process_record(&rec, &worker))
+            .map(|rec| process_record(&rec, worker))
             .collect();
 
         let mut stats = WorkerStatistics::default();
@@ -79,19 +112,6 @@ pub fn do_it(args: Args) {
             break;
         }
     }
-
-    // Drop senders to signal completion
-    drop(batch_out_tx);
-
-    let reader = reader_handle.join().expect("Reader thread panicked");
-    let (writer, worker_stats) = writer_handle.join().expect("Writer thread panicked");
-
-    let stats = Statistics {
-        reader: reader.statistics(),
-        worker: worker_stats,
-        writer: writer.statistics(),
-    };
-    stats.print();
 }
 
 struct ProcessedBatch {
