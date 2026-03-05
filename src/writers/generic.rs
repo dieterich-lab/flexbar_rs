@@ -18,16 +18,18 @@ const DEFAULT_TAG: &str = "/\\/default/\\/";
 pub struct GenericWriter<'a, B: GenericWriterBackend<'a>> {
     prefix: Option<String>,
     compression: CompressionType,
+    buffer_size: usize,
     backends_by_tag: HashMap<String, B>,
     statistics: crate::statistics::WriterStatistics,
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
-    pub fn new(prefix: &str, compression: CompressionType) -> io::Result<Self> {
+    pub fn new(prefix: &str, compression: CompressionType, buffer_size: usize) -> io::Result<Self> {
         Ok(Self {
             prefix: Some(prefix.to_string()),
             compression,
+            buffer_size,
             backends_by_tag: HashMap::new(),
             statistics: crate::statistics::WriterStatistics::default(),
             _phantom: std::marker::PhantomData,
@@ -40,6 +42,7 @@ impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
         Self {
             prefix: None,
             compression: CompressionType::Uncompressed,
+            buffer_size: 4194304, // Default 4MB for from_writer
             backends_by_tag: tagged_backends,
             statistics: crate::statistics::WriterStatistics::default(),
             _phantom: std::marker::PhantomData,
@@ -52,7 +55,7 @@ impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
             if let Some(ref prefix) = self.prefix {
                 let actual_tag = if t == DEFAULT_TAG { None } else { Some(t) };
                 let path = get_writer_path(prefix, self.compression, B::get_extension(), actual_tag);
-                let writer = get_writer_from_path(path.as_deref(), self.compression)?;
+                let writer = get_writer_from_path(path.as_deref(), self.compression, self.buffer_size)?;
                 self.backends_by_tag.insert(t.to_string(), B::new(writer));
             } else {
                 return Err(io::Error::new(io::ErrorKind::Other, format!("Cannot create tagged writer for tag '{}' without prefix", t)));
@@ -131,7 +134,7 @@ mod tests {
                 fn get_extension() -> &'static str { "txt" }
             }
 
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed, 4096).unwrap();
             let record = RecordDto::Single(SingeRecordDto::with_attrs(
                 "id1", None, b"ACGT", b"!!!!"
             ));
@@ -175,7 +178,7 @@ mod tests {
         }
 
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed, 4096).unwrap();
             let rec1 = RecordDto::Single(SingeRecordDto::with_attrs(
                 "R1", None, b"A", b"I"
             ));
@@ -210,7 +213,7 @@ mod tests {
         let tagged_path = temp.path().join("out_tagA.txt");
 
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed, 4096).unwrap();
             let rec1 = RecordDto::Single(SingeRecordDto::with_attrs(
                 "R1", None, b"A", b"I"
             ));
@@ -242,7 +245,7 @@ mod tests {
         }
 
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed, 4096).unwrap();
             let rec1 = RecordDto::Single(SingeRecordDto::with_attrs(
                 "R1", None, b"A", b"I"
             ));

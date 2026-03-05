@@ -78,7 +78,7 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
 
 impl<B: GenericReaderBackend<io::BufReader<Box<dyn io::Read + Send>>>> GenericReader<io::BufReader<Box<dyn io::Read + Send>>, B> {
     pub fn create_form_args<P: AsRef<Path>>(path: P, args: &Args) -> io::Result<Self> {
-        let (reader, source, compression) = get_raw_reader(path)?;
+        let (reader, source, compression) = get_raw_reader(path, args.read_buffer)?;
         Ok(Self::new(reader, source, compression, args.skip, args.count, args.trace))
     }
 }

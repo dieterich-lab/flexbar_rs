@@ -1,4 +1,4 @@
-use std::io::{self, BufReader, Read, Write};
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 use crate::types::FileFormat;
 use std::fs::File;
@@ -27,7 +27,7 @@ pub fn get_file_type(path: Option<&PathBuf>) -> FileFormat {
     })
 }
 
-pub fn get_raw_reader<P: AsRef<Path>>(path: P) -> io::Result<(BufReader<Box<dyn Read + Send>>, String, CompressionType)> {
+pub fn get_raw_reader<P: AsRef<Path>>(path: P, buffer_size: usize) -> io::Result<(BufReader<Box<dyn Read + Send>>, String, CompressionType)> {
     let path_ref = path.as_ref();
     let source = path_ref.to_string_lossy().into_owned();
 
@@ -47,7 +47,7 @@ pub fn get_raw_reader<P: AsRef<Path>>(path: P) -> io::Result<(BufReader<Box<dyn 
         }
     };
 
-    Ok((BufReader::new(reader), source, compression))
+    Ok((BufReader::with_capacity(buffer_size, reader), source, compression))
 }
 
 pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &str, tag: Option<&str>) -> Option<PathBuf> {
@@ -85,10 +85,10 @@ pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &s
     })
 }
 
-pub fn get_writer_from_path(path: Option<&Path>, compression: CompressionType) -> io::Result<Box<dyn Write + Send>> {
+pub fn get_writer_from_path(path: Option<&Path>, compression: CompressionType, buffer_size: usize) -> io::Result<Box<dyn Write + Send>> {
     let writer: Box<dyn Write + Send> = match path {
-        Some(p) => Box::new(File::create(p)?),
-        None => Box::new(io::stdout()),
+        Some(p) => Box::new(BufWriter::with_capacity(buffer_size, File::create(p)?)),
+        None => Box::new(BufWriter::with_capacity(buffer_size, io::stdout())),
     };
 
     match compression {
@@ -118,7 +118,7 @@ mod tests {
         let path = tmp.path().with_extension("bz2");
         std::fs::copy(tmp.path(), &path).unwrap();
 
-        let (mut reader, source, compression) = get_raw_reader(&path).unwrap();
+        let (mut reader, source, compression) = get_raw_reader(&path, 4096).unwrap();
         assert_eq!(compression, CompressionType::Bz2);
         assert!(source.contains(path.to_str().unwrap()));
 
@@ -167,12 +167,12 @@ mod tests {
         let data = b"test data for compression roundtrip";
         
         {
-            let mut writer = get_writer_from_path(Some(&path), compression).unwrap();
+            let mut writer = get_writer_from_path(Some(&path), compression, 4096).unwrap();
             writer.write_all(data).unwrap();
             writer.flush().unwrap();
         }
         
-        let (mut reader, _source, detected_compression) = get_raw_reader(&path).unwrap();
+        let (mut reader, _source, detected_compression) = get_raw_reader(&path, 4096).unwrap();
         assert_eq!(detected_compression, compression);
         
         let mut buffer = Vec::new();
@@ -209,7 +209,7 @@ mod tests {
 
     #[test]
     fn test_stdin_reader() {
-        let (_reader, source, compression) = get_raw_reader("-").unwrap();
+        let (_reader, source, compression) = get_raw_reader("-", 4096).unwrap();
         assert_eq!(source, "-");
         assert_eq!(compression, CompressionType::Uncompressed);
     }
@@ -232,7 +232,7 @@ mod tests {
         let path = dir.path().join("test.gz");
         File::create(&path).unwrap().write_all(&buf).unwrap();
 
-        let (mut reader, _source, compression) = get_raw_reader(&path).unwrap();
+        let (mut reader, _source, compression) = get_raw_reader(&path, 4096).unwrap();
         assert_eq!(compression, CompressionType::Gz);
 
         let mut content = String::new();

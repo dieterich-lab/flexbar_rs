@@ -142,10 +142,10 @@ fn get_single_writer(args: &Args, output_prefix: &str, compression: CompressionT
         false => output_prefix,
     };
     if args.fasta_output {
-        Box::new(SingleWriterFasta::new(p, compression)
+        Box::new(SingleWriterFasta::new(p, compression, args.write_buffer)
             .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA writer: {}", e))))
     } else {
-        Box::new(SingleWriterFastq::new(p, compression)
+        Box::new(SingleWriterFastq::new(p, compression, args.write_buffer)
             .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ writer: {}", e))))
     }
 }

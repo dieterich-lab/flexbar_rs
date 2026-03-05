@@ -328,6 +328,14 @@ pub struct Args {
     #[arg(long)]
     pub debug: bool,
 
+    /// Buffer size for reading (default 4MB)
+    #[arg(long = "read-buffer", default_value_t = 4194304)]
+    pub read_buffer: usize,
+
+    /// Buffer size for writing (default 4MB)
+    #[arg(long = "write-buffer", default_value_t = 4194304)]
+    pub write_buffer: usize,
+
     /// Print trace information for each record
     #[arg(long)]
     pub trace: bool,

@@ -27,6 +27,27 @@ Dropped features:
 
 * Support for interleaved FASTQ files
 
+## Tuning
+
+### Optimizing for Execution Time
+
+Of course, the number of threads should not exceed the number of vCPUs.
+The benefit of adding more threads diminishes due to the overhead above
+about 20 threads.
+
+### Optimizing for Energy Consumption
+
+While more threads may reduce the wall-clock time, expect that to get
+better results per Watt with thread counts below 20. 
+
+### Optimizing for Memory Usage
+
+If you run out of memory, consider using fewer threads. You may
+also reduce the size of the IO buffers (--write-buffer, --read-buffer).
+If you create lots of output files (=many barcodes). The write buffer
+size is especially important because a separate one is kept for each
+output file.
+
 ## Building
 
 To create an optimized production binary, you need to first get some support software:
