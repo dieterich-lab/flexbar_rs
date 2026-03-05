@@ -11,10 +11,11 @@ use std::path::Path;
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
 use crate::logging::log_fatal;
-use log::{debug};
 use crate::context;
 use crate::steps::generic::FinalRecord;
 use crate::workers::{Worker, WorkerState};
+use crossbeam_channel::{bounded};
+use std::thread;
 
 pub fn do_it(args: Args) {
     let context = context::Context::new(&args);
@@ -29,9 +30,61 @@ pub fn do_it(args: Args) {
     let worker = Worker::new(&args, &context);
     let mut writer = get_single_writer(&args, &output_prefix, compression);
 
-    let worker_stats = process_batch(
-        &mut reader, &worker, &mut writer, args.batch_size
-    );
+    let (batch_in_tx, batch_in_rx) = bounded::<Vec<RecordDto>>(16);
+    let (batch_out_tx, batch_out_rx) = bounded::<ProcessedBatch>(16);
+
+    let batch_size = args.batch_size;
+
+    // Reader thread
+    let reader_handle = thread::spawn(move || {
+        for batch in get_batch_iter(reader.as_mut(), batch_size) {
+            if batch_in_tx.send(batch).is_err() {
+                break;
+            }
+        }
+        reader
+    });
+
+    // Writer thread
+    let writer_handle = thread::spawn(move || {
+        let mut worker_stats = WorkerStatistics::default();
+        while let Ok(batch_out) = batch_out_rx.recv() {
+            worker_stats += batch_out.stats;
+            for rec in batch_out.records {
+                writer.write(&rec.0, rec.1.as_deref())
+                    .expect("Failed to write record");
+            }
+        }
+        (writer, worker_stats)
+    });
+
+    // Worker bridge (orchestrator in main thread)
+    while let Ok(batch_in) = batch_in_rx.recv() {
+        let batch_out: Vec<FinalRecord<RecordDto>> = batch_in
+            .into_par_iter()
+            .map(|rec| process_record(&rec, &worker))
+            .collect();
+
+        let mut stats = WorkerStatistics::default();
+        let mut records = Vec::with_capacity(batch_out.len());
+
+        for res in batch_out {
+            stats += res.stats;
+            if let Some(r) = res.record {
+                records.push((r, res.output_tag));
+            }
+        }
+
+        if batch_out_tx.send(ProcessedBatch { records, stats }).is_err() {
+            break;
+        }
+    }
+
+    // Drop senders to signal completion
+    drop(batch_out_tx);
+
+    let reader = reader_handle.join().expect("Reader thread panicked");
+    let (writer, worker_stats) = writer_handle.join().expect("Writer thread panicked");
 
     let stats = Statistics {
         reader: reader.statistics(),
@@ -41,33 +94,9 @@ pub fn do_it(args: Args) {
     stats.print();
 }
 
-fn process_batch(
-    reader: &mut Box<dyn SequenceReader + Send>,
-    worker: &Worker,
-    writer: &mut Box<dyn Writer>,
-    batch_size: usize,
-) -> WorkerStatistics {
-    let mut worker_stats = WorkerStatistics::default();
-    let mut batch_num = 0;
-
-    for batch_in in get_batch_iter(reader.as_mut(), batch_size) {
-        batch_num += 1;
-        debug!("Processing batch {}", batch_num);
-        let batch_out: Vec<FinalRecord<RecordDto>> = batch_in
-            .into_par_iter()
-            .map(|rec| process_record(&rec, worker) )
-            .collect();
-
-        for rec in batch_out {
-            worker_stats += rec.stats;
-            if let Some(r) = rec.record {
-                writer.write(&r, rec.output_tag.as_deref())
-                    .expect("Failed to write record");
-            }
-        }
-    }
-
-    worker_stats
+struct ProcessedBatch {
+    records: Vec<(RecordDto, Option<String>)>,
+    stats: WorkerStatistics,
 }
 
 fn get_single_reader(reads_path: &Path, format: FileFormat, args: &Args) -> Box<dyn SequenceReader + Send> {
