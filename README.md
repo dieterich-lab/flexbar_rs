@@ -10,6 +10,13 @@ It is heavily based on Rust-bio.
 
 ## Quickstart for Flexbar Veterans
 
+### Why should you use it?
+
+* It complies in 2026 on up-to-date operating systems with modern dependencies. 
+* It handles ZSTD compression out-of-the-box (see tuning hints below).
+
+### What changed?
+
 Most options work as for Flexbar, but:
 
 * Multi-letter options including 2-letter shortcuts (e.g. `-qt` for `--trim-treshold`) must be written now
@@ -23,13 +30,20 @@ Not yet implemented:
 * Trimming of homopolymers
 * pre-trim-left/right
 
-Dropped features:
+Dropped features we will not implement at all:
 
 * Support for interleaved FASTQ files
 
 ## Tuning
 
 ### Optimizing for Execution Time
+
+**Stop using gzip - use ZSTD compression.** In typical HPC setups (>20 vCPUs)
+it is essential to use compression - not only to save disk space but also
+to reduce the I/O load. With typical flexbar workloads the time needed to
+decompress and compress the data will dominate the overall runtime. When
+using ZSTD compression, expect the wall-clock time to be cut by 50% with
+similar compression rates and energy usage.
 
 Of course, the number of threads should not exceed the number of vCPUs.
 The benefit of adding more threads diminishes due to the overhead above
