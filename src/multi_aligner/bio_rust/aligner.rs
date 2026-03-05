@@ -16,7 +16,7 @@ impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
 
     fn create_raw(
         config: &BioRustAlignerConfig<()>,
-        x_capacity: usize, y_capacity: usize
+        x_capacity: usize, y_capacity: usize, _allowed_errors: usize
     ) -> Self {
         let scoring = get_scoring(config);
         Aligner::with_capacity_and_scoring(x_capacity, y_capacity, scoring)

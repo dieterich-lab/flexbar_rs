@@ -136,11 +136,15 @@ impl MultiAlignerSetup {
         .map(|setup| match setup {
                 SpecificAlignerSetup::BioRust(x) 
                     => SpecificAligner::BioRust(
-                        BioRustPairwiseAligner::new(&x.config, &self.references)
+                        BioRustPairwiseAligner::new(
+                            &x.config, &self.references, self.config.error_rate
+                        )
                 ),
                 SpecificAlignerSetup::BioRustBanded(x) 
                     => SpecificAligner::BioRustBanded(
-                    BioRustBandedPairwiseAligner::new(&x.config, &self.references)
+                    BioRustBandedPairwiseAligner::new(
+                        &x.config, &self.references, self.config.error_rate
+                    )
                 ),
         })
         .collect();

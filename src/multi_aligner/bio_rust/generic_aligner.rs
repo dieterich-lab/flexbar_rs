@@ -28,6 +28,7 @@ pub struct BioRustAlignerConfig<ExtraConfig: Clone> {
 pub struct BioRustAligner<Raw: Send, ExtraConfig: Clone> {
     pub config: BioRustAlignerConfig<ExtraConfig>,
     pub y_capacity: usize,
+    pub allowed_errors: usize,
     pub reference_lengths: Vec<usize>,
     _phantom: std::marker::PhantomData<Raw>,
 }
@@ -44,7 +45,7 @@ pub trait BioRustRawAligner<ExtraConfig: Clone> {
 
     fn create_raw(
         config: &BioRustAlignerConfig<ExtraConfig>,
-        x_capacity: usize, y_capacity: usize
+        x_capacity: usize, y_capacity: usize, allowed_errors: usize
     ) -> Self;
 
     fn create_state_extra(
@@ -69,12 +70,19 @@ pub trait BioRustRawAligner<ExtraConfig: Clone> {
 impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
     BioRustAligner<Raw, ExtraConfig>
 {
-    pub fn new(config: &BioRustAlignerConfig<ExtraConfig>, references: &[SequenceWithId]) -> Self {
+    pub fn new(
+        config: &BioRustAlignerConfig<ExtraConfig>,
+        references: &[SequenceWithId],
+        error_rate: f32
+    ) -> Self {
         let reference_lengths: Vec<usize> = references.iter().map(|r| r.sequence.len()).collect();
         let y_capacity = *reference_lengths.iter().max().unwrap_or(&0);
+        let allowed_errors = (error_rate * y_capacity as f32) as usize;
+
         BioRustAligner {
             config: config.clone(),
             y_capacity,
+            allowed_errors,
             reference_lengths,
             _phantom: std::marker::PhantomData,
         }
@@ -88,7 +96,11 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         }
     }
 
-    pub fn setup_aligner(&self, state: &mut BioRustAlignerState<Raw, Raw::StateExtra>, x_capacity: usize) {
+    pub fn setup_aligner(
+        &self,
+        state: &mut BioRustAlignerState<Raw, Raw::StateExtra>,
+        x_capacity: usize,
+    ) {
         if state.raw.is_some() && x_capacity <= state.x_capacity { return; }
         
         let new_x_capacity = if state.x_capacity == 0 {
@@ -98,7 +110,9 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         };
 
         state.x_capacity = new_x_capacity;
-        state.raw = Some(Raw::create_raw(&self.config, state.x_capacity, self.y_capacity));
+        state.raw = Some(Raw::create_raw(
+            &self.config, state.x_capacity, self.y_capacity, self.allowed_errors
+        ));
     }
 
     pub fn align(

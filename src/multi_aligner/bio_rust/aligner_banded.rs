@@ -29,11 +29,11 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
 
     fn create_raw(
         config: &BandedBioRustAlignerConfig,
-        x_capacity: usize, y_capacity: usize
+        x_capacity: usize, y_capacity: usize, allowed_errors: usize
     ) -> Self {
         let scoring = get_scoring(config);
         Self::with_capacity_and_scoring(
-            x_capacity, y_capacity, scoring, config.extra.k, config.extra.k * 2
+            x_capacity, y_capacity, scoring, config.extra.k, allowed_errors
         )
     }
 
