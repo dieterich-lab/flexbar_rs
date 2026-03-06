@@ -2,10 +2,12 @@ use bio::alignment::pairwise::banded::Aligner;
 use bio::alignment::sparse::{hash_kmers, HashMapFx};
 use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioRustRawAligner, get_scoring, BoxedScoreFunction, BioRustAligner};
+use crate::multi_aligner::generic::AlignerMode;
 
 #[derive(Clone, Copy)]
 pub struct BandedExtraConfig {
     pub k: usize,
+    pub min_overlap: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -32,8 +34,15 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
         x_capacity: usize, y_capacity: usize, allowed_errors: usize
     ) -> Self {
         let scoring = get_scoring(config);
+        let window_size = if config.mode == AlignerMode::Local {
+            allowed_errors
+        } else {
+            // I do not really understand why this value has to be so huge
+            // in the case of semi-global alignments. Bug in the library?
+            y_capacity - config.extra.min_overlap.unwrap_or(y_capacity)
+        };
         Self::with_capacity_and_scoring(
-            x_capacity, y_capacity, scoring, config.extra.k, allowed_errors
+            x_capacity, y_capacity, scoring, config.extra.k, window_size
         )
     }
 

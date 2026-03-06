@@ -96,15 +96,15 @@ impl MultiAlignerSetup {
 
         let mut aligner_setups:Vec<SpecificAlignerSetup> = Vec::new();
         for mode in required_modes {
-            // Banded aligners seem to perform poorly on short sequences as we use them
-            // to find semi-global alignments with the prefix or suffix of the
-            // sequence. So we use them only for local alignments.
             if kmer_k > 0 {
                 debug!(
                     "{}: Using banded aligner for mode {:?}, k={}.", name, mode, kmer_k
                 );
                 let aligner_config = get_aligner_config(
-                    &config, mode, BandedExtraConfig { k: kmer_k }
+                    &config, mode,BandedExtraConfig {
+                        k: kmer_k,
+                        min_overlap: config.min_overlap
+                    }
                 );
                 let aux_data = BioRustBandedRawAligner::create_aux_data(
                     &aligner_config, references
@@ -416,6 +416,17 @@ mod tests {
         let mut config = get_default_config();
         config.min_overlap = Some(5);
         config
+    }
+
+    fn get_benchmark_config() -> BioRustAlignerParameters {
+        BioRustAlignerParameters {
+            error_rate: 0.0,
+            min_overlap: Some(11),
+            match_score: 1,
+            mismatch_score: -1,
+            gap_open: -1,
+            gap_extend: -1,
+        }
     }
 
     fn get_with_tolerance_config() -> BioRustAlignerParameters {
@@ -861,6 +872,31 @@ mod tests {
             "  ´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´......|||||||||||||||||||||,\n",
             "                                              NNNNNNTAGCTCTGTAGGCACCATCAAT\n"
         ));
+    }
+
+    #[test]
+    fn test_user_requested_alignment() {
+        let x = b"TATCGTTTTTTCACTGACCCGGTGAGGCGGGGTGTACGCATACTGTAGGCACCATCGTAGAGTAGCTCTGT";
+        let y = b"NNNNNNTAGCTCTGTAGGCACCATCAAT";
+        let references = get_as_references(y);
+
+        let result = run_alignment(
+            TrimEnd::Right, get_benchmark_config(), None,
+            x, &references
+        );
+        
+        assert!(result.is_some(), "Alignment should be found");
+        let alignment = result.unwrap();
+        assert_eq!(alignment.get_start_index(), 56);
+        
+        let formatted = alignment.format(x, y);
+        println!("{}", formatted);
+
+        let umi_tags = alignment.get_umi_tags(x, y);
+        assert_eq!(umi_tags[0], "GTAGAG");
+        
+        // Verify it matches the end of x
+        assert_eq!(alignment.get_end_index(), x.len());
     }
 
     #[test]

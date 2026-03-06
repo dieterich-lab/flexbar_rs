@@ -99,14 +99,16 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
     pub fn setup_aligner(
         &self,
         state: &mut BioRustAlignerState<Raw, Raw::StateExtra>,
-        x_capacity: usize,
+        sequence_len: usize,
     ) {
-        if state.raw.is_some() && x_capacity <= state.x_capacity { return; }
-        
-        let new_x_capacity = if state.x_capacity == 0 {
-            x_capacity
+        if state.raw.is_some() && sequence_len <= state.x_capacity { return; }
+
+        let new_x_capacity = if self.config.mode != AlignerMode::Local {
+            self.y_capacity
+        } else if state.x_capacity == 0 {
+            sequence_len
         } else {
-            x_capacity + x_capacity / 10
+            sequence_len + sequence_len / 10
         };
 
         state.x_capacity = new_x_capacity;
