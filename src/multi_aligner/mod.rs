@@ -97,38 +97,58 @@ impl MultiAlignerSetup {
         let mut aligner_setups:Vec<SpecificAlignerSetup> = Vec::new();
         for mode in required_modes {
             if kmer_k > 0 {
-                debug!(
-                    "{}: Using banded aligner for mode {:?}, k={}.", name, mode, kmer_k
-                );
-                let aligner_config = get_aligner_config(
-                    &config, mode,BandedExtraConfig {
-                        k: kmer_k,
-                        min_overlap: config.min_overlap
-                    }
-                );
-                let aux_data = BioRustBandedRawAligner::create_aux_data(
-                    &aligner_config, references
-                );
-                aligner_setups.push(
-                    SpecificAlignerSetup::BioRustBanded(
-                        BioRustBandedPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.clone() }
-                    )
-                )
+                aligner_setups.push(Self::create_banded_setup(
+                    &name, &config, mode, kmer_k, references
+                ));
             } else {
-                debug!("{}: Using standard aligner for mode {:?}.", name, mode);
-                let aligner_config = get_aligner_config(
-                    &config, mode, ()
-                );
-                let aux_data = BioRustPairwiseRawAligner::create_aux_data(
-                    &aligner_config, references
-                );
-                aligner_setups.push(SpecificAlignerSetup::BioRust(
-                    BioRustPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.clone() }
+                aligner_setups.push(Self::create_standard_setup(
+                    &name, &config, mode, references
                 ));
             }
-
         }
         MultiAlignerSetup { references: references.to_vec(), config, aligner_setups }
+    }
+
+    fn create_banded_setup(
+        name: &str,
+        config: &BioRustAlignerParameters,
+        mode: AlignerMode,
+        kmer_k: usize,
+        references: &[SequenceWithId],
+    ) -> SpecificAlignerSetup {
+        debug!(
+            "{}: Using banded aligner for mode {:?}, k={}.", name, mode, kmer_k
+        );
+        let aligner_config = get_aligner_config(
+            config, mode, BandedExtraConfig {
+                k: kmer_k,
+                min_overlap: config.min_overlap
+            }
+        );
+        let aux_data = BioRustBandedRawAligner::create_aux_data(
+            &aligner_config, references
+        );
+        SpecificAlignerSetup::BioRustBanded(
+            BioRustBandedPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.clone() }
+        )
+    }
+
+    fn create_standard_setup(
+        name: &str,
+        config: &BioRustAlignerParameters,
+        mode: AlignerMode,
+        references: &[SequenceWithId],
+    ) -> SpecificAlignerSetup {
+        debug!("{}: Using standard aligner for mode {:?}.", name, mode);
+        let aligner_config = get_aligner_config(
+            config, mode, ()
+        );
+        let aux_data = BioRustPairwiseRawAligner::create_aux_data(
+            &aligner_config, references
+        );
+        SpecificAlignerSetup::BioRust(
+            BioRustPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.clone() }
+        )
     }
 
     pub fn create_aligner(&self) -> MultiAligner {
