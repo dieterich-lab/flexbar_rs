@@ -88,8 +88,19 @@ impl MultiAlignerSetup {
             TrimEnd::Any => vec![
                 AlignerMode::Local, AlignerMode::LeftOverlap, AlignerMode::RightOverlap
             ],
-            TrimEnd::Left => vec![AlignerMode::Local, AlignerMode::LeftOverlap],
-            TrimEnd::Right => vec![AlignerMode::Local, AlignerMode::RightOverlap],
+            TrimEnd::Left => if config.min_overlap.is_some() {
+                vec![AlignerMode::Local, AlignerMode::LeftOverlap]
+            } else {
+                // if no minimal overlap is specified, we assume
+                // "min_overlap = length of the reference".
+                // So the local aligner can find it.
+                vec![AlignerMode::Local]
+            },
+            TrimEnd::Right => if config.min_overlap.is_some() {
+                vec![AlignerMode::Local, AlignerMode::RightOverlap]
+            } else {
+                vec![AlignerMode::Local]
+            },
             TrimEnd::LTail => vec![AlignerMode::LeftOverlap],
             TrimEnd::RTail => vec![AlignerMode::RightOverlap],
         };
