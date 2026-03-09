@@ -8,7 +8,7 @@ pub enum RawAlignment {
 
 pub struct MultiAlignerResult {
     pub raw: RawAlignment,
-    pub offset: usize,
+    pub sequence_offset: usize,
     pub reference_index: usize,
 }
 
@@ -30,23 +30,23 @@ impl<'r> MultiAlignerResult {
 
     pub fn get_umi_tags(&self, x: &[u8], y: &[u8]) -> Vec<String> {
         match &self.raw {
-            RawAlignment::BioRust(raw) => raw.get_umi_tags(x, y, self.offset),
+            RawAlignment::BioRust(raw) => raw.get_umi_tags(x, y, self.sequence_offset),
         }
     }
     pub fn format(&self, x: &[u8], y: &[u8]) -> String {
         match &self.raw {
-            RawAlignment::BioRust(raw) => raw.format(x, y, self.offset),
+            RawAlignment::BioRust(raw) => raw.format(x, y, self.sequence_offset),
         }
     }
 
     pub fn get_start_index(&self) -> usize {
         match &self.raw {
-            RawAlignment::BioRust(raw) => self.offset + raw.xstart,
+            RawAlignment::BioRust(raw) => self.sequence_offset + raw.xstart,
         }
     }
     pub fn get_end_index(&self) -> usize {
         match &self.raw {
-            RawAlignment::BioRust(raw) => self.offset + raw.xend,
+            RawAlignment::BioRust(raw) => self.sequence_offset + raw.xend,
         }
     }
 }

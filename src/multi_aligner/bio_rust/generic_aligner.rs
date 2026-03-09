@@ -145,7 +145,7 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         let raw = aligner.perform_align(relevant_seq, reference_index, &aux_data, &mut state.extra);
         MultiAlignerResult {
             raw: RawAlignment::BioRust(raw),
-            offset,
+            sequence_offset: offset,
             reference_index,
         }
     }

@@ -292,7 +292,7 @@ impl MultiAligner {
                 };
                 let reference = &setup.references[index].sequence.as_bytes();
                 if !result.validate(
-                    setup.config.error_rate, sequence, reference, setup.config.min_overlap, result.offset
+                    setup.config.error_rate, sequence, reference, setup.config.min_overlap, result.sequence_offset
                 ) {
                     continue;
                 }
