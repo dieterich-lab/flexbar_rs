@@ -206,60 +206,35 @@ fn get_aligner_config<Extra: Clone>(
 }
 
 
+macro_rules! define_align_mode_func {
+    ($name:ident) => {
+        #[cfg_attr(not(debug_assertions), inline(always))]
+        fn $name(
+            aligner: &SpecificAligner,
+            state: &mut SpecificAlignerState,
+            setup: &SpecificAlignerSetup,
+            sequence: &[u8],
+            index: usize,
+        ) -> MultiAlignerResult {
+            match (aligner, setup, state) {
+                (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup), SpecificAlignerState::BioRust(s)) => {
+                    aligner.align(s, sequence, index, &a_setup.aux_data)
+                },
+                (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup), SpecificAlignerState::BioRustBanded(s)) => {
+                    aligner.align(s, sequence, index, &a_setup.aux_data)
+                }
+                _ => panic!("Unexpected combination of aligner and setup"),
+            }
+        }
+    };
+}
+
 impl MultiAligner {
-    fn align_local(
-        aligner: &SpecificAligner,
-        state: &mut SpecificAlignerState,
-        setup: &SpecificAlignerSetup,
-        sequence: &[u8],
-        index: usize,
-    ) -> MultiAlignerResult {
-        match (aligner, setup, state) {
-            (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup), SpecificAlignerState::BioRust(s)) => {
-                aligner.align(s, sequence, index, &a_setup.aux_data)
-            },
-            (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup), SpecificAlignerState::BioRustBanded(s)) => {
-                aligner.align(s, sequence, index, &a_setup.aux_data)
-            }
-            _ => panic!("Unexpected combination of aligner and setup"),
-        }
-    }
-
-    fn align_left_overlap(
-        aligner: &SpecificAligner,
-        state: &mut SpecificAlignerState,
-        setup: &SpecificAlignerSetup,
-        sequence: &[u8],
-        index: usize,
-    ) -> MultiAlignerResult {
-        match (aligner, setup, state) {
-            (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup), SpecificAlignerState::BioRust(s)) => {
-                aligner.align(s, sequence, index, &a_setup.aux_data)
-            },
-            (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup), SpecificAlignerState::BioRustBanded(s)) => {
-                aligner.align(s, sequence, index, &a_setup.aux_data)
-            }
-            _ => panic!("Unexpected combination of aligner and setup"),
-        }
-    }
-
-    fn align_right_overlap(
-        aligner: &SpecificAligner,
-        state: &mut SpecificAlignerState,
-        setup: &SpecificAlignerSetup,
-        sequence: &[u8],
-        index: usize,
-    ) -> MultiAlignerResult {
-        match (aligner, setup, state) {
-            (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup), SpecificAlignerState::BioRust(s)) => {
-                aligner.align(s, sequence, index, &a_setup.aux_data)
-            },
-            (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup), SpecificAlignerState::BioRustBanded(s)) => {
-                aligner.align(s, sequence, index, &a_setup.aux_data)
-            }
-            _ => panic!("Unexpected combination of aligner and setup"),
-        }
-    }
+    define_align_mode_func!(align_local);
+    define_align_mode_func!(align_left_overlap);
+    define_align_mode_func!(align_right_overlap);
+    define_align_mode_func!(align_left_min);
+    define_align_mode_func!(align_right_min);
 
     pub fn align(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
         if sequence.len() == 0 { return None }  // The aligner seems to go berserk on sequences of size 0
@@ -290,8 +265,8 @@ impl MultiAligner {
                     AlignerMode::Local => Self::align_local(some_aligner, some_state, some_setup, sequence, index),
                     AlignerMode::LeftOverlap => Self::align_left_overlap(some_aligner, some_state, some_setup, sequence, index),
                     AlignerMode::RightOverlap => Self::align_right_overlap(some_aligner, some_state, some_setup, sequence, index),
-                    AlignerMode::LeftMin => Self::align_left_overlap(some_aligner, some_state, some_setup, sequence, index),
-                    AlignerMode::RightMin => Self::align_right_overlap(some_aligner, some_state, some_setup, sequence, index),
+                    AlignerMode::LeftMin => Self::align_left_min(some_aligner, some_state, some_setup, sequence, index),
+                    AlignerMode::RightMin => Self::align_right_min(some_aligner, some_state, some_setup, sequence, index),
                 };
                 let reference = &setup.references[index].sequence.as_bytes();
                 if !result.validate(
