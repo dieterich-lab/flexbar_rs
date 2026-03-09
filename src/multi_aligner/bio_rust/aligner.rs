@@ -1,3 +1,4 @@
+use std::ops::Range;
 use bio::alignment::Alignment;
 use bio::alignment::pairwise::Aligner;
 use crate::context::SequenceWithId;
@@ -6,8 +7,14 @@ use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioR
 pub type BioRustPairwiseRawAligner = Aligner<BoxedScoreFunction>;
 
 #[derive(Clone)]
+pub struct ReferenceWithRange {
+    pub reference: SequenceWithId,
+    pub range: Range<usize>,
+}
+
+#[derive(Clone)]
 pub struct AlignerData {
-    pub references: Vec<SequenceWithId>,
+    pub references: Vec<ReferenceWithRange>,
 }
 
 impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
@@ -30,9 +37,24 @@ impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
     }
 
     fn create_aux_data(
-        _config: &BioRustAlignerConfig<()>, references: &[SequenceWithId]
+        config: &BioRustAlignerConfig<()>, references: &[SequenceWithId]
     ) -> Self::AuxData {
-        AlignerData { references: references.to_vec() }
+        let mut refs_with_range = Vec::new();
+        for r in references {
+            let range = match config.mode {
+                crate::multi_aligner::generic::AlignerMode::LeftMin => {
+                    let min_overlap = config.min_overlap.unwrap_or(r.sequence.len());
+                    (r.sequence.len() - min_overlap)..r.sequence.len()
+                },
+                crate::multi_aligner::generic::AlignerMode::RightMin => {
+                    let min_overlap = config.min_overlap.unwrap_or(r.sequence.len());
+                    0..min_overlap
+                },
+                _ => 0..r.sequence.len(),
+            };
+            refs_with_range.push(ReferenceWithRange { reference: r.clone(), range });
+        }
+        AlignerData { references: refs_with_range }
     }
 
     fn perform_align(
@@ -41,9 +63,10 @@ impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
         reference_index: usize,
         extra_data: &AlignerData,
         _state_extra: &mut Self::StateExtra,
-    ) -> Alignment {
-        let reference = &extra_data.references[reference_index].sequence.as_bytes();
-        self.custom(sequence, reference)
+    ) -> (Alignment, Range<usize>) {
+        let entry = &extra_data.references[reference_index];
+        let reference = &entry.reference.sequence.as_bytes()[entry.range.clone()];
+        (self.custom(sequence, reference), entry.range.clone())
     }
 }
 

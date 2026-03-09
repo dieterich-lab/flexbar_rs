@@ -1,3 +1,4 @@
+use std::ops::Range;
 use bio::alignment::pairwise::banded::Aligner;
 use bio::alignment::sparse::{hash_kmers, HashMapFx};
 use crate::context::SequenceWithId;
@@ -18,8 +19,13 @@ pub type BandedBioRustAlignerConfig = BioRustAlignerConfig<BandedExtraConfig>;
 
 pub type BioRustBandedRawAligner = Aligner<BoxedScoreFunction>;
 
+pub struct OwnedReferenceWithRange {
+    pub reference: Vec<u8>,
+    pub range: Range<usize>,
+}
+
 pub struct BandedStateExtra {
-    pub owned_references: Vec<Vec<u8>>,
+    pub owned_references: Vec<OwnedReferenceWithRange>,
     pub kmer_hashes: Vec<HashMapFx<&'static [u8], Vec<u32>>>,
 }
 
@@ -52,12 +58,24 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
     ) -> Self::StateExtra {
         let mut owned_references = Vec::new();
         for r in references.iter() {
-            owned_references.push(r.sequence.as_bytes().to_vec());
+            let range = match config.mode {
+                AlignerMode::LeftMin => {
+                    let min_overlap = config.extra.min_overlap.unwrap_or(r.sequence.len());
+                    (r.sequence.len() - min_overlap)..r.sequence.len()
+                },
+                AlignerMode::RightMin => {
+                    let min_overlap = config.extra.min_overlap.unwrap_or(r.sequence.len());
+                    0..min_overlap
+                },
+                _ => 0..r.sequence.len(),
+            };
+            owned_references.push(OwnedReferenceWithRange { reference: r.sequence.as_bytes().to_vec(), range });
         }
 
         let mut kmer_hashes: Vec<HashMapFx<&'static [u8], Vec<u32>>> = Vec::new();
-        for r in owned_references.iter() {
-            let hash = hash_kmers(r, config.extra.k);
+        for entry in owned_references.iter() {
+            let relevant_ref = &entry.reference[entry.range.clone()];
+            let hash = hash_kmers(relevant_ref, config.extra.k);
             let mut pre_hash = HashMapFx::default();
             for (k, v) in hash {
                 // SAFETY: We are casting the reference to the owned sequence to 'static.
@@ -87,10 +105,11 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
         reference_index: usize,
         _extra_data: &BandedAlignerData,
         state_extra: &mut Self::StateExtra,
-    ) -> bio::alignment::Alignment {
-        let reference = &state_extra.owned_references[reference_index];
+    ) -> (bio::alignment::Alignment, Range<usize>) {
+        let entry = &state_extra.owned_references[reference_index];
+        let reference = &entry.reference[entry.range.clone()];
         let kmer_hash = &state_extra.kmer_hashes[reference_index];
-        self.custom_with_prehash(sequence, reference, kmer_hash)
+        (self.custom_with_prehash(sequence, reference, kmer_hash), entry.range.clone())
     }
 }
 

@@ -200,6 +200,7 @@ fn get_aligner_config<Extra: Clone>(
         mismatch_score: config.mismatch_score,
         gap_open: config.gap_open,
         gap_extend: config.gap_extend,
+        min_overlap: config.min_overlap,
         extra,
     }
 }
@@ -289,6 +290,8 @@ impl MultiAligner {
                     AlignerMode::Local => Self::align_local(some_aligner, some_state, some_setup, sequence, index),
                     AlignerMode::LeftOverlap => Self::align_left_overlap(some_aligner, some_state, some_setup, sequence, index),
                     AlignerMode::RightOverlap => Self::align_right_overlap(some_aligner, some_state, some_setup, sequence, index),
+                    AlignerMode::LeftMin => Self::align_left_overlap(some_aligner, some_state, some_setup, sequence, index),
+                    AlignerMode::RightMin => Self::align_right_overlap(some_aligner, some_state, some_setup, sequence, index),
                 };
                 let reference = &setup.references[index].sequence.as_bytes();
                 if !result.validate(

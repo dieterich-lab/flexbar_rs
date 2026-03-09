@@ -1,3 +1,4 @@
+use std::ops::Range;
 use bio::alignment::Alignment;
 use crate::multi_aligner::generic::{GenericRawResult};
 
@@ -10,6 +11,7 @@ pub struct MultiAlignerResult {
     pub raw: RawAlignment,
     pub sequence_offset: usize,
     pub reference_index: usize,
+    pub reference_range: Range<usize>,
 }
 
 impl<'r> MultiAlignerResult {
@@ -24,18 +26,18 @@ impl<'r> MultiAlignerResult {
     ) -> bool {
         match &self.raw {
             RawAlignment::BioRust(raw) =>
-                raw.validate(x, y, error_rate, min_overlap, x_offset),
+                raw.validate(x, y, error_rate, min_overlap, x_offset, self.reference_range.clone()),
         }
     }
 
     pub fn get_umi_tags(&self, x: &[u8], y: &[u8]) -> Vec<String> {
         match &self.raw {
-            RawAlignment::BioRust(raw) => raw.get_umi_tags(x, y, self.sequence_offset),
+            RawAlignment::BioRust(raw) => raw.get_umi_tags(x, y, self.sequence_offset, self.reference_range.clone()),
         }
     }
     pub fn format(&self, x: &[u8], y: &[u8]) -> String {
         match &self.raw {
-            RawAlignment::BioRust(raw) => raw.format(x, y, self.sequence_offset),
+            RawAlignment::BioRust(raw) => raw.format(x, y, self.sequence_offset, self.reference_range.clone()),
         }
     }
 

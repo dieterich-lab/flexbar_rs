@@ -22,6 +22,7 @@ pub struct BioRustAlignerConfig<ExtraConfig: Clone> {
     pub mismatch_score: i32,
     pub gap_open: i32,
     pub gap_extend: i32,
+    pub min_overlap: Option<usize>,
     pub extra: ExtraConfig,
 }
 
@@ -64,7 +65,7 @@ pub trait BioRustRawAligner<ExtraConfig: Clone> {
         reference_index: usize,
         aux_data: &Self::AuxData,
         state_extra: &mut Self::StateExtra,
-    ) -> bio::alignment::Alignment;
+    ) -> (bio::alignment::Alignment, std::ops::Range<usize>);
 }
 
 impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
@@ -131,22 +132,25 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
 
         let offset = if mode == AlignerMode::RightOverlap && seq_len > ref_len {
             seq_len - ref_len
+        } else if mode == AlignerMode::RightMin && seq_len > ref_len {
+            seq_len - ref_len
         } else {
             0
         };
 
-        let length = if mode != AlignerMode::Local && seq_len > ref_len {
+        let length = if (mode == AlignerMode::LeftOverlap || mode == AlignerMode::RightOverlap || mode == AlignerMode::LeftMin || mode == AlignerMode::RightMin) && seq_len > ref_len {
             ref_len
         } else {
             seq_len
         };
 
         let relevant_seq = &sequence[offset..offset + length];
-        let raw = aligner.perform_align(relevant_seq, reference_index, &aux_data, &mut state.extra);
+        let (raw, reference_range) = aligner.perform_align(relevant_seq, reference_index, &aux_data, &mut state.extra);
         MultiAlignerResult {
             raw: RawAlignment::BioRust(raw),
             sequence_offset: offset,
             reference_index,
+            reference_range,
         }
     }
 }
@@ -172,12 +176,14 @@ pub fn get_scoring<ExtraConfig: Clone>(config: &BioRustAlignerConfig<ExtraConfig
         _ => 0,
     };
     let yclip_suffix = match config.mode {
-        AlignerMode::RightOverlap => 0,
-        _ => MIN_SCORE,
+        AlignerMode::Local => MIN_SCORE,
+        AlignerMode::LeftOverlap => MIN_SCORE,
+        _ => 0,
     };
     let yclip_prefix = match config.mode {
-        AlignerMode::LeftOverlap => 0,
-        _ => MIN_SCORE,
+        AlignerMode::Local => MIN_SCORE,
+        AlignerMode::RightOverlap => MIN_SCORE,
+        _ => 0,
     };
 
     Scoring {
