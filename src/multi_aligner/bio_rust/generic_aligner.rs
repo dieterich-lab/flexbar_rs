@@ -176,14 +176,12 @@ pub fn get_scoring<ExtraConfig: Clone>(config: &BioRustAlignerConfig<ExtraConfig
         _ => 0,
     };
     let yclip_suffix = match config.mode {
-        AlignerMode::Local => MIN_SCORE,
-        AlignerMode::LeftOverlap => MIN_SCORE,
-        _ => 0,
+        AlignerMode::RightOverlap => 0,
+        _ => MIN_SCORE,
     };
     let yclip_prefix = match config.mode {
-        AlignerMode::Local => MIN_SCORE,
-        AlignerMode::RightOverlap => MIN_SCORE,
-        _ => 0,
+        AlignerMode::LeftOverlap => 0,
+        _ => MIN_SCORE,
     };
 
     Scoring {

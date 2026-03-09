@@ -84,7 +84,7 @@ impl MultiAlignerSetup {
             debug!("{}: Using non-banded aligner with trim end {:?}.", name, trim_end);
         }
 
-        let required_modes = match trim_end {
+        let mut required_modes = match trim_end {
             TrimEnd::Any => vec![
                 AlignerMode::Local, AlignerMode::LeftOverlap, AlignerMode::RightOverlap
             ],
@@ -106,6 +106,19 @@ impl MultiAlignerSetup {
         };
 
         let mut aligner_setups:Vec<SpecificAlignerSetup> = Vec::new();
+        let mut i = 0;
+        while i < required_modes.len() {
+            let mode = required_modes[i];
+            if mode == AlignerMode::LeftOverlap {
+                required_modes.insert(i, AlignerMode::LeftMin);
+                i += 1;
+            } else if mode == AlignerMode::RightOverlap {
+                required_modes.insert(i, AlignerMode::RightMin);
+                i += 1;
+            }
+            i += 1;
+        }
+
         for mode in required_modes {
             if kmer_k > 0 {
                 aligner_setups.push(Self::create_banded_setup(
@@ -248,11 +261,14 @@ impl MultiAligner {
         }
 
         let mut best: Option<MultiAlignerResult> = None;
+
         for index in 0..setup.references.len() {
+            let mut skip_next = false;
             for ((some_setup, some_aligner), some_state) in 
                 setup.aligner_setups.iter().zip(self.aligners.iter())
                 .zip(state.aligner_states.iter_mut())
             {
+                if skip_next { skip_next = false; continue }
                 let mode = match some_setup {
                     SpecificAlignerSetup::BioRust(s) => s.config.mode,
                     SpecificAlignerSetup::BioRustBanded(s) => s.config.mode,
@@ -269,17 +285,29 @@ impl MultiAligner {
                     AlignerMode::RightMin => Self::align_right_min(some_aligner, some_state, some_setup, sequence, index),
                 };
                 let reference = &setup.references[index].sequence.as_bytes();
-                if !result.validate(
+                if result.validate(
                     setup.config.error_rate, sequence, reference, setup.config.min_overlap, result.sequence_offset
                 ) {
-                    continue;
+                    match mode {
+                        AlignerMode::LeftMin | AlignerMode::RightMin => (), // Pre-check only
+                        _ => {
+                            let old_score = match best.as_ref() {
+                                Some(b) => b.score(),
+                                None => i32::MIN,
+                            };
+                            if old_score < result.score() {
+                                best = Some(result);
+                            }
+                        },
+                    }
+                } else {
+                    match mode {
+                        AlignerMode::LeftMin | AlignerMode::RightMin => {
+                            skip_next = true; // Pre-check failed
+                        },
+                        _ => (),
+                    }
                 }
-                let old_score = match best.as_ref() {
-                    Some(b) => b.score(),
-                    None => i32::MIN,
-                };
-                if old_score >= result.score() { continue; }
-                best = Some(result);
             }
             if let Some(ref b) = best {
                 if b.score() >= setup.config.match_score * (setup.references[index].sequence.len() as i32) {
@@ -802,6 +830,12 @@ mod tests {
         assert!(formatted.contains("CCCCCGGG"));
         assert!(formatted.contains("|\\|"));
         assert!(formatted.contains("AAACCACC"));
+        assert_eq!(formatted, concat!(
+        "Alignment with score 3:\n",
+        "     CCCCCGGG\n",
+        "  ,,,||\\||´´´\n",
+        "  AAACCACC   \n"
+        ));
     }
 
     #[test]

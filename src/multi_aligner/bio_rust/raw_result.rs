@@ -1,3 +1,4 @@
+use std::cmp::min;
 use std::ops::Range;
 use bio::alignment::{Alignment, AlignmentOperation};
 use crate::multi_aligner::generic::GenericRawResult;
@@ -6,17 +7,18 @@ impl GenericRawResult for Alignment {
     fn validate(
         &self, x: &[u8], y: &[u8], error_rate: f32, min_overlap: Option<usize>, x_offset: usize, y_range: Range<usize>
     ) -> bool {
-        let y_part = &y[y_range];
-        let check_length = if self.xstart + x_offset > self.ystart {
-            std::cmp::min(y_part.len(), x.len() - self.xstart - x_offset)
+        let y_start_real = y_range.start + self.ystart;
+        let y_part = &y[y_range.start..y_range.end];
+        let check_length = if self.xstart + x_offset > y_start_real {
+            min(y_part.len(), x.len() - self.xstart - x_offset)
         } else {
-            std::cmp::min(y_part.len(), y_part.len() - (self.ystart - self.xstart - x_offset))
+            min(y_part.len(), y.len() - (y_start_real - self.xstart - x_offset))
         };
         match min_overlap {
             Some(x) => if x > check_length {return false},
             None => ()
         }
-        let allowed_errors = (check_length as f32 * error_rate) as usize;
+        let allowed_errors = (y.len() as f32 * error_rate) as usize;
         check_match(self, y_part, check_length, allowed_errors)
     }
 
