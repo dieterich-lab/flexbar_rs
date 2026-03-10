@@ -84,41 +84,9 @@ impl MultiAlignerSetup {
             debug!("{}: Using non-banded aligner with trim end {:?}.", name, trim_end);
         }
 
-        let mut required_modes = match trim_end {
-            TrimEnd::Any => vec![
-                AlignerMode::Local, AlignerMode::LeftOverlap, AlignerMode::RightOverlap
-            ],
-            TrimEnd::Left => if config.min_overlap.is_some() {
-                vec![AlignerMode::Local, AlignerMode::LeftOverlap]
-            } else {
-                // if no minimal overlap is specified, we assume
-                // "min_overlap = length of the reference".
-                // So the local aligner can find it.
-                vec![AlignerMode::Local]
-            },
-            TrimEnd::Right => if config.min_overlap.is_some() {
-                vec![AlignerMode::Local, AlignerMode::RightOverlap]
-            } else {
-                vec![AlignerMode::Local]
-            },
-            TrimEnd::LTail => vec![AlignerMode::LeftOverlap],
-            TrimEnd::RTail => vec![AlignerMode::RightOverlap],
-        };
+        let required_modes = Self::get_aligner_mode_order(trim_end, &config);
 
         let mut aligner_setups:Vec<SpecificAlignerSetup> = Vec::new();
-        let mut i = 0;
-        while i < required_modes.len() {
-            let mode = required_modes[i];
-            if mode == AlignerMode::LeftOverlap {
-                required_modes.insert(i, AlignerMode::LeftMin);
-                i += 1;
-            } else if mode == AlignerMode::RightOverlap {
-                required_modes.insert(i, AlignerMode::RightMin);
-                i += 1;
-            }
-            i += 1;
-        }
-
         for mode in required_modes {
             if kmer_k > 0 {
                 aligner_setups.push(Self::create_banded_setup(
@@ -131,6 +99,42 @@ impl MultiAlignerSetup {
             }
         }
         MultiAlignerSetup { references: references.to_vec(), config, aligner_setups }
+    }
+
+    fn get_aligner_mode_order(trim_end: TrimEnd, config: &BioRustAlignerParameters) -> Vec<AlignerMode> {
+        match trim_end {
+            TrimEnd::Any => if config.min_overlap.is_some() {
+                // We need to do three alignments in this case:
+                // 1. A local one to find alignments embedded in the read.
+                // 2. A semi-global one to find alignments overlapping with the left end.
+                // 3. Another one for the right end.
+                // It seems that the semi-global alignment is slow (why? Have not found out yet).
+                // As a workaround we try first a local alignment on the end with the
+                // minimal overlap on just the end of the read and skip the semi-global
+                // one if it fails.
+                vec![
+                    AlignerMode::Local,
+                    AlignerMode::LeftMin, AlignerMode::LeftOverlap,
+                    AlignerMode::RightMin, AlignerMode::RightOverlap
+                ]
+            } else {
+                // If no min_overlap is specified, the reference must be completely present in
+                // the read. So we only need a local alignment.
+                vec![AlignerMode::Local]
+            }
+            TrimEnd::Left => if config.min_overlap.is_some() {
+                vec![AlignerMode::Local, AlignerMode::LeftMin, AlignerMode::LeftOverlap]
+            } else {
+                vec![AlignerMode::Local]
+            },
+            TrimEnd::Right => if config.min_overlap.is_some() {
+                vec![AlignerMode::Local, AlignerMode::RightMin, AlignerMode::RightOverlap]
+            } else {
+                vec![AlignerMode::Local]
+            },
+            TrimEnd::LTail => vec![AlignerMode::LeftMin, AlignerMode::LeftOverlap],
+            TrimEnd::RTail => vec![AlignerMode::RightMin, AlignerMode::RightOverlap],
+        }
     }
 
     fn create_banded_setup(
@@ -949,7 +953,7 @@ mod tests {
         let references = get_as_references(y);
 
         let result = run_alignment(
-            TrimEnd::Any, get_default_config(), None,
+            TrimEnd::Right, get_benchmark_config(), None,
             x, &references
         );
         assert!(result.is_none());
