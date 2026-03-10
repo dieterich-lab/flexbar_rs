@@ -88,7 +88,8 @@ impl MultiAlignerSetup {
 
         let mut aligner_setups:Vec<SpecificAlignerSetup> = Vec::new();
         for mode in required_modes {
-            if kmer_k > 0 {
+            // We do not trust the banded aligner with semi-global alignments.
+            if kmer_k > 0 && mode != AlignerMode::LeftOverlap && mode != AlignerMode::RightOverlap {
                 aligner_setups.push(Self::create_banded_setup(
                     &name, &config, mode, kmer_k, references
                 ));
@@ -465,7 +466,7 @@ mod tests {
             min_overlap: Some(11),
             match_score: 1,
             mismatch_score: -1,
-            gap_open: -1,
+            gap_open: -9,
             gap_extend: -1,
         }
     }
@@ -922,7 +923,7 @@ mod tests {
     }
 
     #[test]
-    fn test_user_requested_alignment() {
+    fn test_small_overlap_alignment() {
         let x = b"TATCGTTTTTTCACTGACCCGGTGAGGCGGGGTGTACGCATACTGTAGGCACCATCGTAGAGTAGCTCTGT";
         let y = b"NNNNNNTAGCTCTGTAGGCACCATCAAT";
         let references = get_as_references(y);
@@ -944,6 +945,31 @@ mod tests {
         
         // Verify it matches the end of x
         assert_eq!(alignment.get_end_index(), x.len());
+    }
+
+    #[test]
+    fn test_min_overlap_alignment() {
+        let x = b"TGCTCTCGCTTCTGGCGCCAAGCGCTGCACCGACTGTAAGCCACGTCAATCACCCGGAAGAGCACATAGCT";
+        let y = b"NNNNNNTAGCTCTGTAGGCACCATCAAT";
+        let references = get_as_references(y);
+
+        let result = run_alignment(
+            TrimEnd::Right, get_benchmark_config(), None,
+            x, &references
+        );
+
+        assert!(result.is_some(), "Alignment should be found");
+        let alignment = result.unwrap();
+        assert_eq!(alignment.get_start_index(), 60);
+        assert_eq!(alignment.get_end_index(), 71);
+
+        let formatted = alignment.format(x, y);
+        println!("{}", formatted);
+
+        let umi_tags = alignment.get_umi_tags(x, y);
+        assert_eq!(umi_tags[0], "AGCACA");
+
+
     }
 
     #[test]
