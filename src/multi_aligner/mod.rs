@@ -13,7 +13,6 @@ use crate::multi_aligner::result::MultiAlignerResult;
 use log::{debug, info, warn};
 use bio_rust::generic_aligner::BioRustAlignerParameters;
 use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioRustAlignerState};
-use crate::multi_aligner::generic::ReferenceWithRange;
 
 
 fn get_minimum_kmer_k() -> usize {
@@ -494,12 +493,12 @@ mod tests {
     fn test_aligner_right_overhang() {
         let references = get_as_references(b"NNNTTTTCCC");
         let result = run_alignment(
-            TrimEnd::Right, get_default_config(), None,
+            TrimEnd::Right, get_overlap5_config(), None,
             b"AAAAATTT", &references
         );
         let alignment = result.unwrap();
         // Matching prefix NNNTTT at position 2
-        assert_eq!(alignment.score(), 6);
+        assert_eq!(alignment.score(), 3);
         assert_eq!(alignment.get_start_index(), 2);
         assert_eq!(alignment.get_end_index(), 8);
     }
@@ -599,7 +598,7 @@ mod tests {
         );
         let alignment = result.unwrap();
         // Matching NNNTTTTTT (prefix) at position 2
-        assert_eq!(alignment.score(), 6);
+        assert_eq!(alignment.score(), 3);
         assert_eq!(alignment.get_start_index(), 10);
         assert_eq!(alignment.get_end_index(), 16);
     }
@@ -628,7 +627,7 @@ mod tests {
         );
         let alignment = result.unwrap();
         // Match NNNTTT starting x[10]
-        assert_eq!(alignment.score(), 6);
+        assert_eq!(alignment.score(), 3);
         assert_eq!(alignment.get_start_index(), 10);
         assert_eq!(alignment.get_end_index(), 16);
     }
@@ -745,9 +744,12 @@ mod tests {
         );
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
-        assert!(formatted.contains("ACGTATCG"));
-        assert!(formatted.contains("||||.|||"));
-        assert!(formatted.contains("ACGTNTCG"));
+        assert_eq!(formatted, concat!(
+            "Alignment with score 8:\n",
+            "  ACGTATCG\n",
+            "  ||||.|||\n",
+            "  ACGTNTCG\n"
+        ));
     }
 
     #[test]
@@ -850,7 +852,7 @@ mod tests {
         assert_eq!(formatted, concat!(
         "Alignment with score 4:\n",
         "     CAATCCTTTT\n",
-        "  ,,,||| |||´´ \n",
+        "  ,,,|||´|||´´´\n",
         "  CCCCAA CCT   \n"
         ));
     }
@@ -870,7 +872,7 @@ mod tests {
         assert_eq!(formatted, concat!(
         "Alignment with score 4:\n",
         "     CAA CCTTTT\n",
-        "  ,,,||| |||´´´\n",
+        "  ,,,|||,|||´´´\n",
         "  CCCCAATCCT   \n"
         ));
     }
@@ -907,7 +909,7 @@ mod tests {
         // Check format
         let formatted = alignment.format(x, y);
         assert_eq!(formatted, concat!(
-            "Alignment with score 27:\n",
+            "Alignment with score 21:\n",
             "  CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA \n",
             "  ´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´´......|||||||||||||||||||||,\n",
             "                                              NNNNNNTAGCTCTGTAGGCACCATCAAT\n"

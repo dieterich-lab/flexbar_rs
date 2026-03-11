@@ -1,4 +1,3 @@
-use std::ops::Range;
 use bio::alignment::Alignment;
 use bio::alignment::pairwise::Aligner;
 use crate::context::SequenceWithId;
@@ -37,10 +36,15 @@ impl BioRustRawAligner<()> for BioRustPairwiseRawAligner {
         sequence: &[u8],
         reference_index: usize,
         state_extra: &mut Self::StateExtra,
-    ) -> (Alignment, Range<usize>) {
-        let entry = &state_extra.references[reference_index];
-        let reference = &entry.reference.sequence.as_bytes()[entry.range.clone()];
-        (self.custom(sequence, reference), entry.range.clone())
+    ) -> Alignment {
+        let reference = &state_extra.references[reference_index].get_aligner_sequence();
+        self.custom(sequence, reference)
+    }
+
+    fn get_reference<'r, 's: 'r, 'e: 'r>(
+        &'s self, state_extra: &'e Self::StateExtra, reference_index: usize
+    ) -> &'r ReferenceWithRange {
+        &state_extra.references[reference_index]
     }
 }
 

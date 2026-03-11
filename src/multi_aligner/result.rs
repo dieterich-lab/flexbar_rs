@@ -12,6 +12,8 @@ pub struct MultiAlignerResult {
     pub sequence_offset: usize,
     pub reference_index: usize,
     pub reference_range: Range<usize>,
+    pub stripped_leading_n_count: usize,
+    pub stripped_trailing_n_count: usize,
 }
 
 impl<'r> MultiAlignerResult {
@@ -24,9 +26,18 @@ impl<'r> MultiAlignerResult {
     pub fn validate(
         &self, error_rate: f32, x: &[u8], y: &[u8], min_overlap: Option<usize>, x_offset: usize
     ) -> bool {
+        let corrected_min_overlap: Option<usize> = match min_overlap {
+            Some(min_overlap) => {
+                let stripped_n_count = self.stripped_leading_n_count + self.stripped_trailing_n_count;
+                Some(min_overlap.saturating_sub(stripped_n_count))
+            },
+            None => None,
+        };
         match &self.raw {
             RawAlignment::BioRust(raw) =>
-                raw.validate(x, y, error_rate, min_overlap, x_offset, self.reference_range.clone()),
+                raw.validate(
+                    x, y, error_rate, corrected_min_overlap, x_offset, self.reference_range.clone()
+                ),
         }
     }
 
@@ -43,12 +54,14 @@ impl<'r> MultiAlignerResult {
 
     pub fn get_start_index(&self) -> usize {
         match &self.raw {
-            RawAlignment::BioRust(raw) => self.sequence_offset + raw.xstart,
+            RawAlignment::BioRust(raw)
+                => self.sequence_offset + raw.xstart - self.stripped_leading_n_count,
         }
     }
     pub fn get_end_index(&self) -> usize {
         match &self.raw {
-            RawAlignment::BioRust(raw) => self.sequence_offset + raw.xend,
+            RawAlignment::BioRust(raw)
+                => self.sequence_offset + raw.xend + self.stripped_trailing_n_count,
         }
     }
 }

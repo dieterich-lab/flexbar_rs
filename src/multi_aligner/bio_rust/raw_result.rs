@@ -5,7 +5,8 @@ use crate::multi_aligner::generic::GenericRawResult;
 
 impl GenericRawResult for Alignment {
     fn validate(
-        &self, x: &[u8], y: &[u8], error_rate: f32, min_overlap: Option<usize>, x_offset: usize, y_range: Range<usize>
+        &self, x: &[u8], y: &[u8], error_rate: f32, min_overlap: Option<usize>, x_offset: usize,
+        y_range: Range<usize>
     ) -> bool {
         let y_start_real = y_range.start + self.ystart;
         let y_part = &y[y_range.start..y_range.end];
@@ -23,16 +24,32 @@ impl GenericRawResult for Alignment {
     }
 
     fn get_umi_tags(&self, x: &[u8], y: &[u8], x_offset: usize, y_range: Range<usize>) -> Vec<String> {
-        let y_part = &y[y_range];
         let mut umi_tags = Vec::new();
         let mut umi = String::new();
         let mut x_pos = self.xstart + x_offset;
-        let mut y_pos = self.ystart;
+        let mut y_pos = 0;
+
+        // Skipped leading Ns
+        let y_alignment_start = y_range.start + self.ystart;
+        if y_pos < y_alignment_start {
+            if y_alignment_start <= x_pos {
+                x_pos -= y_alignment_start;
+            } else {
+                y_pos = y_alignment_start - x_pos;
+            }
+            while y_pos < y_alignment_start {
+                if y_pos <= x_pos {
+                    umi.push(x[x_pos] as char);
+                    x_pos += 1;
+                    y_pos += 1;
+                }
+            }
+        }
 
         for op in &self.operations {
             match op {
                 AlignmentOperation::Match | AlignmentOperation::Subst => {
-                    if y_pos < y_part.len() && y_part[y_pos] == b'N' {
+                    if y_pos < y.len() && y[y_pos] == b'N' {
                         if x_pos < x.len() {
                             umi.push(x[x_pos] as char);
                         }
@@ -52,6 +69,14 @@ impl GenericRawResult for Alignment {
                 _ => {}
             }
         }
+
+        // Skipped trailing Ns
+        while x_pos < x.len() && y_pos < y.len() {
+            umi.push(x[x_pos] as char);
+            x_pos += 1;
+            y_pos += 1;
+        }
+
         if !umi.is_empty() {
             umi_tags.push(umi);
         }
@@ -59,86 +84,92 @@ impl GenericRawResult for Alignment {
     }
 
     fn format(&self, x: &[u8], y: &[u8], x_offset: usize, y_range: Range<usize>) -> String {
-        let y_part = &y[y_range];
         let mut line1 = String::new();
         let mut line2 = String::new();
         let mut line3 = String::new();
 
         let mut x_pos = 0;
         let mut y_pos = 0;
+        let x_alignment_start = x_offset + self.xstart;
+        let y_alignment_start = y_range.start + self.ystart;
 
-        for _ in 0..x_offset {
-            if x_pos < x.len() {
+        while x_pos < x_alignment_start || y_pos < y_alignment_start {
+            if x_alignment_start - x_pos > y_alignment_start - y_pos {
                 line1.push(x[x_pos] as char);
                 line2.push('´');
                 line3.push(' ');
                 x_pos += 1;
+            } else if x_alignment_start - x_pos < y_alignment_start - y_pos {
+                line1.push(' ');
+                line2.push(',');
+                line3.push(y[y_pos] as char);
+                y_pos += 1;
+            } else if y[y_pos] == b'N' {
+                line1.push(x[x_pos] as char);
+                line2.push('.');
+                line3.push('N');
+                x_pos += 1;
+                y_pos += 1;
             }
         }
+
         for op in &self.operations {
             match op {
                 AlignmentOperation::Match => {
-                    let x_char = if x_pos < x.len() { x[x_pos] } else { b' ' };
-                    let y_char = if y_pos < y_part.len() { y_part[y_pos] } else { b' ' };
-                    line1.push(if x_pos < x.len() { x_char as char } else { '-' });
-                    line3.push(if y_pos < y_part.len() { y_char as char } else { '-' });
-                    if x_char == b'N' || y_char == b'N' {
-                        line2.push('.');
-                    } else {
-                        line2.push('|');
-                    }
+                    line1.push(x[x_pos] as char);
+                    line2.push('|');
+                    line3.push(y[y_pos] as char);
                     x_pos += 1;
                     y_pos += 1;
                 }
                 AlignmentOperation::Subst => {
-                    let x_char = if x_pos < x.len() { x[x_pos] } else { b' ' };
-                    let y_char = if y_pos < y_part.len() { y_part[y_pos] } else { b' ' };
-                    line1.push(if x_pos < x.len() { x_char as char } else { '-' });
-                    line3.push(if y_pos < y_part.len() { y_char as char } else { '-' });
-                    if x_char == b'N' || y_char == b'N' {
+                    line1.push(x[x_pos] as char);
+                    if x[x_pos] == b'N' || y[y_pos] == b'N' {
                         line2.push('.');
                     } else {
                         line2.push('\\');
                     }
+                    line3.push(y[y_pos] as char);
                     x_pos += 1;
                     y_pos += 1;
                 }
                 AlignmentOperation::Ins => {
-                    line1.push(if x_pos < x.len() { x[x_pos] as char } else { '-' });
-                    line2.push(' ');
+                    line1.push(x[x_pos] as char);
+                    line2.push('´');
                     line3.push(' ');
                     x_pos += 1;
                 }
                 AlignmentOperation::Del => {
                     line1.push(' ');
-                    line2.push(' ');
-                    line3.push(if y_pos < y_part.len() { y_part[y_pos] as char } else { '-' });
+                    line2.push(',');
+                    line3.push(y[y_pos] as char);
                     y_pos += 1;
                 }
-                AlignmentOperation::Xclip(len) => {
-                    for _ in 0..*len {
-                        line1.push(if x_pos < x.len() { x[x_pos] as char } else { '-' });
-                        line2.push('´');
-                        line3.push(' ');
-                        x_pos += 1;
-                    }
-                }
-                AlignmentOperation::Yclip(len) => {
-                    for _ in 0..*len {
-                        line1.push(' ');
-                        line2.push(',');
-                        line3.push(if y_pos < y_part.len() { y_part[y_pos] as char } else { '-' });
-                        y_pos += 1;
-                    }
-                }
+                _ => {}
             }
         }
-        // Append remaining x if any
-        while x_pos < x.len() {
-            line1.push(x[x_pos] as char);
-            line2.push(' ');
-            line3.push(' ');
-            x_pos += 1;
+
+        while x_pos < x.len() || y_pos < y.len() {
+            if y_pos >= y.len() {
+                line1.push(x[x_pos] as char);
+                line2.push('´');
+                line3.push(' ');
+                x_pos += 1;
+            } else if x_pos >= x.len() {
+                line1.push(' ');
+                line2.push(',');
+                line3.push(y[y_pos] as char);
+                y_pos += 1;
+            } else if y[y_pos] == b'N' {
+                line1.push(x[x_pos] as char);
+                line2.push('.');
+                line3.push('N');
+                x_pos += 1;
+                y_pos += 1;
+            } else {
+                unreachable!("Should never happen!")
+            }
+
         }
 
         format!("\
@@ -147,6 +178,7 @@ impl GenericRawResult for Alignment {
         )
     }
 }
+
 fn check_match(
     alignment: &Alignment,
     y: &[u8],

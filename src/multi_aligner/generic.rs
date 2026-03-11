@@ -14,6 +14,21 @@ pub enum AlignerMode {
 pub struct ReferenceWithRange {
     pub reference: SequenceWithId,
     pub range: Range<usize>,
+    pub aligner_range: Range<usize>,
+}
+
+impl ReferenceWithRange {
+    pub fn get_aligner_sequence(&self) -> &[u8] {
+        &self.reference.sequence.as_bytes()[self.aligner_range.clone()]
+    }
+
+    pub fn get_aligner_start_offset(&self) -> usize {
+        self.aligner_range.start - self.range.start
+    }
+
+    pub fn get_aligner_end_offset(&self) -> usize {
+        self.range.end - self.aligner_range.end
+    }
 }
 
 pub trait GenericRawResult {

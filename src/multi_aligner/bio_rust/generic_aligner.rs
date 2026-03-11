@@ -1,3 +1,4 @@
+use bio::alignment::Alignment;
 use bio::alignment::pairwise::{Scoring, MIN_SCORE};
 use crate::context::SequenceWithId;
 use crate::multi_aligner::generic::{AlignerMode, ReferenceWithRange};
@@ -30,7 +31,6 @@ pub struct BioRustAligner<Raw: Send, ExtraConfig: Clone> {
     pub config: BioRustAlignerConfig<ExtraConfig>,
     pub y_capacity: usize,
     pub allowed_errors: usize,
-    pub reference_lengths: Vec<usize>,
     _phantom: std::marker::PhantomData<Raw>,
 }
 
@@ -58,7 +58,13 @@ pub trait BioRustRawAligner<ExtraConfig: Clone> {
         sequence: &[u8],
         reference_index: usize,
         state_extra: &mut Self::StateExtra,
-    ) -> (bio::alignment::Alignment, std::ops::Range<usize>);
+    ) -> Alignment;
+
+    // The get_reference signature is awkward. Unfortunately, the references
+    // are kept in aligner's "state_extra", because they might be tightly linked with
+    // other structures in the state, such as the kmer hashes for the banded aligner.
+    fn get_reference<'r, 's: 'r, 'e: 'r>(&'s self, state_extra: &'e Self::StateExtra, reference_index: usize)
+        -> &'r ReferenceWithRange;
 }
 
 impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
@@ -77,7 +83,6 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
             config: config.clone(),
             y_capacity,
             allowed_errors,
-            reference_lengths,
             _phantom: std::marker::PhantomData,
         }
     }
@@ -118,31 +123,35 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         reference_index: usize,
     ) -> MultiAlignerResult {
         let aligner = state.raw.as_mut().expect("Aligner not setup. Call setup_aligner first.");
-        let seq_len = sequence.len();
-        let ref_len = self.reference_lengths[reference_index];
         let mode = self.config.mode;
-
-        let offset = if mode == AlignerMode::RightOverlap && seq_len > ref_len {
-            seq_len - ref_len
-        } else if mode == AlignerMode::RightMin && seq_len > ref_len {
-            seq_len - ref_len
-        } else {
-            0
+        let r = aligner.get_reference(&state.extra, reference_index);
+        let seq_len = sequence.len();
+        let full_ref_len = r.reference.sequence.len();
+        let seq_start = match mode {
+            AlignerMode::RightOverlap | AlignerMode::RightMin => if seq_len > full_ref_len
+                { seq_len - full_ref_len + r.get_aligner_start_offset() } else { 0 },
+            _ => if seq_len > r.get_aligner_start_offset()
+                { r.get_aligner_start_offset() } else { 0 },
         };
-
-        let length = if (mode == AlignerMode::LeftOverlap || mode == AlignerMode::RightOverlap || mode == AlignerMode::LeftMin || mode == AlignerMode::RightMin) && seq_len > ref_len {
-            ref_len
-        } else {
-            seq_len
+        let seq_end = match mode {
+            AlignerMode::LeftOverlap | AlignerMode::LeftMin => if seq_len > full_ref_len
+                { full_ref_len - r.get_aligner_end_offset() } else { seq_len },
+            _ => if seq_len > seq_start + r.get_aligner_end_offset()
+                { seq_len - r.get_aligner_end_offset() } else { seq_len },
         };
+        let relevant_seq = &sequence[seq_start..seq_end];
+        let reference_range = r.aligner_range.clone();
+        let stripped_leading_n_count = r.get_aligner_start_offset();
+        let stripped_trailing_n_count = r.get_aligner_end_offset();
+        let raw = aligner.perform_align(relevant_seq, reference_index, &mut state.extra);
 
-        let relevant_seq = &sequence[offset..offset + length];
-        let (raw, reference_range) = aligner.perform_align(relevant_seq, reference_index, &mut state.extra);
         MultiAlignerResult {
             raw: RawAlignment::BioRust(raw),
-            sequence_offset: offset,
+            sequence_offset: seq_start,
             reference_index,
             reference_range,
+            stripped_leading_n_count,
+            stripped_trailing_n_count,
         }
     }
 }
@@ -205,7 +214,21 @@ pub fn create_references_with_range<Extra: Clone>(
             },
             _ => 0..r.sequence.len(),
         };
-        refs_with_range.push(ReferenceWithRange { reference: r.clone(), range });
+
+        let ref_bytes = r.sequence.as_bytes();
+        let mut core_start = range.start;
+        while core_start < range.end && ref_bytes[core_start] == b'N' {
+            core_start += 1;
+        }
+        let mut core_end = range.end;
+        while core_end > core_start && ref_bytes[core_end - 1] == b'N' {
+            core_end -= 1;
+        }
+        let aligner_range = core_start..core_end;
+
+        refs_with_range.push(
+            ReferenceWithRange { reference: r.clone(), range, aligner_range }
+        );
     }
     refs_with_range
 }

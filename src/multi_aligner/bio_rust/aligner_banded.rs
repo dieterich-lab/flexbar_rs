@@ -1,4 +1,4 @@
-use std::ops::Range;
+use bio::alignment::Alignment;
 use bio::alignment::pairwise::banded::Aligner;
 use bio::alignment::sparse::{hash_kmers, HashMapFx};
 use crate::context::SequenceWithId;
@@ -51,13 +51,13 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
 
         let mut kmer_hashes: Vec<HashMapFx<&'static [u8], Vec<u32>>> = Vec::new();
         for entry in references_with_range.iter() {
-            let relevant_ref = &entry.reference.sequence.as_bytes()[entry.range.clone()];
+            let relevant_ref = &entry.get_aligner_sequence();
             let hash = hash_kmers(relevant_ref, config.extra.k);
             let mut pre_hash = HashMapFx::default();
             for (k, v) in hash {
                 // SAFETY: We are casting the reference to the owned sequence to 'static.
                 // This is safe because BandedStateExtra owns both 'references' and 'kmer_hashes',
-                // and 'references' is never modified or moved individually after creation.
+                // and 'references' are never modified or moved individually after creation.
                 let static_k: &'static [u8] = unsafe { std::mem::transmute(k) };
                 pre_hash.insert(static_k, v);
             }
@@ -74,11 +74,15 @@ impl BioRustRawAligner<BandedExtraConfig> for BioRustBandedRawAligner {
         sequence: &[u8],
         reference_index: usize,
         state_extra: &mut Self::StateExtra,
-    ) -> (bio::alignment::Alignment, Range<usize>) {
-        let entry = &state_extra.references[reference_index];
-        let reference = &entry.reference.sequence.as_bytes()[entry.range.clone()];
+    ) -> Alignment {
+        let reference = &state_extra.references[reference_index].get_aligner_sequence();
         let kmer_hash = &state_extra.kmer_hashes[reference_index];
-        (self.custom_with_prehash(sequence, reference, kmer_hash), entry.range.clone())
+        self.custom_with_prehash(sequence, reference, kmer_hash)
+    }
+
+    fn get_reference<'r, 's: 'r, 'e: 'r>(&'s self, state_extra: &'e Self::StateExtra, reference_index: usize)
+        -> &'r ReferenceWithRange {
+        &state_extra.references[reference_index]
     }
 }
 
