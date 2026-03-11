@@ -1,4 +1,5 @@
 use std::ops::Range;
+use crate::context::SequenceWithId;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AlignerMode {
@@ -7,6 +8,12 @@ pub enum AlignerMode {
     RightOverlap,
     LeftMin,
     RightMin,
+}
+
+#[derive(Clone)]
+pub struct ReferenceWithRange {
+    pub reference: SequenceWithId,
+    pub range: Range<usize>,
 }
 
 pub trait GenericRawResult {

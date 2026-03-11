@@ -1,6 +1,6 @@
 use bio::alignment::pairwise::{Scoring, MIN_SCORE};
 use crate::context::SequenceWithId;
-use crate::multi_aligner::generic::AlignerMode;
+use crate::multi_aligner::generic::{AlignerMode, ReferenceWithRange};
 use crate::multi_aligner::result::{MultiAlignerResult, RawAlignment};
 
 pub type BoxedScoreFunction = Box<dyn Fn(u8, u8) -> i32 + Send + Sync>;
@@ -41,7 +41,6 @@ pub struct BioRustAlignerState<Raw: Send, Extra: Send> {
 }
 
 pub trait BioRustRawAligner<ExtraConfig: Clone> {
-    type AuxData;
     type StateExtra: Send;
 
     fn create_raw(
@@ -54,16 +53,10 @@ pub trait BioRustRawAligner<ExtraConfig: Clone> {
         references: &[SequenceWithId],
     ) -> Self::StateExtra;
 
-    fn create_aux_data(
-        config: &BioRustAlignerConfig<ExtraConfig>,
-        references: &[SequenceWithId]
-    ) -> Self::AuxData;
-
     fn perform_align(
         &mut self,
         sequence: &[u8],
         reference_index: usize,
-        aux_data: &Self::AuxData,
         state_extra: &mut Self::StateExtra,
     ) -> (bio::alignment::Alignment, std::ops::Range<usize>);
 }
@@ -123,7 +116,6 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         state: &mut BioRustAlignerState<Raw, Raw::StateExtra>,
         sequence: &[u8],
         reference_index: usize,
-        aux_data: &Raw::AuxData
     ) -> MultiAlignerResult {
         let aligner = state.raw.as_mut().expect("Aligner not setup. Call setup_aligner first.");
         let seq_len = sequence.len();
@@ -145,7 +137,7 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
         };
 
         let relevant_seq = &sequence[offset..offset + length];
-        let (raw, reference_range) = aligner.perform_align(relevant_seq, reference_index, &aux_data, &mut state.extra);
+        let (raw, reference_range) = aligner.perform_align(relevant_seq, reference_index, &mut state.extra);
         MultiAlignerResult {
             raw: RawAlignment::BioRust(raw),
             sequence_offset: offset,
@@ -194,4 +186,26 @@ pub fn get_scoring<ExtraConfig: Clone>(config: &BioRustAlignerConfig<ExtraConfig
         yclip_prefix,
         yclip_suffix,
     }
+}
+
+pub fn create_references_with_range<Extra: Clone>(
+    config: &BioRustAlignerConfig<Extra>,
+    references: &[SequenceWithId],
+) -> Vec<ReferenceWithRange> {
+    let mut refs_with_range = Vec::new();
+    for r in references {
+        let range = match config.mode {
+            AlignerMode::LeftMin => {
+                let min_overlap = config.min_overlap.unwrap_or(r.sequence.len());
+                (r.sequence.len() - min_overlap)..r.sequence.len()
+            },
+            AlignerMode::RightMin => {
+                let min_overlap = config.min_overlap.unwrap_or(r.sequence.len());
+                0..min_overlap
+            },
+            _ => 0..r.sequence.len(),
+        };
+        refs_with_range.push(ReferenceWithRange { reference: r.clone(), range });
+    }
+    refs_with_range
 }

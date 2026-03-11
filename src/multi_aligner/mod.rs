@@ -6,13 +6,14 @@ pub mod result;
 use std::cmp::min;
 use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
-use crate::multi_aligner::bio_rust::aligner::{AlignerData, BioRustPairwiseAligner, BioRustPairwiseRawAligner};
-use crate::multi_aligner::bio_rust::aligner_banded::{BandedAlignerData, BandedExtraConfig, BioRustBandedPairwiseAligner, BioRustBandedRawAligner, BandedStateExtra};
+use crate::multi_aligner::bio_rust::aligner::{AlignerState, BioRustPairwiseAligner, BioRustPairwiseRawAligner};
+use crate::multi_aligner::bio_rust::aligner_banded::{BandedExtraConfig, BandedStateExtra, BioRustBandedPairwiseAligner, BioRustBandedRawAligner};
 use crate::multi_aligner::generic::AlignerMode;
 use crate::multi_aligner::result::MultiAlignerResult;
 use log::{debug, info, warn};
 use bio_rust::generic_aligner::BioRustAlignerParameters;
-use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioRustRawAligner, BioRustAlignerState};
+use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioRustAlignerState};
+use crate::multi_aligner::generic::ReferenceWithRange;
 
 
 fn get_minimum_kmer_k() -> usize {
@@ -28,7 +29,7 @@ pub enum SpecificAligner {
 }
 
 pub enum SpecificAlignerState {
-    BioRust(BioRustAlignerState<BioRustPairwiseRawAligner, ()>),
+    BioRust(BioRustAlignerState<BioRustPairwiseRawAligner, AlignerState>),
     BioRustBanded(BioRustAlignerState<BioRustBandedRawAligner, BandedStateExtra>),
 }
 
@@ -43,13 +44,11 @@ pub struct MultiAlignerState {
 #[derive(Clone)]
 pub struct BioRustPairwiseAlignerSetup {
     config: BioRustAlignerConfig<()>,
-    aux_data: AlignerData
 }
 
 #[derive(Clone)]
 pub struct BioRustBandedPairwiseAlignerSetup {
     config: BioRustAlignerConfig<BandedExtraConfig>,
-    aux_data: BandedAlignerData
 }
 
 #[derive(Clone)]
@@ -143,7 +142,7 @@ impl MultiAlignerSetup {
         config: &BioRustAlignerParameters,
         mode: AlignerMode,
         kmer_k: usize,
-        references: &[SequenceWithId],
+        _references: &[SequenceWithId],
     ) -> SpecificAlignerSetup {
         debug!(
             "{}: Using banded aligner for mode {:?}, k={}.", name, mode, kmer_k
@@ -154,11 +153,8 @@ impl MultiAlignerSetup {
                 min_overlap: config.min_overlap
             }
         );
-        let aux_data = BioRustBandedRawAligner::create_aux_data(
-            &aligner_config, references
-        );
         SpecificAlignerSetup::BioRustBanded(
-            BioRustBandedPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.clone() }
+            BioRustBandedPairwiseAlignerSetup { config: aligner_config }
         )
     }
 
@@ -166,17 +162,14 @@ impl MultiAlignerSetup {
         name: &str,
         config: &BioRustAlignerParameters,
         mode: AlignerMode,
-        references: &[SequenceWithId],
+        _references: &[SequenceWithId],
     ) -> SpecificAlignerSetup {
         debug!("{}: Using standard aligner for mode {:?}.", name, mode);
         let aligner_config = get_aligner_config(
             config, mode, ()
         );
-        let aux_data = BioRustPairwiseRawAligner::create_aux_data(
-            &aligner_config, references
-        );
         SpecificAlignerSetup::BioRust(
-            BioRustPairwiseAlignerSetup { config: aligner_config, aux_data: aux_data.clone() }
+            BioRustPairwiseAlignerSetup { config: aligner_config }
         )
     }
 
@@ -230,16 +223,15 @@ macro_rules! define_align_mode_func {
         fn $name(
             aligner: &SpecificAligner,
             state: &mut SpecificAlignerState,
-            setup: &SpecificAlignerSetup,
             sequence: &[u8],
             index: usize,
         ) -> MultiAlignerResult {
-            match (aligner, setup, state) {
-                (SpecificAligner::BioRust(aligner), SpecificAlignerSetup::BioRust(a_setup), SpecificAlignerState::BioRust(s)) => {
-                    aligner.align(s, sequence, index, &a_setup.aux_data)
+            match (aligner, state) {
+                (SpecificAligner::BioRust(aligner), SpecificAlignerState::BioRust(s)) => {
+                    aligner.align(s, sequence, index)
                 },
-                (SpecificAligner::BioRustBanded(aligner), SpecificAlignerSetup::BioRustBanded(a_setup), SpecificAlignerState::BioRustBanded(s)) => {
-                    aligner.align(s, sequence, index, &a_setup.aux_data)
+                (SpecificAligner::BioRustBanded(aligner), SpecificAlignerState::BioRustBanded(s)) => {
+                    aligner.align(s, sequence, index)
                 }
                 _ => panic!("Unexpected combination of aligner and setup"),
             }
@@ -283,11 +275,11 @@ impl MultiAligner {
                 // inline the three functions called below and remove the match because all
                 // do exactly the same.
                 let result = match mode {
-                    AlignerMode::Local => Self::align_local(some_aligner, some_state, some_setup, sequence, index),
-                    AlignerMode::LeftOverlap => Self::align_left_overlap(some_aligner, some_state, some_setup, sequence, index),
-                    AlignerMode::RightOverlap => Self::align_right_overlap(some_aligner, some_state, some_setup, sequence, index),
-                    AlignerMode::LeftMin => Self::align_left_min(some_aligner, some_state, some_setup, sequence, index),
-                    AlignerMode::RightMin => Self::align_right_min(some_aligner, some_state, some_setup, sequence, index),
+                    AlignerMode::Local => Self::align_local(some_aligner, some_state, sequence, index),
+                    AlignerMode::LeftOverlap => Self::align_left_overlap(some_aligner, some_state, sequence, index),
+                    AlignerMode::RightOverlap => Self::align_right_overlap(some_aligner, some_state, sequence, index),
+                    AlignerMode::LeftMin => Self::align_left_min(some_aligner, some_state, sequence, index),
+                    AlignerMode::RightMin => Self::align_right_min(some_aligner, some_state, sequence, index),
                 };
                 let reference = &setup.references[index].sequence.as_bytes();
                 if result.validate(
