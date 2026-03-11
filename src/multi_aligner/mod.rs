@@ -27,6 +27,18 @@ pub enum SpecificAligner {
     BioRustBanded(BioRustBandedPairwiseAligner),
 }
 
+impl SpecificAligner {
+    pub fn setup_aligner(&self, state: &mut SpecificAlignerState, sequence_length: usize) {
+        match (self, state) {
+            (SpecificAligner::BioRust(a), SpecificAlignerState::BioRust(s))
+                => a.setup_aligner(s, sequence_length),
+            (SpecificAligner::BioRustBanded(a), SpecificAlignerState::BioRustBanded(s))
+                => a.setup_aligner(s, sequence_length),
+            _ => panic!("Unexpected combination of aligner and state"),
+        }
+    }
+}
+
 pub enum SpecificAlignerState {
     BioRust(BioRustAlignerState<BioRustPairwiseRawAligner, AlignerState>),
     BioRustBanded(BioRustAlignerState<BioRustBandedRawAligner, BandedStateExtra>),
@@ -54,6 +66,34 @@ pub struct BioRustBandedPairwiseAlignerSetup {
 pub enum SpecificAlignerSetup {
     BioRust(BioRustPairwiseAlignerSetup),
     BioRustBanded(BioRustBandedPairwiseAlignerSetup),
+}
+
+impl SpecificAlignerSetup {
+    fn get_mode(&self) -> AlignerMode {
+        match self {
+            SpecificAlignerSetup::BioRust(s) => s.config.mode,
+            SpecificAlignerSetup::BioRustBanded(s) => s.config.mode,
+        }
+    }
+
+    fn get_match_score(&self) -> i32 {
+        match self {
+            SpecificAlignerSetup::BioRust(s) => s.config.match_score,
+            SpecificAlignerSetup::BioRustBanded(s) => s.config.match_score,
+        }
+    }
+
+    fn is_perfect_alignment(&self, result: &MultiAlignerResult) -> bool {
+        match self.get_mode() {
+            AlignerMode::Local => {
+                    let match_score = self.get_match_score();
+                    let ref_length = result.reference_range.end - result.reference_range.start;
+                    let perfect_score = match_score * ref_length as i32;
+                    result.score() >= perfect_score
+            },
+            _ => false,
+        }
+    }
 }
 
 pub type AlignerConfig = BioRustAlignerParameters;
@@ -239,79 +279,76 @@ macro_rules! define_align_mode_func {
 }
 
 impl MultiAligner {
-    define_align_mode_func!(align_local);
-    define_align_mode_func!(align_left_overlap);
-    define_align_mode_func!(align_right_overlap);
-    define_align_mode_func!(align_left_min);
-    define_align_mode_func!(align_right_min);
-
     pub fn align(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
         if sequence.len() == 0 { return None }  // The aligner seems to go berserk on sequences of size 0
-        
         for (aligner, state) in self.aligners.iter().zip(state.aligner_states.iter_mut()) {
-            match (aligner, state) {
-                (SpecificAligner::BioRust(a), SpecificAlignerState::BioRust(s)) => a.setup_aligner(s, sequence.len()),
-                (SpecificAligner::BioRustBanded(a), SpecificAlignerState::BioRustBanded(s)) => a.setup_aligner(s, sequence.len()),
-                _ => panic!("Unexpected combination of aligner and state"),
-            }
+            aligner.setup_aligner(state, sequence.len());
         }
-
         let mut best: Option<MultiAlignerResult> = None;
 
-        for index in 0..setup.references.len() {
+        'outer: for index in 0..setup.references.len() {
             let mut skip_next = false;
             for ((some_setup, some_aligner), some_state) in 
                 setup.aligner_setups.iter().zip(self.aligners.iter())
                 .zip(state.aligner_states.iter_mut())
             {
                 if skip_next { skip_next = false; continue }
-                let mode = match some_setup {
-                    SpecificAlignerSetup::BioRust(s) => s.config.mode,
-                    SpecificAlignerSetup::BioRustBanded(s) => s.config.mode,
-                };
-                // The split by mode is technically completely unnecessary. Its only purpose
-                // is to allow more meaningful profiling runs. Hopefully, the optimizer will
-                // inline the three functions called below and remove the match because all
-                // do exactly the same.
-                let result = match mode {
-                    AlignerMode::Local => Self::align_local(some_aligner, some_state, sequence, index),
-                    AlignerMode::LeftOverlap => Self::align_left_overlap(some_aligner, some_state, sequence, index),
-                    AlignerMode::RightOverlap => Self::align_right_overlap(some_aligner, some_state, sequence, index),
-                    AlignerMode::LeftMin => Self::align_left_min(some_aligner, some_state, sequence, index),
-                    AlignerMode::RightMin => Self::align_right_min(some_aligner, some_state, sequence, index),
+                let result= Self::do_alignment(
+                    some_setup, some_aligner, some_state, sequence, index
+                );
+                let is_precheck = match some_setup.get_mode() {
+                    AlignerMode::LeftMin | AlignerMode::RightMin => true,
+                    _ => false,
                 };
                 let reference = &setup.references[index].sequence.as_bytes();
                 if result.validate(
                     setup.config.error_rate, sequence, reference, setup.config.min_overlap, result.sequence_offset
                 ) {
-                    match mode {
-                        AlignerMode::LeftMin | AlignerMode::RightMin => (), // Pre-check only
-                        _ => {
-                            let old_score = match best.as_ref() {
-                                Some(b) => b.score(),
-                                None => i32::MIN,
-                            };
-                            if old_score < result.score() {
-                                best = Some(result);
-                            }
-                        },
+                    if !is_precheck {
+                        if get_score_from_best(&best) < result.score() {
+                            best = Some(result);
+                        }
                     }
                 } else {
-                    match mode {
-                        AlignerMode::LeftMin | AlignerMode::RightMin => {
-                            skip_next = true; // Pre-check failed
-                        },
-                        _ => (),
+                    if is_precheck {
+                        skip_next = true;
                     }
                 }
-            }
-            if let Some(ref b) = best {
-                if b.score() >= setup.config.match_score * (setup.references[index].sequence.len() as i32) {
-                    break;
+                if let Some(res) = &best && some_setup.is_perfect_alignment(res) {
+                    break 'outer;
                 }
             }
         }
         best
+    }
+
+    #[inline(always)]
+    fn do_alignment(setup: &SpecificAlignerSetup, aligner: &SpecificAligner, state: &mut SpecificAlignerState, sequence: &[u8], reference_index: usize) -> MultiAlignerResult {
+        let mode = setup.get_mode();
+        // The split by mode is technically completely unnecessary. Its only purpose
+        // is to allow more meaningful profiling runs. Hopefully, the optimizer will
+        // inline the three functions called below and remove the match because all
+        // do exactly the same.
+        match mode {
+            AlignerMode::Local => Self::align_local(aligner, state, sequence, reference_index),
+            AlignerMode::LeftOverlap => Self::align_left_overlap(aligner, state, sequence, reference_index),
+            AlignerMode::RightOverlap => Self::align_right_overlap(aligner, state, sequence, reference_index),
+            AlignerMode::LeftMin => Self::align_left_min(aligner, state, sequence, reference_index),
+            AlignerMode::RightMin => Self::align_right_min(aligner, state, sequence, reference_index),
+        }
+    }
+
+    define_align_mode_func!(align_local);
+    define_align_mode_func!(align_left_overlap);
+    define_align_mode_func!(align_right_overlap);
+    define_align_mode_func!(align_left_min);
+    define_align_mode_func!(align_right_min);
+}
+
+fn get_score_from_best(best: &Option<MultiAlignerResult>) -> i32 {
+    match best {
+        Some(b) => b.score(),
+        None => i32::MIN,
     }
 }
 
