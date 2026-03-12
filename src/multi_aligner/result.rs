@@ -3,10 +3,12 @@ use bio::alignment::Alignment;
 use crate::multi_aligner::generic::{GenericRawResult};
 
 
+#[derive(Clone)]
 pub enum RawAlignment {
     BioRust(Alignment),
 }
 
+#[derive(Clone)]
 pub struct MultiAlignerResult {
     pub raw: RawAlignment,
     pub sequence_offset: usize,
@@ -14,6 +16,7 @@ pub struct MultiAlignerResult {
     pub reference_range: Range<usize>,
     pub stripped_leading_n_count: usize,
     pub stripped_trailing_n_count: usize,
+    pub may_need_shrink: bool,
 }
 
 impl<'r> MultiAlignerResult {

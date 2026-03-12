@@ -14,6 +14,7 @@ pub struct BioRustAlignerParameters {
     pub gap_open: i32,
     pub error_rate: f32,
     pub min_overlap: Option<usize>,
+    pub iterate: bool,
 }
 
 #[derive(Clone)]
@@ -152,6 +153,7 @@ impl<ExtraConfig: Clone, Raw: BioRustRawAligner<ExtraConfig>+Send>
             reference_range,
             stripped_leading_n_count,
             stripped_trailing_n_count,
+            may_need_shrink: true,
         }
     }
 }
