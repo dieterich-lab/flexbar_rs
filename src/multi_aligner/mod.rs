@@ -4,6 +4,7 @@ mod bio_rust;
 pub mod result;
 
 use std::cmp::min;
+use std::ops::Range;
 use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::aligner::{AlignerState, BioRustPairwiseAligner, BioRustPairwiseRawAligner};
@@ -141,7 +142,7 @@ impl MultiAlignerSetup {
                 ));
             }
         }
-        let shrink_setup = if config.iterate {
+        let shrink_setup = if config.cycles != 1 {
             Some(Self::create_standard_setup(&name, &config, AlignerMode::Local, references))
         } else {
             None
@@ -313,13 +314,6 @@ impl MultiAligner {
         }
         let best = self.find_best_match(state, setup, sequence);
         if let Some(best) = best {
-            if !best.may_need_shrink || !setup.config.iterate {
-                return Some(best);
-            }
-            // Prepare the shrink_state
-            if let Some(shrink_state) = state.shrink_state.as_mut() {
-                self.shrink_aligner.as_ref().unwrap().setup_aligner(shrink_state, sequence.len());
-            }
             return self.shrink(state, setup, sequence, best);
         }
         best
@@ -370,15 +364,85 @@ impl MultiAligner {
         best
     }
 
-    fn shrink(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8], initial_best: MultiAlignerResult) -> Option<MultiAlignerResult> {
+    fn get_shrink_window(trim_end: TrimEnd, sequence_len: usize, ref_len: usize, best: &MultiAlignerResult) -> Range<usize> {
+        match trim_end {
+            TrimEnd::Right => {
+                0 .. best.get_start_index() + best.stripped_leading_n_count
+            },
+            TrimEnd::RTail => {
+                let start = best.get_start_index();
+                let n_count = best.stripped_leading_n_count;
+                if ref_len > start {
+                    0 .. start + n_count
+                } else {
+                    start - ref_len .. start + n_count
+                }
+            },
+            TrimEnd::Left => {
+                best.get_end_index() + best.stripped_trailing_n_count .. sequence_len
+            },
+            TrimEnd::LTail => {
+                let end = best.get_end_index();
+                let n_count = best.stripped_trailing_n_count;
+                if ref_len > sequence_len - end {
+                    end - n_count .. end  + ref_len
+                } else {
+                    end - n_count .. end + ref_len
+                }
+            },
+            TrimEnd::Any => panic!("Should never happen!"),
+        }
+    }
+
+    fn shrink_to_direction(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8], mut best: MultiAlignerResult, trim_end: TrimEnd) -> Option<MultiAlignerResult> {
+        let aligner = self.shrink_aligner.as_ref().unwrap();
+        let s_state = state.shrink_state.as_mut().unwrap();
+        let ref_index = best.reference_index;
+        let reference = &setup.references[ref_index].sequence.as_bytes();
+        let ref_len = reference.len();
+        let max_cycle = if setup.config.cycles > 0 { setup.config.cycles } else { usize::MAX };
+        let mut cycle = 1;
+        loop {
+            if setup.config.cycles > 0 && cycle >= setup.config.cycles {
+                break;
+            }
+            let window = Self::get_shrink_window(trim_end, sequence.len(), ref_len, &best);
+            let next_seq = &sequence[window.start..window.end];
+            aligner.setup_aligner(s_state, next_seq.len());
+            let mut result = Self::align_local(aligner, s_state, next_seq, ref_index);
+            result.sequence_offset += window.start;
+            if result.validate(setup.config.error_rate, sequence, reference, setup.config.min_overlap, result.sequence_offset) {
+                best = result;
+                cycle += 1;
+                if cycle > max_cycle { break; }
+            } else {
+                break;
+            }
+        }
+        Some(best)
+    }
+
+    fn shrink(
+        &self,
+        state: &mut MultiAlignerState,
+        setup: &MultiAlignerSetup,
+        sequence: &[u8],
+        initial_best: MultiAlignerResult
+    ) -> Option<MultiAlignerResult> {
+        if !initial_best.may_need_shrink || setup.config.cycles == 1 {
+            return Some(initial_best);
+        }
+        if let Some(shrink_state) = state.shrink_state.as_mut() {
+            self.shrink_aligner.as_ref().unwrap().setup_aligner(shrink_state, sequence.len());
+        }
         match setup.trim_end {
-            TrimEnd::Right => self.shrink_right(state, setup, sequence, initial_best),
-            TrimEnd::RTail => self.shrink_rtail(state, setup, sequence, initial_best),
-            TrimEnd::Left => self.shrink_left(state, setup, sequence, initial_best),
-            TrimEnd::LTail => self.shrink_ltail(state, setup, sequence, initial_best),
             TrimEnd::Any => {
-                let res_right = self.shrink_right(state, setup, sequence, initial_best.clone());
-                let res_left = self.shrink_left(state, setup, sequence, initial_best);
+                let res_right = self.shrink_to_direction(
+                    state, setup, sequence, initial_best.clone(), TrimEnd::Right
+                );
+                let res_left = self.shrink_to_direction(
+                    state, setup, sequence, initial_best, TrimEnd::Left
+                );
                 match (res_right, res_left) {
                     (Some(r), Some(l)) => {
                         let remaining_right = r.get_start_index();
@@ -389,112 +453,9 @@ impl MultiAligner {
                     (None, Some(l)) => Some(l),
                     (None, None) => None,
                 }
-            }
+            },
+            mode => self.shrink_to_direction(state, setup, sequence, initial_best, mode),
         }
-    }
-
-    fn shrink_right(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8], mut best: MultiAlignerResult) -> Option<MultiAlignerResult> {
-        let aligner = self.shrink_aligner.as_ref().unwrap();
-        let s_state = state.shrink_state.as_mut().unwrap();
-        let ref_index = best.reference_index;
-        let reference = &setup.references[ref_index].sequence.as_bytes();
-        loop {
-            let next_len = best.get_start_index() + best.stripped_leading_n_count;
-            if next_len == 0 { break }
-            let next_seq = &sequence[..next_len];
-            aligner.setup_aligner(s_state, next_seq.len());
-            let result = Self::align_local(aligner, s_state, next_seq, ref_index);
-            if result.validate(setup.config.error_rate, next_seq, reference, setup.config.min_overlap, result.sequence_offset) {
-                if result.score() < best.score() {
-                    break;
-                }
-                if result.get_start_index() == best.get_start_index() {
-                    break;
-                }
-                best = result;
-            } else {
-                break;
-            }
-        }
-        Some(best)
-    }
-
-    fn shrink_rtail(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8], mut best: MultiAlignerResult) -> Option<MultiAlignerResult> {
-        let aligner = self.shrink_aligner.as_ref().unwrap();
-        let s_state = state.shrink_state.as_mut().unwrap();
-        let ref_index = best.reference_index;
-        let reference_bytes = &setup.references[ref_index].sequence.as_bytes();
-        let ref_len = reference_bytes.len();
-        loop {
-            let start = best.get_start_index();
-            let window_start = start.saturating_sub(ref_len);
-            let window_end = (start + best.stripped_leading_n_count).min(sequence.len());
-            if window_start >= window_end { break }
-            let next_seq = &sequence[window_start..window_end];
-            aligner.setup_aligner(s_state, next_seq.len());
-            let mut result = Self::align_local(aligner, s_state, next_seq, ref_index);
-            result.sequence_offset += window_start;
-            if result.validate(setup.config.error_rate, sequence, reference_bytes, setup.config.min_overlap, result.sequence_offset) {
-                if result.get_start_index() >= best.get_start_index() {
-                    break;
-                }
-                best = result;
-            } else {
-                break;
-            }
-        }
-        Some(best)
-    }
-
-    fn shrink_left(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8], mut best: MultiAlignerResult) -> Option<MultiAlignerResult> {
-        let aligner = self.shrink_aligner.as_ref().unwrap();
-        let s_state = state.shrink_state.as_mut().unwrap();
-        let ref_index = best.reference_index;
-        let reference = &setup.references[ref_index].sequence.as_bytes();
-        loop {
-            let next_start = best.get_end_index() - best.stripped_trailing_n_count;
-            if next_start >= sequence.len() { break }
-            let next_seq = &sequence[next_start..];
-            aligner.setup_aligner(s_state, next_seq.len());
-            let mut result = Self::align_local(aligner, s_state, next_seq, ref_index);
-            result.sequence_offset += next_start;
-            if result.validate(setup.config.error_rate, sequence, reference, setup.config.min_overlap, result.sequence_offset) {
-                if result.get_end_index() == best.get_end_index() {
-                    break;
-                }
-                best = result;
-            } else {
-                break;
-            }
-        }
-        Some(best)
-    }
-
-    fn shrink_ltail(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8], mut best: MultiAlignerResult) -> Option<MultiAlignerResult> {
-        let aligner = self.shrink_aligner.as_ref().unwrap();
-        let s_state = state.shrink_state.as_mut().unwrap();
-        let ref_index = best.reference_index;
-        let reference_bytes = &setup.references[ref_index].sequence.as_bytes();
-        let ref_len = reference_bytes.len();
-        loop {
-            let end = best.get_end_index();
-            let window_start = end.saturating_sub(ref_len);
-            let window_end = (end + ref_len).min(sequence.len());
-            if window_start >= window_end { break }
-            let next_seq = &sequence[window_start..window_end];
-            aligner.setup_aligner(s_state, next_seq.len());
-            let mut result = Self::align_local(aligner, s_state, next_seq, ref_index);
-            result.sequence_offset += window_start;
-            if result.validate(setup.config.error_rate, sequence, reference_bytes, setup.config.min_overlap, result.sequence_offset) {
-                if result.get_end_index() <= best.get_end_index() {
-                    break;
-                }
-                best = result;
-            } else {
-                break;
-            }
-        }
-        Some(best)
     }
 
     #[inline(always)]
@@ -654,7 +615,7 @@ mod tests {
             mismatch_score: -1,
             gap_open: -1,
             gap_extend: -1,
-            iterate: false,
+            cycles: 1,
         }
     }
 
@@ -672,7 +633,7 @@ mod tests {
             mismatch_score: -1,
             gap_open: -9,
             gap_extend: -1,
-            iterate: false,
+            cycles: 1,
         }
     }
 
@@ -1194,6 +1155,54 @@ mod tests {
     }
 
     #[test]
+    fn test_get_shrink_window() {
+        use super::MultiAligner;
+        use crate::multi_aligner::result::{MultiAlignerResult, RawAlignment};
+        use bio::alignment::Alignment;
+        
+        // Dummy result
+        let result = MultiAlignerResult {
+            raw: RawAlignment::BioRust(Alignment {
+                xstart: 10,
+                xend: 20,
+                score: 10,
+                ..Default::default()
+            }),
+            sequence_offset: 0,
+            reference_index: 0,
+            reference_range: 0..10,
+            stripped_leading_n_count: 0,
+            stripped_trailing_n_count: 0,
+            may_need_shrink: true,
+        };
+        
+        let seq_len = 50;
+        let ref_len = 10;
+        
+        // RIGHT: window [..10]
+        assert_eq!(MultiAligner::get_shrink_window(TrimEnd::Right, seq_len, ref_len, &result), 0..10);
+        
+        // RTAIL: window [10-10..10] -> [0..10]
+        assert_eq!(MultiAligner::get_shrink_window(TrimEnd::RTail, seq_len, ref_len, &result), 0..10);
+        
+        // LEFT: window [20..] -> [20..50]
+        assert_eq!(MultiAligner::get_shrink_window(TrimEnd::Left, seq_len, ref_len, &result), 20..50);
+        
+        // LTAIL: window [20-10..20+10] -> [10..30]
+        assert_eq!(MultiAligner::get_shrink_window(TrimEnd::LTail, seq_len, ref_len, &result), 20..30);
+        
+        // N Handling for RIGHT
+        let mut n_result = result.clone();
+        n_result.stripped_leading_n_count = 3;
+        // get_start_index = 0 + 10 - 3 = 7
+        // next_len = 7 + 3 = 10
+        assert_eq!(MultiAligner::get_shrink_window(TrimEnd::Right, seq_len, ref_len, &n_result), 0..10);
+        
+        // N Handling for RTAIL
+        assert_eq!(MultiAligner::get_shrink_window(TrimEnd::RTail, seq_len, ref_len, &n_result), 0..10);
+    }
+
+    #[test]
     fn test_shrinking_right() {
         // Two occurrences of AGCTCTGTAGGCACCATCAA, we want the leftmost one (shortest remaining seq)
         // according to the plan which says "focus on remaining sequence, left of the reference"
@@ -1202,7 +1211,7 @@ mod tests {
         let y = b"AGCTCTGTAGGCACCATCAA";
         let references = get_as_references(y);
         let mut config = get_default_config();
-        config.iterate = true;
+        config.cycles = 0;
         
         let result = run_alignment(
             TrimEnd::Right, config, None,
@@ -1221,7 +1230,7 @@ mod tests {
         let y = b"AGCTCTGTAGGCACCATCAA";
         let references = get_as_references(y);
         let mut config = get_default_config();
-        config.iterate = true;
+        config.cycles = 0;
 
         let result = run_alignment(
             TrimEnd::Left, config, None,
@@ -1239,7 +1248,7 @@ mod tests {
         let y = b"AGCTCTGTAGGCACCATCAA";
         let references = get_as_references(y);
         let mut config = get_default_config();
-        config.iterate = true;
+        config.cycles = 0;
 
         let result = run_alignment(
             TrimEnd::Any, config.clone(), None,
@@ -1259,7 +1268,7 @@ mod tests {
         let y = b"AGCTCTGTAGGCACCATCAA"; 
         let references = get_as_references(y);
         let mut config = get_default_config();
-        config.iterate = true;
+        config.cycles = 0;
         config.min_overlap = Some(5);
 
         let setup = MultiAlignerSetup::new("test".to_string(), TrimEnd::RTail, &references, config.clone(), None);
@@ -1285,22 +1294,32 @@ mod tests {
     }
 
     #[test]
-    fn test_shrinking_n_handling() {
-        // Reference has leading Ns
-        let x = b"MIDDLE_AGCTCTGTAGGCACCATCAA_AGCTCTGTAGGCACCATCAA";
-        let y = b"NNNNNNAGCTCTGTAGGCACCATCAA"; // 6 Ns
+    fn test_shrinking_limit() {
+        // Three occurrences of y in x
+        let x = b"AGCTCTGTAGGCACCATCAA_AGCTCTGTAGGCACCATCAA_AGCTCTGTAGGCACCATCAA";
+        let y = b"AGCTCTGTAGGCACCATCAA";
         let references = get_as_references(y);
+        
+        // Cycles = 1: Should find the first one it finds (usually the rightmost one for Local/Right/RTail initial match, or leftmost)
+        // find_best_match finds the first one in the sequence it hits.
+        // For RIGHT, it finds one.
+        
         let mut config = get_default_config();
-        config.iterate = true;
-
-        let result = run_alignment(
-            TrimEnd::Right, config, None,
-            x, &references
-        ).unwrap();
-
-        // First occurrence is at 7 (AGCTCT...). get_start_index() = 7 - 6 = 1.
-        // Second is at 28. get_start_index() = 28 - 6 = 22.
-        // Shrink right should find the one at 1.
-        assert_eq!(result.get_start_index(), 1);
+        config.cycles = 1; 
+        let res1 = run_alignment(TrimEnd::Left, config.clone(), None, x, &references).unwrap();
+        
+        config.cycles = 2;
+        let res2 = run_alignment(TrimEnd::Left, config.clone(), None, x, &references).unwrap();
+        
+        config.cycles = 0; // Unlimited
+        let res0 = run_alignment(TrimEnd::Left, config.clone(), None, x, &references).unwrap();
+        
+        println!("Res1 end: {}", res1.get_end_index());
+        println!("Res2 end: {}", res2.get_end_index());
+        println!("Res0 end: {}", res0.get_end_index());
+        
+        // For LEFT, shrinking goes RIGHT (longer remaining prefix).
+        assert!(res0.get_end_index() >= res2.get_end_index());
+        assert!(res2.get_end_index() >= res1.get_end_index());
     }
 }

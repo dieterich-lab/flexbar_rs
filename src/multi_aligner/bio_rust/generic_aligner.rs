@@ -14,7 +14,7 @@ pub struct BioRustAlignerParameters {
     pub gap_open: i32,
     pub error_rate: f32,
     pub min_overlap: Option<usize>,
-    pub iterate: bool,
+    pub cycles: usize,
 }
 
 #[derive(Clone)]

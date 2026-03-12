@@ -37,7 +37,7 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
                 gap_extend: args.barcode_gap_extend,
                 error_rate: args.barcode_error_rate,
                 min_overlap: args.barcode_min_overlap,
-                iterate: !args.barcode_keep,
+                cycles: if args.barcode_keep { 1 } else { args.barcode_cycles },
             },
             args.barcode_kmer
         );

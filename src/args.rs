@@ -157,9 +157,13 @@ pub struct Args {
     #[arg(long = "adapter-trimmed-out", alias = "ak", default_value = "on")]
     pub adapter_trimmed_out: AdapterTrimmed,
 
-    /// Number of adapter removal cycles
+    /// Number of adapter removal cycles. 0 means unlimited. default: 1
     #[arg(long = "adapter-cycles", alias = "ay", default_value_t = 1)]
     pub adapter_cycles: usize,
+
+    /// Number of barcode detection cycles. 0 means unlimited, default: 0
+    #[arg(long = "barcode-cycles", default_value_t = 0)]
+    pub barcode_cycles: usize,
 
     /// Alignment match score
     #[arg(long = "adapter-match", alias = "am", default_value_t = 1)]
@@ -435,6 +439,7 @@ impl Args {
         if !is_present("adapter_read_set") { self.adapter_read_set = file_args.adapter_read_set; }
         if !is_present("adapter_trimmed_out") { self.adapter_trimmed_out = file_args.adapter_trimmed_out; }
         if !is_present("adapter_cycles") { self.adapter_cycles = file_args.adapter_cycles; }
+        if !is_present("barcode_cycles") { self.barcode_cycles = file_args.barcode_cycles; }
         if !is_present("adapter_match") { self.adapter_match = file_args.adapter_match; }
         if !is_present("adapter_mismatch") { self.adapter_mismatch = file_args.adapter_mismatch; }
         if !is_present("adapter_gap_open") { self.adapter_gap_open = file_args.adapter_gap_open; }

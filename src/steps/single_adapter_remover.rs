@@ -74,7 +74,7 @@ impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
             gap_extend: args.adapter_gap_extend,
             error_rate: args.adapter_error_rate,
             min_overlap: Some(args.adapter_min_overlap),
-            iterate: true,
+            cycles: args.adapter_cycles,
         };
         let multi_aligner_setup = MultiAlignerSetup::new(
             "Adapter Remover".to_string(),
