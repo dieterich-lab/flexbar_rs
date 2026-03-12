@@ -51,7 +51,10 @@ impl SingleAdapterRemover {
         rec: &mut RecordInTransformation<SingeRecordDto>,
         alignment: &MultiAlignerResult,
     ) {
+        let old_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
         rec.trim(self.trim_end, alignment.get_start_index(), alignment.get_end_index());
+        let new_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
+        rec.stats.bases_adapter_removal += old_len - new_len;
         if self.removal_tags {
             rec.alignment_results.removal_tags.push(
                 format!("Flexbar_removal_{}", alignment.reference_index))

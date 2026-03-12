@@ -39,11 +39,10 @@ impl Statistics {
             + self.worker.total_discarded_barcode
             + self.worker.total_discarded_length;
 
-        info!("Discarded reads:");
+        info!("Discarded reads:                {}", total_discards);
         info!("* Uncalled:                     {}", self.worker.total_discarded_uncalled);
         info!("* Barcode:                      {}", self.worker.total_discarded_barcode);
         info!("* Length:                       {}", self.worker.total_discarded_length);
-        info!("Total discards:                 {}", total_discards);
 
         let remaining = self.writer.total_records_written;
         let remaining_pct = if self.reader.total_records_read > 0 {
@@ -67,14 +66,20 @@ impl Statistics {
             }
         }
 
-        let bases_written_pct = if self.reader.total_bases_read > 0 {
-            (self.writer.total_bases_written as f64 / self.reader.total_bases_read as f64) * 100.0
+        info!("");
+        info!("Total bases read:               {}", self.worker.total_bases_read);
+        info!("- bases in discarded reads:     {}", self.worker.bases_discarded);
+        info!("- removed by quality trim:      {}", self.worker.bases_quality_trim);
+        info!("- removed by barcode removal:   {}", self.worker.bases_barcode_removal);
+        info!("- removed by adapter removal:   {}", self.worker.bases_adapter_removal);
+
+        let remaining_bases = self.writer.total_bases_written;
+        let bases_written_pct = if self.worker.total_bases_read > 0 {
+            (remaining_bases as f64 / self.worker.total_bases_read as f64) * 100.0
         } else {
             0.0
         };
 
-        info!("");
-        info!("Total bases read:               {}", self.reader.total_bases_read);
-        info!("Total bases written:            {} ({:.1}%)", self.writer.total_bases_written, bases_written_pct);
+        info!("- remaining bases written:      {} ({:.1}%)", remaining_bases, bases_written_pct);
     }
 }

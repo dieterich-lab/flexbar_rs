@@ -126,7 +126,10 @@ impl SingleBarcodeSplitter {
         best: &MultiAlignerResult,
     ) {
         if self.barcode_keep { return; }
+        let old_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
         rec.trim(self.trim_end, best.get_start_index(), best.get_end_index());
+        let new_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
+        rec.stats.bases_barcode_removal += old_len - new_len;
         if self.removal_tags {
             rec.alignment_results.removal_tags.push("Flexbar_removal".to_string());
         }

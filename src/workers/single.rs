@@ -1,4 +1,4 @@
-use log::trace;
+use log::debug;
 use crate::context::Context;
 use crate::args::Args;
 use crate::types::{SingeRecordDto, QualTrimType};
@@ -48,31 +48,31 @@ impl SingleWorker {
         
         let qtrim_post_removal = args.qtrim_post_removal;
         if args.trace {
-            trace!("Single worker pipeline:");
+            debug!("Single worker pipeline:");
             if let Some(s) = &uncalled_sequence_filter {
-                trace!("- Step SingleUncalledSequenceFilter (max_uncalled: {})",
+                debug!("- Step SingleUncalledSequenceFilter (max_uncalled: {})",
                     s.max_uncalled
                 );
             }
             if !qtrim_post_removal && let Some(s) = &quality_trim {
-                trace!("- Step SingleQualityTrim (threshold: {}, window size: {})",
+                debug!("- Step SingleQualityTrim (threshold: {}, window size: {})",
                     s.threshold, s.win_size
                 );
             }
             if let Some(s) = &barcode_splitter {
-                trace!("- Step SingleBarcodeSplitter (trim end {:?}, keep: {}, unassigned: {})",
+                debug!("- Step SingleBarcodeSplitter (trim end {:?}, keep: {}, unassigned: {})",
                     s.trim_end, s.barcode_keep, s.barcode_unassigned
                 );
             }
             if let Some(s) = &adapter_remover {
-                trace!("- Step SingleAdapterRemover (trim end {:?})", s.trim_end);
+                debug!("- Step SingleAdapterRemover (trim end {:?})", s.trim_end);
             }
             if qtrim_post_removal && let Some(s) = &quality_trim {
-                trace!("- Step SingleQualityTrim (threshold: {}, window size: {})",
+                debug!("- Step SingleQualityTrim (threshold: {}, window size: {})",
                     s.threshold, s.win_size
                 );
             }
-            trace!("- Step SingleFilterLength (min length: {})",
+            debug!("- Step SingleFilterLength (min length: {})",
                 filter_length.min_read_length
             );
         }
@@ -103,6 +103,7 @@ impl SingleWorker {
         state: &mut SingleWorkerState
     ) -> FinalRecord<SingeRecordDto> {
         let mut rec_in = record.get_record_in_transformation();
+        rec_in.stats.total_bases_read = record.seq().len();
 
         if let Some(step) = &self.uncalled_sequence_filter {
             rec_in = step.apply(rec_in, state.uncalled_sequence_filter.as_mut().unwrap());
@@ -125,8 +126,13 @@ impl SingleWorker {
     }
 }
 
-fn finalize(rec: RecordInTransformation<SingeRecordDto>) -> FinalRecord<SingeRecordDto> {
+fn finalize(mut rec: RecordInTransformation<SingeRecordDto>) -> FinalRecord<SingeRecordDto> {
     if rec.alignment_results.record_dropped {
+        rec.stats.bases_discarded = rec.stats.total_bases_read;
+        rec.stats.bases_quality_trim = 0;
+        rec.stats.bases_barcode_removal = 0;
+        rec.stats.bases_adapter_removal = 0;
+
         return FinalRecord {
             record: None,
             output_tag: None,
@@ -223,8 +229,6 @@ mod tests {
         
         assert_eq!(result.output_tag, Some("barcode_bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
-        // Stats are now in writer, so worker.process doesn't see them yet.
-        // We'll trust GenericWriter to handle it.
     }
 
     #[test]
@@ -396,5 +400,59 @@ mod tests {
         let result = process_record(&args, &record);
         assert!(result.record.is_none(), "Should discard read of length 9 when min is 10");
         assert_eq!(result.stats.total_discarded_length, 1);
+    }
+
+    #[test]
+    fn test_worker_statistics() {
+        let args = Args::parse_from(&[
+            "flexbar_rs", 
+            "--reads", "test.fq", 
+            "--adapter-seq", "AAAA", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "4",
+            "--qtrim", "TAIL", "--qtrim-threshold", "20",
+            "--min-read-length", "5"
+        ]);
+        let mut context = Context::new(&args);
+        context.barcodes = vec![SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}];
+        context.adapters = vec![SequenceWithId{id: "ad1".to_string(), sequence: "AAAA".to_string()}];
+        
+        let worker = SingleWorker::new(&args, &context);
+        let mut state = worker.create_state();
+        
+        // Input length 13: GGGG (4) + 12345 (5) + AAAA (4) = 13
+        // After barcode removal (LTAIL default): 12345 (5) + AAAA (4) = 9. Removed 4.
+        // After adapter removal (RIGHT): 12345 (5). Removed 4.
+        
+        let record = SingeRecordDto::with_attrs("read1", None, b"GGGG12345AAAA", b"IIIIIIIIIIIII");
+        let result = worker.process_record(&record, &mut state);
+        
+        assert_eq!(result.stats.total_bases_read, 13);
+        assert_eq!(result.stats.bases_barcode_removal, 4);
+        assert_eq!(result.stats.bases_adapter_removal, 4);
+        assert_eq!(result.stats.bases_quality_trim, 0);
+        assert_eq!(result.stats.bases_discarded, 0);
+        
+        // Test with quality trim
+        let record2 = SingeRecordDto::with_attrs("read2", None, b"GGGG12345AAAA!!", b"IIIIIIIIIIIII!! "); // !! are low qual
+        // 4 (GGGG) + 5 (12345) + 4 (AAAA) + 2 (!!) = 15
+        let result2 = worker.process_record(&record2, &mut state);
+        assert_eq!(result2.stats.total_bases_read, 15);
+        assert_eq!(result2.stats.bases_barcode_removal, 4);
+        assert_eq!(result2.stats.bases_adapter_removal, 4);
+        assert_eq!(result2.stats.bases_quality_trim, 2);
+        assert_eq!(result2.stats.bases_discarded, 0);
+
+        // Test discarded read
+        // min-read-length is 5.
+        // GGGG (4) + 12 (2) + AAAA (4) = 10.
+        // After barcode (4) and adapter (4) removal, length is 2. 
+        // 2 < 5, so dropped.
+        let record3 = SingeRecordDto::with_attrs("read3", None, b"GGGG12AAAA", b"IIIIIIIIII");
+        let result3 = worker.process_record(&record3, &mut state);
+        assert!(result3.record.is_none());
+        assert_eq!(result3.stats.total_bases_read, 10);
+        assert_eq!(result3.stats.bases_discarded, 10);
+        assert_eq!(result3.stats.bases_barcode_removal, 0);
+        assert_eq!(result3.stats.bases_adapter_removal, 0);
+        assert_eq!(result3.stats.bases_quality_trim, 0);
     }
 }
