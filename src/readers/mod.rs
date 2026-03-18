@@ -3,7 +3,16 @@ use crate::types::{RecordDto};
 
 pub mod fasta;
 pub mod fastq;
+pub mod paired_fasta;
+pub mod paired_fastq;
 mod generic;
+
+pub use generic::GenericReader;
+pub use paired_fasta::PairedFastaBackend;
+pub use paired_fastq::PairedFastqBackend;
+
+pub type PairedReaderFasta<R> = GenericReader<R, PairedFastaBackend<R>>;
+pub type PairedReaderFastq<R> = GenericReader<R, PairedFastqBackend<R>>;
 
 pub trait SequenceReader: Iterator<Item=RecordDto> {
     fn compression(&self) -> crate::types::CompressionType;

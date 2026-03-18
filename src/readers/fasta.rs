@@ -2,6 +2,7 @@ use std::io::{self, BufRead};
 use bio::io::fasta;
 use bio::io::fasta::FastaRead;
 use crate::types::{RecordDto, SingeRecordDto};
+use crate::logging::log_fatal;
 use crate::readers::generic::{GenericReader, GenericReaderBackend};
 
 pub struct FastaBackend<R: BufRead + Send> {
@@ -10,9 +11,12 @@ pub struct FastaBackend<R: BufRead + Send> {
 
 impl<R: BufRead + Send> GenericReaderBackend<R> for FastaBackend<R> {
     type Error = io::Error;
-    fn new(reader: R) -> Self {
+    fn new(mut readers: Vec<R>) -> Self {
+        if readers.len() > 1 {
+            log_fatal("FastaBackend only supports one input file.");
+        }
         Self {
-            reader: fasta::Reader::from_bufread(reader),
+            reader: fasta::Reader::from_bufread(readers.remove(0)),
         }
     }
 
@@ -45,7 +49,7 @@ mod tests {
         let data = b">id1 desc1\nACGT\n>id2 desc2\nTGCA\n";
         let cursor = Cursor::new(data);
         let reader = SingleReaderFasta::new(
-            cursor, "test.fa".to_string(), CompressionType::Uncompressed, 0 ,None, true
+            vec![cursor], "test.fa".to_string(), CompressionType::Uncompressed, 0 ,None, true
         );
         
         let records: Vec<_> = reader.collect();

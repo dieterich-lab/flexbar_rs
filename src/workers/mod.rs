@@ -41,6 +41,9 @@ impl Worker {
                     output_tag: raw.output_tag,
                     stats: raw.stats,
                 }
+            },
+            (Worker::Single(_), RecordDto::Paired(_), _) => {
+                panic!("Single worker cannot process paired records");
             }
         }
     }

@@ -13,7 +13,7 @@ impl<'a> GenericWriterBackend<'a> for FastqBackend<'a> {
     fn write_record(&mut self, record: &RecordDto) -> io::Result<()> {
         match record {
             RecordDto::Single(rec) => self.write_record(rec),
-            // _ => unimplemented!("Fastq write can handle only single records"),
+            RecordDto::Paired(_) => panic!("Fastq write can handle only single records"),
         }
     }
 

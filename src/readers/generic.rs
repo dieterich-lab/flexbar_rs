@@ -9,7 +9,7 @@ use crate::utils::io::get_raw_reader;
 
 pub trait GenericReaderBackend<R: BufRead + Send> {
     type Error: std::fmt::Display;
-    fn new(reader: R) -> Self;
+    fn new(readers: Vec<R>) -> Self;
     fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error>;
 }
 
@@ -27,7 +27,7 @@ pub struct GenericReader<R: BufRead + Send, B: GenericReaderBackend<R>> {
 
 impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
     pub fn new(
-        reader: R,
+        readers: Vec<R>,
         source: String,
         compression: CompressionType,
         skip: usize,
@@ -37,7 +37,7 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
         trace!("Creating new generic reader with source: {}, compression: {:?}, skip: {}, count: {:?}",
             source, compression, skip, count);
         Self {
-            backend: B::new(reader),
+            backend: B::new(readers),
             source,
             compression,
             last_id: String::new(),
@@ -77,9 +77,25 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
 }
 
 impl<B: GenericReaderBackend<io::BufReader<Box<dyn io::Read + Send>>>> GenericReader<io::BufReader<Box<dyn io::Read + Send>>, B> {
-    pub fn create_form_args<P: AsRef<Path>>(path: P, args: &Args) -> io::Result<Self> {
-        let (reader, source, compression) = get_raw_reader(path, args.read_buffer)?;
-        Ok(Self::new(reader, source, compression, args.skip, args.count, args.trace))
+    pub fn create_form_args<P: AsRef<Path>>(paths: Vec<P>, args: &Args) -> io::Result<Self> {
+        let mut readers = Vec::with_capacity(paths.len());
+        let mut sources = Vec::with_capacity(paths.len());
+        let mut compression = CompressionType::Uncompressed;
+
+        for path in paths {
+            let (reader, source, comp) = get_raw_reader(path, args.read_buffer)?;
+            readers.push(reader);
+            sources.push(source);
+            compression = comp;
+        }
+
+        let source = if sources.len() == 1 {
+            sources[0].clone()
+        } else {
+            format!("paired files: {}, {}", sources[0], sources[1])
+        };
+
+        Ok(Self::new(readers, source, compression, args.skip, args.count, args.trace))
     }
 }
 
@@ -149,7 +165,7 @@ mod tests {
     }
     impl GenericReaderBackend<BufReader<&[u8]>> for TestBackend {
         type Error = io::Error;
-        fn new(_reader: BufReader<&[u8]>) -> Self { TestBackend { count: 0 } }
+        fn new(_readers: Vec<BufReader<&[u8]>>) -> Self { TestBackend { count: 0 } }
         fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
             self.count += 1;
             if self.count == 1 {
@@ -167,7 +183,7 @@ mod tests {
         let data = b"@id1\nACGT\n+\n!!!!\n";
         let reader = BufReader::new(&data[..]);
         let mut gen_reader: GenericReader<_, crate::readers::fastq::FastqBackend<_>> =
-            GenericReader::new(reader, "test.fq".to_string(), CompressionType::Uncompressed, 0, None, true);
+            GenericReader::new(vec![reader], "test.fq".to_string(), CompressionType::Uncompressed, 0, None, true);
         
         let _ = gen_reader.next();
         let stats = gen_reader.statistics();
@@ -180,7 +196,7 @@ mod tests {
         let data = b"dummy";
         let reader = BufReader::new(&data[..]);
         let mut gen_reader: GenericReader<_, TestBackend> =
-            GenericReader::new(reader, "test_source".to_string(), CompressionType::Uncompressed, 0, None, true);
+            GenericReader::new(vec![reader], "test_source".to_string(), CompressionType::Uncompressed, 0, None, true);
         
         gen_reader.next(); // the first call returns "rec1"
         // In a real run, the next call would log_fatal and exit(1).
@@ -193,7 +209,7 @@ mod tests {
         struct LongIdBackend { count: usize }
         impl GenericReaderBackend<BufReader<&[u8]>> for LongIdBackend {
             type Error = io::Error;
-            fn new(_reader: BufReader<&[u8]>) -> Self { LongIdBackend { count: 0 } }
+            fn new(_readers: Vec<BufReader<&[u8]>>) -> Self { LongIdBackend { count: 0 } }
             fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
                 self.count += 1;
                 if self.count == 1 {
@@ -210,7 +226,7 @@ mod tests {
         let reader = BufReader::new(&data[..]);
         let mut gen_reader: GenericReader<_, LongIdBackend> =
             GenericReader::new(
-                reader, "test_source".to_string(), CompressionType::Uncompressed, 0, None, true);
+                vec![reader], "test_source".to_string(), CompressionType::Uncompressed, 0, None, true);
         
         gen_reader.next();
         // gen_reader.next();

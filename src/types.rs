@@ -258,32 +258,60 @@ impl FromStr for AdapterTrimmed {
 
 pub type SingeRecordDto = bio::io::fastq::Record;
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PairedRecordDto {
+    pub records: [SingeRecordDto; 2],
+}
+
+impl PairedRecordDto {
+    pub fn new(r1: SingeRecordDto, r2: SingeRecordDto) -> Self {
+        Self { records: [r1, r2] }
+    }
+
+    pub fn validate(&self) -> bool {
+        let id1 = self.records[0].id();
+        let id2 = self.records[1].id();
+        if id1 == id2 {
+            return true;
+        }
+        if id1.ends_with("/1") && id2.ends_with("/2") {
+            return id1[..id1.len() - 2] == id2[..id2.len() - 2]
+        }
+        false
+    }
+}
+
 pub enum RecordDto {
     Single(SingeRecordDto),
+    Paired(PairedRecordDto),
 }
 
 impl RecordDto {
     pub fn id(&self) -> &str {
         match self {
             RecordDto::Single(record) => record.id(),
+            RecordDto::Paired(paired) => paired.records[0].id(),
         }
     }
     
     pub fn desc(&self) -> Option<&str> {
         match self {
             RecordDto::Single(record) => record.desc(),
+            RecordDto::Paired(paired) => paired.records[0].desc(),
         }
     }
     
     pub fn seq(&self) -> &[u8] {
         match self {
             RecordDto::Single(record) => record.seq(),
+            RecordDto::Paired(paired) => paired.records[0].seq(),
         }
     }
     
     pub fn qual(&self) -> Option<&[u8]> {
         match self {
             RecordDto::Single(record) => Some(record.qual()),
+            RecordDto::Paired(paired) => Some(paired.records[0].qual()),
         }
     }
 }

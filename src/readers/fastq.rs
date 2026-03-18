@@ -2,6 +2,7 @@ use std::io::BufRead;
 use bio::io::fastq;
 use bio::io::fastq::{FastqRead};
 use crate::types::{RecordDto, SingeRecordDto};
+use crate::logging::log_fatal;
 use crate::readers::generic::{GenericReader, GenericReaderBackend};
 
 pub struct FastqBackend<R: BufRead + Send> {
@@ -10,9 +11,12 @@ pub struct FastqBackend<R: BufRead + Send> {
 
 impl<R: BufRead + Send> GenericReaderBackend<R> for FastqBackend<R> {
     type Error = bio::io::fastq::Error;
-    fn new(reader: R) -> Self {
+    fn new(mut readers: Vec<R>) -> Self {
+        if readers.len() > 1 {
+            log_fatal("FastqBackend only supports one input file.");
+        }
         Self {
-            reader: fastq::Reader::from_bufread(reader),
+            reader: fastq::Reader::from_bufread(readers.remove(0)),
         }
     }
 
@@ -40,7 +44,7 @@ mod tests {
         let data = b"@id1\nACGT\n+\n!!!!\n";
         let cursor = Cursor::new(data);
         let reader = SingleReaderFastq::new(
-            cursor, "test.fq".to_string(), CompressionType::Uncompressed, 0, None, true
+            vec![cursor], "test.fq".to_string(), CompressionType::Uncompressed, 0, None, true
         );
         
         let records: Vec<_> = reader.collect();

@@ -121,9 +121,9 @@ struct ProcessedBatch {
 
 fn get_single_reader(reads_path: &Path, format: FileFormat, args: &Args) -> Box<dyn SequenceReader + Send> {
     match format {
-        FileFormat::Fasta => Box::new(SingleReaderFasta::create_form_args(reads_path, args)
+        FileFormat::Fasta => Box::new(SingleReaderFasta::create_form_args(vec![reads_path], args)
             .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA reader: {}", e)))),
-        FileFormat::Fastq => Box::new(SingleReaderFastq::create_form_args(reads_path, args)
+        FileFormat::Fastq => Box::new(SingleReaderFastq::create_form_args(vec![reads_path], args)
             .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ reader: {}", e)))),
     }
 }
