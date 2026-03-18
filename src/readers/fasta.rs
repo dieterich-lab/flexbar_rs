@@ -3,7 +3,7 @@ use bio::io::fasta;
 use bio::io::fasta::FastaRead;
 use crate::types::{RecordDto, SingeRecordDto};
 use crate::logging::log_fatal;
-use crate::readers::generic::{GenericReader, GenericReaderBackend};
+use crate::readers::generic::{GenericReader, GenericReaderBackend, GenericPairedBackend};
 
 pub struct FastaBackend<R: BufRead + Send> {
     reader: fasta::Reader<R>,
@@ -37,6 +37,8 @@ impl<R: BufRead + Send> GenericReaderBackend<R> for FastaBackend<R> {
 }
 
 pub type SingleReaderFasta<R> = GenericReader<R, FastaBackend<R>>;
+pub type PairedFastaBackend<R> = GenericPairedBackend<R, FastaBackend<R>>;
+pub type PairedReaderFasta<R> = GenericReader<R, PairedFastaBackend<R>>;
 
 #[cfg(test)]
 mod tests {

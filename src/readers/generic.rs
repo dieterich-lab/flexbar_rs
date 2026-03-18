@@ -2,7 +2,7 @@ use std::io::{BufRead, self};
 use std::path::Path;
 use log::{trace};
 use crate::readers::SequenceReader;
-use crate::types::{CompressionType, RecordDto};
+use crate::types::{CompressionType, RecordDto, PairedRecordDto};
 use crate::logging::log_fatal;
 use crate::args::Args;
 use crate::utils::io::get_raw_reader;
@@ -11,6 +11,46 @@ pub trait GenericReaderBackend<R: BufRead + Send> {
     type Error: std::fmt::Display;
     fn new(readers: Vec<R>) -> Self;
     fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error>;
+}
+
+pub struct GenericPairedBackend<R: BufRead + Send, B: GenericReaderBackend<R>> {
+    backends: [B; 2],
+    _phantom: std::marker::PhantomData<R>,
+}
+
+impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReaderBackend<R> for GenericPairedBackend<R, B> {
+    type Error = B::Error;
+
+    fn new(mut readers: Vec<R>) -> Self {
+        if readers.len() != 2 {
+            log_fatal("Paired backend requires exactly two input files.");
+        }
+        let r2 = readers.pop().unwrap();
+        let r1 = readers.pop().unwrap();
+        Self {
+            backends: [B::new(vec![r1]), B::new(vec![r2])],
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    fn read_record(&mut self) -> Result<Option<RecordDto>, Self::Error> {
+        let rec1 = self.backends[0].read_record()?;
+        let rec2 = self.backends[1].read_record()?;
+
+        match (rec1, rec2) {
+            (Some(RecordDto::Single(r1)), Some(RecordDto::Single(r2))) => {
+                let paired = PairedRecordDto::new(r1, r2);
+                if !paired.validate() {
+                    log_fatal(&format!("Validation failed for paired records: {} and {}", paired.records[0].id(), paired.records[1].id()));
+                }
+                Ok(Some(RecordDto::Paired(paired)))
+            },
+            (None, None) => Ok(None),
+            _ => {
+                log_fatal("Paired files have different number of records.");
+            }
+        }
+    }
 }
 
 pub struct GenericReader<R: BufRead + Send, B: GenericReaderBackend<R>> {
@@ -229,6 +269,5 @@ mod tests {
                 vec![reader], "test_source".to_string(), CompressionType::Uncompressed, 0, None, true);
         
         gen_reader.next();
-        // gen_reader.next();
     }
 }
