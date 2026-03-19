@@ -85,7 +85,7 @@ pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &s
     })
 }
 
-pub fn get_writer_from_path(path: Option<&Path>, compression: CompressionType, buffer_size: usize) -> io::Result<Box<dyn Write + Send>> {
+fn get_writer_from_path(path: Option<&Path>, compression: CompressionType, buffer_size: usize) -> io::Result<Box<dyn Write + Send>> {
     let writer: Box<dyn Write + Send> = match path {
         Some(p) => Box::new(BufWriter::with_capacity(buffer_size, File::create(p)?)),
         None => Box::new(BufWriter::with_capacity(buffer_size, io::stdout())),
@@ -98,6 +98,22 @@ pub fn get_writer_from_path(path: Option<&Path>, compression: CompressionType, b
         CompressionType::Uncompressed => Ok(writer),
         CompressionType::Keep => log_fatal("Compression type KEEP is not supported for writing"),
     }
+}
+
+pub fn get_writer_factory<'a>(
+    prefix: String,
+    compression: CompressionType,
+    buffer_size: usize,
+) -> Box<dyn Fn(Option<&str>, Option<usize>, &'static str) -> io::Result<(Box<dyn Write + Send + 'a>, String)> + Send + 'a> {
+    Box::new(move |tag, _read_index, extension| {
+        let path = get_writer_path(&prefix, compression, extension, tag);
+        let description = match &path {
+            Some(p) => p.to_string_lossy().into_owned(),
+            None => "STDOUT".to_string(),
+        };
+        let writer = get_writer_from_path(path.as_deref(), compression, buffer_size)?;
+        Ok((writer, description))
+    })
 }
 
 #[cfg(test)]

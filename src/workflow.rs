@@ -136,17 +136,18 @@ fn get_compression(reader: &Box<dyn SequenceReader + Send>, args: &Args) -> Comp
     }
 }
 
+use crate::utils::io::{get_writer_factory};
+
 fn get_single_writer(args: &Args, output_prefix: &str, compression: CompressionType) -> Box<dyn Writer> {
     let p = match args.single_reads {
-        true => "-",
-        false => output_prefix,
+        true => "-".to_string(),
+        false => output_prefix.to_string(),
     };
+    let factory = get_writer_factory(p, compression, args.write_buffer);
     if args.fasta_output {
-        Box::new(SingleWriterFasta::new(p, compression, args.write_buffer)
-            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA writer: {}", e))))
+        Box::new(SingleWriterFasta::new(factory))
     } else {
-        Box::new(SingleWriterFastq::new(p, compression, args.write_buffer)
-            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ writer: {}", e))))
+        Box::new(SingleWriterFastq::new(factory))
     }
 }
 

@@ -33,16 +33,17 @@ mod tests {
 
     #[test]
     fn test_fastq_writer_cursor() {
-        let mut buffer = Vec::new();
+        let buffers = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         {
-            let mut writer = SingleWriterFastq::from_writer(Box::new(&mut buffer));
+            let mut writer = SingleWriterFastq::new_test(buffers.clone());
             let record = RecordDto::Single(SingeRecordDto::with_attrs(
                 "id1", Some("desc1"), b"ACGT", b"!!!!"
             ));
             writer.write(&record, None).expect("Failed to write record");
         }
         
-        let result = String::from_utf8(buffer).expect("Not valid UTF-8");
+        let bufs = buffers.lock().unwrap();
+        let result = String::from_utf8(bufs.get("/\\/default/\\/").unwrap().clone()).expect("Not valid UTF-8");
         assert!(result.contains("@id1 desc1"));
         assert!(result.contains("ACGT"));
         assert!(result.contains("!!!!"));
