@@ -49,52 +49,46 @@ impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
         }
         Ok(self.backends_by_tag.get_mut(t).unwrap())
     }
+}
 
-    #[cfg(test)]
-    pub fn new_test(
-        buffers: Arc<Mutex<HashMap<String, Vec<u8>>>>,
-    ) -> Self {
-        let factory = Box::new(move |tag: Option<&str>, _read_index: Option<usize>, _extension: &'static str| {
-            let t = tag.unwrap_or(DEFAULT_TAG).to_string();
-            let mut bufs = buffers.lock().unwrap();
-            bufs.entry(t.clone()).or_insert_with(Vec::new);
-            
-            // We need a writer that writes to the Vec<u8> inside the HashMap.
-            // Since we want to keep the HashMap alive and accessible from the test,
-            // and the factory is called multiple times, we have a problem with lifetimes if we just return &mut Vec<u8>.
-            // A better way for tests is to use a custom writer that has a reference to the shared storage.
-            
-            struct SharedWriter {
-                storage: Arc<Mutex<HashMap<String, Vec<u8>>>>,
-                tag: String,
-            }
-            impl Write for SharedWriter {
-                fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                    let mut storage = self.storage.lock().unwrap();
-                    storage.get_mut(&self.tag).unwrap().write(buf)
-                }
-                fn flush(&mut self) -> io::Result<()> {
-                    let mut storage = self.storage.lock().unwrap();
-                    storage.get_mut(&self.tag).unwrap().flush()
-                }
-            }
-            // unsafe impl Send for SharedWriter {} // Arc<Mutex<...>> is already Send
-
-            let writer: Box<dyn Write + Send + 'a> = Box::new(SharedWriter {
-                storage: buffers.clone(),
-                tag: t.clone(),
-            });
-            
-            Ok((writer, format!("memory:{}", t)))
-        });
-
-        Self {
-            factory,
-            backends_by_tag: HashMap::new(),
-            statistics: crate::statistics::WriterStatistics::default(),
-            _phantom: std::marker::PhantomData,
+#[cfg(test)]
+pub fn get_test_writer<'a, B: GenericWriterBackend<'a>>(
+    buffers: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+) -> GenericWriter<'a, B> {
+    let factory = Box::new(move |tag: Option<&str>, _read_index: Option<usize>, _extension: &'static str| {
+        let t = tag.unwrap_or(DEFAULT_TAG).to_string();
+        let mut bufs = buffers.lock().unwrap();
+        bufs.entry(t.clone()).or_insert_with(Vec::new);
+        
+        // We need a writer that writes to the Vec<u8> inside the HashMap.
+        // Since we want to keep the HashMap alive and accessible from the test,
+        // and the factory is called multiple times, we have a problem with lifetimes if we just return &mut Vec<u8>.
+        // A better way for tests is to use a custom writer that has a reference to the shared storage.
+        
+        struct SharedWriter {
+            storage: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+            tag: String,
         }
-    }
+        impl Write for SharedWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                let mut storage = self.storage.lock().unwrap();
+                storage.get_mut(&self.tag).unwrap().write(buf)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                let mut storage = self.storage.lock().unwrap();
+                storage.get_mut(&self.tag).unwrap().flush()
+            }
+        }
+
+        let writer: Box<dyn Write + Send + 'a> = Box::new(SharedWriter {
+            storage: buffers.clone(),
+            tag: t.clone(),
+        });
+        
+        Ok((writer, format!("memory:{}", t)))
+    });
+
+    GenericWriter::new(factory)
 }
 
 impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
@@ -141,7 +135,7 @@ mod tests {
     fn test_generic_writer_statistics() {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new_test(buffers.clone());
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
             let record = RecordDto::Single(
                 SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!")
             );
@@ -157,7 +151,7 @@ mod tests {
     fn test_generic_writer_barcode_statistics() {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new_test(buffers.clone());
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
             let record = RecordDto::Single(SingeRecordDto::with_attrs(
                 "id1", None, b"ACGT", b"!!!!"
             ));
@@ -189,7 +183,7 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new_test(buffers.clone());
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
             let rec1 = RecordDto::Single(SingeRecordDto::with_attrs(
                 "R1", None, b"A", b"I"
             ));
@@ -208,7 +202,7 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new_test(buffers.clone());
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
             let rec1 = RecordDto::Single(SingeRecordDto::with_attrs(
                 "R1", None, b"A", b"I"
             ));
@@ -230,7 +224,7 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new_test(buffers.clone());
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
             let rec1 = RecordDto::Single(SingeRecordDto::with_attrs(
                 "R1", None, b"A", b"I"
             ));

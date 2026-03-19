@@ -36,7 +36,7 @@ mod tests {
     fn test_fasta_writer_cursor() {
         let buffers = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
         {
-            let mut writer = SingleWriterFasta::new_test(buffers.clone());
+            let mut writer: SingleWriterFasta = crate::writers::generic::get_test_writer(buffers.clone());
             let record = RecordDto::Single(SingeRecordDto::with_attrs(
                 "id1", Some("desc1"), b"ACGT", b"!!!!"
             ));
