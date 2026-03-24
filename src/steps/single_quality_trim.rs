@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::types::{FileFormat, QualTrimType, QualityType, SingeRecordDto};
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::generic::{GenericStep, RecordInTransformation, SingleAlignmentResults};
 use crate::context::Context;
 
 pub struct SingleQualityTrim {
@@ -76,6 +76,7 @@ impl SingleQualityTrim {
 
 impl GenericStep<SingeRecordDto> for SingleQualityTrim {
     type State = SingleQualityTrimState;
+    type AlignmentResult = SingleAlignmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
         let format = context.format;
@@ -102,12 +103,12 @@ impl GenericStep<SingeRecordDto> for SingleQualityTrim {
         SingleQualityTrimState {}
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto> {
-        let current_qual = &rec.record.qual()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
+        let current_qual = &rec.record.qual()[rec.alignment_results.read_range.clone()];
         let trim_pos = self.get_trim_pos(current_qual);
         if trim_pos < current_qual.len() {
             rec.stats.bases_quality_trim += current_qual.len() - trim_pos;
-            rec.alignment_results.seq_end = rec.alignment_results.seq_start + trim_pos;
+            rec.alignment_results.read_range.end = rec.alignment_results.read_range.start + trim_pos;
         }
         if self.trace {
             if trim_pos < current_qual.len() {

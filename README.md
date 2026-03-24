@@ -27,6 +27,7 @@ Most options work as for Flexbar, but:
 Not yet implemented:
 
 * Paired reads
+* Barcode reads in separate files (-br option)
 * Trimming of homopolymers
 * pre-trim-left/right
 

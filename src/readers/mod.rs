@@ -5,10 +5,6 @@ pub mod fasta;
 pub mod fastq;
 mod generic;
 
-pub use generic::GenericReader;
-pub use fasta::{SingleReaderFasta, PairedReaderFasta, PairedFastaBackend};
-pub use fastq::{SingleReaderFastq, PairedReaderFastq, PairedFastqBackend};
-
 pub trait SequenceReader: Iterator<Item=RecordDto> {
     fn compression(&self) -> crate::types::CompressionType;
     fn statistics(&self) -> crate::statistics::ReaderStatistics;

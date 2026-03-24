@@ -1,32 +1,40 @@
 use crate::statistics::WorkerStatistics;
-use crate::types::{SingeRecordDto, TrimEnd};
+use crate::types::{SingeRecordDto, PairedRecordDto, TrimEnd};
 use crate::args::Args;
 use crate::context::Context;
+use std::ops::Range;
 
 #[derive(Default, Clone)]
-pub struct AlignmentResults {
+pub struct SingleAlignmentResults {
     pub barcode_tag: Option<String>,
     pub umi_tags: Vec<String>,
     pub removal_tags: Vec<String>,
-    pub seq_start: usize,
-    pub seq_end: usize,
+    pub read_range: Range<usize>,
     pub record_dropped: bool,
 }
 
+#[derive(Default, Clone)]
+pub struct PairedAlignmentResults {
+    pub barcode_tag: Option<String>,
+    pub umi_tags: Vec<String>,
+    pub removal_tags: Vec<String>,
+    pub read_ranges: [Range<usize>; 2],
+    pub record_dropped: bool,
+}
 
-pub struct RecordInTransformation<RecordType> {
+pub struct RecordInTransformation<RecordType, AR> {
     pub record: RecordType,
-    pub alignment_results: AlignmentResults,
+    pub alignment_results: AR,
     pub stats: WorkerStatistics,
 }
 
-impl RecordInTransformation<SingeRecordDto> {
+impl RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
     pub fn get_sequence(&self) -> &[u8] {
-        &self.record.seq()[self.alignment_results.seq_start..self.alignment_results.seq_end]
+        &self.record.seq()[self.alignment_results.read_range.clone()]
     }
     
     pub fn get_qual(&self) -> &[u8] {
-        &self.record.qual()[self.alignment_results.seq_start..self.alignment_results.seq_end]
+        &self.record.qual()[self.alignment_results.read_range.clone()]
     }
     
     pub fn get_sequence_as_str(&self) -> String {
@@ -35,15 +43,19 @@ impl RecordInTransformation<SingeRecordDto> {
 
     pub fn trim(&mut self, trim_end: TrimEnd, start: usize, end: usize) {
         match trim_end {
-            TrimEnd::Right | TrimEnd::RTail => self.alignment_results.seq_end =
-                self.alignment_results.seq_start + start,
-            TrimEnd::Left | TrimEnd::LTail => self.alignment_results.seq_start += end,
+            TrimEnd::Right | TrimEnd::RTail => {
+                self.alignment_results.read_range.end = self.alignment_results.read_range.start + start;
+            }
+            TrimEnd::Left | TrimEnd::LTail => {
+                self.alignment_results.read_range.start += end;
+            }
             TrimEnd::Any => {
-                let right_length = self.get_sequence().len() - end;
+                let current_len = self.alignment_results.read_range.end - self.alignment_results.read_range.start;
+                let right_length = current_len - end;
                 if start > right_length {
-                    self.alignment_results.seq_end = self.alignment_results.seq_start + start;
+                    self.alignment_results.read_range.end = self.alignment_results.read_range.start + start;
                 } else {
-                    self.alignment_results.seq_start += end;
+                    self.alignment_results.read_range.start += end;
                 }
             }
         }
@@ -51,19 +63,20 @@ impl RecordInTransformation<SingeRecordDto> {
 }
 
 pub trait Transformable {
-    fn get_record_in_transformation(&self) -> RecordInTransformation<Self> where Self: Sized;
+    type AR;
+    fn get_record_in_transformation(&self) -> RecordInTransformation<Self, Self::AR> where Self: Sized;
 }
 
 impl Transformable for SingeRecordDto {
-    fn get_record_in_transformation(&self) -> RecordInTransformation<SingeRecordDto> {
+    type AR = SingleAlignmentResults;
+    fn get_record_in_transformation(&self) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
         RecordInTransformation {
             record: self.clone(),
-            alignment_results: AlignmentResults {
+            alignment_results: SingleAlignmentResults {
                 barcode_tag: None,
                 umi_tags: Vec::new(),
                 removal_tags: Vec::new(),
-                seq_start: 0,
-                seq_end: self.seq().len(),
+                read_range: 0..self.seq().len(),
                 record_dropped: false,
             },
             stats: WorkerStatistics::default(),
@@ -71,13 +84,31 @@ impl Transformable for SingeRecordDto {
     }   
 }
 
+impl Transformable for PairedRecordDto {
+    type AR = PairedAlignmentResults;
+    fn get_record_in_transformation(&self) -> RecordInTransformation<PairedRecordDto, PairedAlignmentResults> {
+        RecordInTransformation {
+            record: self.clone(),
+            alignment_results: PairedAlignmentResults {
+                barcode_tag: None,
+                umi_tags: Vec::new(),
+                removal_tags: Vec::new(),
+                read_ranges: [0..self.records[0].seq().len(), 0..self.records[1].seq().len()],
+                record_dropped: false,
+            },
+            stats: WorkerStatistics::default(),
+        }
+    }
+}
+
 pub trait GenericStep<RecordType>: Send + Sync {
     type State: Send;
+    type AlignmentResult;
     fn new(args: &Args, context: &Context) -> Self;
     fn create_state(&self) -> Self::State;
     fn apply(
-        &self, rec: RecordInTransformation<RecordType>, state: &mut Self::State
-    ) -> RecordInTransformation<RecordType>;
+        &self, rec: RecordInTransformation<RecordType, Self::AlignmentResult>, state: &mut Self::State
+    ) -> RecordInTransformation<RecordType, Self::AlignmentResult>;
 }
 
 pub struct FinalRecord<RecordType> {

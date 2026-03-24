@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::types::{TrimEnd, SingeRecordDto};
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::generic::{GenericStep, RecordInTransformation, SingleAlignmentResults};
 use crate::context::{Context, SequenceWithId};
 use crate::multi_aligner::{MultiAligner, MultiAlignerSetup, AlignerConfig, MultiAlignerState};
 use crate::multi_aligner::result::MultiAlignerResult;
@@ -21,7 +21,7 @@ pub struct SingleAdapterRemoverState {
 }
 
 impl SingleAdapterRemover {
-    pub fn remove_adapters(&self, state: &mut SingleAdapterRemoverState, rec: &mut RecordInTransformation<SingeRecordDto>) {
+    pub fn remove_adapters(&self, state: &mut SingleAdapterRemoverState, rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>) {
         let current_seq = &rec.get_sequence();
         let best_alignment = self.multi_aligner.align(&mut state.multi_aligner_state, &self.multi_aligner_setup, current_seq);
         if let Some(alignment) = best_alignment {
@@ -34,7 +34,7 @@ impl SingleAdapterRemover {
 
     fn handle_umi_tags(
         &self,
-        rec: &mut RecordInTransformation<SingeRecordDto>,
+        rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>,
         alignment: &MultiAlignerResult,
         adapter: &str,
     ) {
@@ -48,12 +48,12 @@ impl SingleAdapterRemover {
 
     fn trim_record(
         &self,
-        rec: &mut RecordInTransformation<SingeRecordDto>,
+        rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>,
         alignment: &MultiAlignerResult,
     ) {
-        let old_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
+        let old_len = rec.alignment_results.read_range.end - rec.alignment_results.read_range.start;
         rec.trim(self.trim_end, alignment.get_start_index(), alignment.get_end_index());
-        let new_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
+        let new_len = rec.alignment_results.read_range.end - rec.alignment_results.read_range.start;
         rec.stats.bases_adapter_removal += old_len - new_len;
         if self.removal_tags {
             rec.alignment_results.removal_tags.push(
@@ -65,6 +65,7 @@ impl SingleAdapterRemover {
 
 impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
     type State = SingleAdapterRemoverState;
+    type AlignmentResult = SingleAlignmentResults;
     
     fn new(args: &Args, context: &Context) -> Self {
         let config = AlignerConfig {
@@ -102,8 +103,8 @@ impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
     }
 
     fn apply(
-        &self, mut rec: RecordInTransformation<SingeRecordDto>, state: &mut Self::State
-    ) -> RecordInTransformation<SingeRecordDto> {
+        &self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, state: &mut Self::State
+    ) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
         if rec.alignment_results.record_dropped { return rec }
         
         if self.trace {

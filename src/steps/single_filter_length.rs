@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::types::SingeRecordDto;
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::generic::{GenericStep, RecordInTransformation, SingleAlignmentResults};
 use crate::context::Context;
 
 pub struct SingleFilterLength {
@@ -12,6 +12,7 @@ pub struct SingleFilterLengthState {}
 
 impl GenericStep<SingeRecordDto> for SingleFilterLength {
     type State = SingleFilterLengthState;
+    type AlignmentResult = SingleAlignmentResults;
 
     fn new(args: &Args, _context: &Context) -> Self {
         Self {
@@ -23,9 +24,9 @@ impl GenericStep<SingeRecordDto> for SingleFilterLength {
         SingleFilterLengthState {}
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto> {
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
         if !rec.alignment_results.record_dropped && self.min_read_length > 0 {
-            let current_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
+            let current_len = rec.alignment_results.read_range.end - rec.alignment_results.read_range.start;
             if current_len < self.min_read_length {
                 trace!("Length filter dropped record: {} (length: {})", rec.record.id(), current_len);
                 rec.alignment_results.record_dropped = true;
@@ -40,7 +41,7 @@ impl GenericStep<SingeRecordDto> for SingleFilterLength {
 mod tests {
     use super::*;
     use crate::args::Args;
-    use crate::steps::generic::AlignmentResults;
+    use crate::steps::generic::SingleAlignmentResults;
     use crate::statistics::WorkerStatistics;
     use clap::Parser;
 
@@ -54,9 +55,8 @@ mod tests {
         let record = SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");
         let rec_in = RecordInTransformation {
             record: record.clone(),
-            alignment_results: AlignmentResults {
-                seq_start: 0,
-                seq_end: 10,
+            alignment_results: SingleAlignmentResults {
+                read_range: 0..10,
                 record_dropped: false,
                 ..Default::default()
             },
@@ -77,9 +77,8 @@ mod tests {
         let record = SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII");
         let rec_in = RecordInTransformation {
             record: record.clone(),
-            alignment_results: AlignmentResults {
-                seq_start: 0,
-                seq_end: 9,
+            alignment_results: SingleAlignmentResults {
+                read_range: 0..9,
                 record_dropped: false,
                 ..Default::default()
             },
@@ -100,9 +99,8 @@ mod tests {
         let record = SingeRecordDto::with_attrs("read1", None, b"A", b"I");
         let rec_in = RecordInTransformation {
             record: record.clone(),
-            alignment_results: AlignmentResults {
-                seq_start: 0,
-                seq_end: 1,
+            alignment_results: SingleAlignmentResults {
+                read_range: 0..1,
                 record_dropped: false,
                 ..Default::default()
             },

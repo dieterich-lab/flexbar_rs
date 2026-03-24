@@ -268,6 +268,10 @@ impl PairedRecordDto {
         Self { records: [r1, r2] }
     }
 
+    pub fn id(&self) -> &str {
+        self.records[0].id()
+    }
+
     pub fn validate(&self) -> bool {
         let id1 = self.records[0].id();
         let id2 = self.records[1].id();

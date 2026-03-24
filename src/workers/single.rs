@@ -7,7 +7,7 @@ use crate::steps::single_uncalled_sequence_filter::{SingleUncalledSequenceFilter
 use crate::steps::single_barcode_splitter::{SingleBarcodeSplitter, SingleBarcodeSplitterState};
 use crate::steps::single_quality_trim::{SingleQualityTrim, SingleQualityTrimState};
 use crate::steps::single_filter_length::{SingleFilterLength, SingleFilterLengthState};
-use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
+use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable, SingleAlignmentResults};
 
 pub struct SingleWorker {
     pub adapter_remover: Option<SingleAdapterRemover>,
@@ -102,7 +102,7 @@ impl SingleWorker {
         record: &SingeRecordDto,
         state: &mut SingleWorkerState
     ) -> FinalRecord<SingeRecordDto> {
-        let mut rec_in = record.get_record_in_transformation();
+        let mut rec_in: RecordInTransformation<SingeRecordDto, SingleAlignmentResults> = record.get_record_in_transformation();
         rec_in.stats.total_bases_read = record.seq().len();
 
         if let Some(step) = &self.uncalled_sequence_filter {
@@ -126,7 +126,7 @@ impl SingleWorker {
     }
 }
 
-fn finalize(mut rec: RecordInTransformation<SingeRecordDto>) -> FinalRecord<SingeRecordDto> {
+fn finalize(mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>) -> FinalRecord<SingeRecordDto> {
     if rec.alignment_results.record_dropped {
         rec.stats.bases_discarded = rec.stats.total_bases_read;
         rec.stats.bases_quality_trim = 0;

@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::types::{SingeRecordDto, TrimEnd};
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::generic::{GenericStep, RecordInTransformation, SingleAlignmentResults};
 use crate::context::{Context, SequenceWithId};
 use crate::multi_aligner::{MultiAligner, MultiAlignerSetup, MultiAlignerState};
 use crate::multi_aligner::result::MultiAlignerResult;
@@ -24,6 +24,7 @@ pub struct SingleBarcodeSplitterState {
 
 impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
     type State = SingleBarcodeSplitterState;
+    type AlignmentResult = SingleAlignmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
         let multi_aligner_setup = MultiAlignerSetup::new(
@@ -62,7 +63,7 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
         }
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, state: &mut Self::State) -> RecordInTransformation<SingeRecordDto> {
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, state: &mut Self::State) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
         let sequence = rec.get_sequence();
         let best_alignment = self.multi_aligner.align(&mut state.multi_aligner_state, &self.multi_aligner_setup, &sequence);
         
@@ -94,7 +95,7 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 }
 
 impl SingleBarcodeSplitter {
-    fn assign_barcode_tag(&self, rec: &mut RecordInTransformation<SingeRecordDto>, tag: String) {
+    fn assign_barcode_tag(&self, rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, tag: String) {
         if self.trace {
             trace!("Barcode splitter on {}: Assigned tag {}", rec.record.id(), tag);
         }
@@ -103,7 +104,7 @@ impl SingleBarcodeSplitter {
 
     fn handle_umi_tags(
         &self, 
-        rec: &mut RecordInTransformation<SingeRecordDto>, 
+        rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, 
         best: &MultiAlignerResult,
         barcode: &SequenceWithId,
     ) {
@@ -122,13 +123,13 @@ impl SingleBarcodeSplitter {
 
     fn remove_barcode(
         &self, 
-        rec: &mut RecordInTransformation<SingeRecordDto>, 
+        rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, 
         best: &MultiAlignerResult,
     ) {
         if self.barcode_keep { return; }
-        let old_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
+        let old_len = rec.alignment_results.read_range.end - rec.alignment_results.read_range.start;
         rec.trim(self.trim_end, best.get_start_index(), best.get_end_index());
-        let new_len = rec.alignment_results.seq_end - rec.alignment_results.seq_start;
+        let new_len = rec.alignment_results.read_range.end - rec.alignment_results.read_range.start;
         rec.stats.bases_barcode_removal += old_len - new_len;
         if self.removal_tags {
             rec.alignment_results.removal_tags.push("Flexbar_removal".to_string());
@@ -144,7 +145,7 @@ impl SingleBarcodeSplitter {
         }
     }
 
-    fn drop_record(rec: &mut RecordInTransformation<SingeRecordDto>) {
+    fn drop_record(rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>) {
         rec.stats.total_discarded_barcode += 1;
         rec.alignment_results.record_dropped = true;
         trace!("Barcode splitter on {}: no tag assigned and DROPPED.", rec.record.id());
@@ -158,7 +159,7 @@ mod tests {
     use clap::Parser;
     use crate::steps::generic::Transformable;
 
-    fn process_record(record: SingeRecordDto, args: Args) -> RecordInTransformation<SingeRecordDto>
+    fn process_record(record: SingeRecordDto, args: Args) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults>
     {
         let barcodes = vec![
             SequenceWithId {
@@ -202,7 +203,7 @@ mod tests {
         
         assert!(!res.alignment_results.record_dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_unassigned_".to_string()));
-        assert_eq!(res.alignment_results.seq_end - res.alignment_results.seq_start, 8);
+        assert_eq!(res.alignment_results.read_range.end - res.alignment_results.read_range.start, 8);
     }
 
     fn get_record_with_barcode_at_end() -> SingeRecordDto {
@@ -227,8 +228,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.seq_start, 0);
-        assert_eq!(res.alignment_results.seq_end, 44);
+        assert_eq!(res.alignment_results.read_range.start, 0);
+        assert_eq!(res.alignment_results.read_range.end, 44);
         assert_eq!(res.get_sequence_as_str(), "CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
     }
 
@@ -254,8 +255,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.seq_start, 28);
-        assert_eq!(res.alignment_results.seq_end, 72);
+        assert_eq!(res.alignment_results.read_range.start, 28);
+        assert_eq!(res.alignment_results.read_range.end, 72);
         assert_eq!(res.get_sequence_as_str(), "CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
     }
 
@@ -272,8 +273,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.seq_start, 0);
-        assert_eq!(res.alignment_results.seq_end, 44);
+        assert_eq!(res.alignment_results.read_range.start, 0);
+        assert_eq!(res.alignment_results.read_range.end, 44);
     }
 
     #[test]
@@ -289,8 +290,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.seq_start, 28);
-        assert_eq!(res.alignment_results.seq_end, 72);
+        assert_eq!(res.alignment_results.read_range.start, 28);
+        assert_eq!(res.alignment_results.read_range.end, 72);
     }
 
     #[test]
@@ -306,8 +307,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.seq_start, 28);
-        assert_eq!(res.alignment_results.seq_end, 72);
+        assert_eq!(res.alignment_results.read_range.start, 28);
+        assert_eq!(res.alignment_results.read_range.end, 72);
     }
 
     #[test]
@@ -323,8 +324,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.seq_start, 0);
-        assert_eq!(res.alignment_results.seq_end, 44);
+        assert_eq!(res.alignment_results.read_range.start, 0);
+        assert_eq!(res.alignment_results.read_range.end, 44);
     }
 
     fn get_record_with_last_barcode_base_missing_in_sequence() -> SingeRecordDto {

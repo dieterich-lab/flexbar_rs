@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::types::SingeRecordDto;
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::generic::{GenericStep, RecordInTransformation, SingleAlignmentResults};
 use crate::context::Context;
 
 pub struct SingleUncalledSequenceFilter {
@@ -12,6 +12,7 @@ pub struct SingleUncalledSequenceFilterState {}
 
 impl GenericStep<SingeRecordDto> for SingleUncalledSequenceFilter {
     type State = SingleUncalledSequenceFilterState;
+    type AlignmentResult = SingleAlignmentResults;
 
     fn new(args: &Args, _context: &Context) -> Self {
         Self {
@@ -23,10 +24,10 @@ impl GenericStep<SingeRecordDto> for SingleUncalledSequenceFilter {
         SingleUncalledSequenceFilterState {}
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto> {
+    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
         if !rec.alignment_results.record_dropped {
             trace!("Uncalled filter processing record: {}", rec.record.id());
-            let seq = &rec.record.seq()[rec.alignment_results.seq_start..rec.alignment_results.seq_end];
+            let seq = &rec.record.seq()[rec.alignment_results.read_range.clone()];
             let uncalled_count = seq.iter().filter(|&&b| b == b'N' || b == b'n').count();
             if uncalled_count > self.max_uncalled {
                 trace!("Uncalled filter dropped record: {}", rec.record.id());
