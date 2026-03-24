@@ -50,7 +50,7 @@ pub fn get_raw_reader<P: AsRef<Path>>(path: P, buffer_size: usize) -> io::Result
     Ok((BufReader::with_capacity(buffer_size, reader), source, compression))
 }
 
-pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &str, tag: Option<&str>) -> Option<PathBuf> {
+pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &str, tag: Option<&str>, read_index: Option<usize>) -> Option<PathBuf> {
     if prefix == "-" {
         return None;
     }
@@ -60,6 +60,11 @@ pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &s
         let mut filename = path.file_name().unwrap_or_default().to_os_string();
         filename.push("_");
         filename.push(cleaned_tag);
+        path.set_file_name(filename);
+    }
+    if let Some(idx) = read_index {
+        let mut filename = path.file_name().unwrap_or_default().to_os_string();
+        filename.push(if idx == 0 { "_R1" } else { "_R2" });
         path.set_file_name(filename);
     }
     path.set_extension(extension);
@@ -105,8 +110,8 @@ pub fn get_writer_factory<'a>(
     compression: CompressionType,
     buffer_size: usize,
 ) -> Box<dyn Fn(Option<&str>, Option<usize>, &'static str) -> io::Result<(Box<dyn Write + Send + 'a>, String)> + Send + 'a> {
-    Box::new(move |tag, _read_index, extension| {
-        let path = get_writer_path(&prefix, compression, extension, tag);
+    Box::new(move |tag, read_index, extension| {
+        let path = get_writer_path(&prefix, compression, extension, tag, read_index);
         let description = match &path {
             Some(p) => p.to_string_lossy().into_owned(),
             None => "STDOUT".to_string(),
@@ -125,7 +130,7 @@ mod tests {
     #[test]
     fn test_bz2_decompression() {
         let mut tmp = NamedTempFile::new().unwrap();
-        let mut bz2_writer = bzip2::write::BzEncoder::new(Vec::new(), bzip2::Compression::default());
+        let mut bz2_writer = BzEncoder::new(Vec::new(), bzip2::Compression::default());
         bz2_writer.write_all(b">test\nACGT\n").unwrap();
         let compressed_data = bz2_writer.finish().unwrap();
         tmp.write_all(&compressed_data).unwrap();
@@ -151,7 +156,7 @@ mod tests {
         let compression = CompressionType::Uncompressed;
         let extension = "fastq";
         let tag = Some("tag/with\\slashes");
-        let path = get_writer_path(prefix, compression, extension, tag).unwrap();
+        let path = get_writer_path(prefix, compression, extension, tag, None).unwrap();
         assert_eq!(path, PathBuf::from("output/test_tagwithslashes.fastq"));
     }
 
@@ -161,7 +166,7 @@ mod tests {
         let compression = CompressionType::Uncompressed;
         let extension = "fastq";
         let tag = Some("tag1");
-        let path = get_writer_path(prefix, compression, extension, tag).unwrap();
+        let path = get_writer_path(prefix, compression, extension, tag, None).unwrap();
         assert_eq!(path, PathBuf::from("output/test_tag1.fastq"));
     }
 
@@ -170,14 +175,30 @@ mod tests {
         let prefix = "output/test";
         let compression = CompressionType::Uncompressed;
         let extension = "fastq";
-        let path = get_writer_path(prefix, compression, extension, None).unwrap();
+        let path = get_writer_path(prefix, compression, extension, None, None).unwrap();
         assert_eq!(path, PathBuf::from("output/test.fastq"));
+    }
+
+    #[test]
+    fn test_get_writer_path_paired() {
+        let prefix = "output/test";
+        let compression = CompressionType::Uncompressed;
+        let extension = "fastq";
+        
+        let path1 = get_writer_path(prefix, compression, extension, None, Some(0)).unwrap();
+        assert_eq!(path1, PathBuf::from("output/test_R1.fastq"));
+        
+        let path2 = get_writer_path(prefix, compression, extension, None, Some(1)).unwrap();
+        assert_eq!(path2, PathBuf::from("output/test_R2.fastq"));
+        
+        let path3 = get_writer_path(prefix, compression, extension, Some("tag1"), Some(0)).unwrap();
+        assert_eq!(path3, PathBuf::from("output/test_tag1_R1.fastq"));
     }
 
     fn test_compression_roundtrip(compression: CompressionType, extension: &str) {
         let dir = tempdir().unwrap();
         let prefix = dir.path().join("test").to_str().unwrap().to_string();
-        let path_opt = get_writer_path(&prefix, compression, extension, None);
+        let path_opt = get_writer_path(&prefix, compression, extension, None, None);
         let path = path_opt.unwrap();
         
         let data = b"test data for compression roundtrip";
