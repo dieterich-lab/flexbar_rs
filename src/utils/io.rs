@@ -64,7 +64,7 @@ pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &s
     }
     if let Some(idx) = read_index {
         let mut filename = path.file_name().unwrap_or_default().to_os_string();
-        filename.push(if idx == 0 { "_R1" } else { "_R2" });
+        filename.push(format!("_{}", idx + 1));
         path.set_file_name(filename);
     }
     path.set_extension(extension);
@@ -186,13 +186,13 @@ mod tests {
         let extension = "fastq";
         
         let path1 = get_writer_path(prefix, compression, extension, None, Some(0)).unwrap();
-        assert_eq!(path1, PathBuf::from("output/test_R1.fastq"));
+        assert_eq!(path1, PathBuf::from("output/test_1.fastq"));
         
         let path2 = get_writer_path(prefix, compression, extension, None, Some(1)).unwrap();
-        assert_eq!(path2, PathBuf::from("output/test_R2.fastq"));
+        assert_eq!(path2, PathBuf::from("output/test_2.fastq"));
         
         let path3 = get_writer_path(prefix, compression, extension, Some("tag1"), Some(0)).unwrap();
-        assert_eq!(path3, PathBuf::from("output/test_tag1_R1.fastq"));
+        assert_eq!(path3, PathBuf::from("output/test_tag1_1.fastq"));
     }
 
     fn test_compression_roundtrip(compression: CompressionType, extension: &str) {
