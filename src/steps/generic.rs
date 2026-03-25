@@ -5,20 +5,23 @@ use crate::context::Context;
 use std::ops::Range;
 
 #[derive(Default, Clone)]
-pub struct SingleAlignmentResults {
-    pub barcode_tag: Option<String>,
+pub struct PerReadAlignmentResults {
     pub umi_tags: Vec<String>,
     pub removal_tags: Vec<String>,
     pub read_range: Range<usize>,
+}
+
+#[derive(Default, Clone)]
+pub struct SingleAlignmentResults {
+    pub barcode_tag: Option<String>,
+    pub read: PerReadAlignmentResults,
     pub record_dropped: bool,
 }
 
 #[derive(Default, Clone)]
 pub struct PairedAlignmentResults {
     pub barcode_tag: Option<String>,
-    pub umi_tags: Vec<String>,
-    pub removal_tags: Vec<String>,
-    pub read_ranges: [Range<usize>; 2],
+    pub per_read: [PerReadAlignmentResults; 2],
     pub record_dropped: bool,
 }
 
@@ -30,11 +33,11 @@ pub struct RecordInTransformation<RecordType, AR> {
 
 impl RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
     pub fn get_sequence(&self) -> &[u8] {
-        &self.record.seq()[self.alignment_results.read_range.clone()]
+        &self.record.seq()[self.alignment_results.read.read_range.clone()]
     }
     
     pub fn get_qual(&self) -> &[u8] {
-        &self.record.qual()[self.alignment_results.read_range.clone()]
+        &self.record.qual()[self.alignment_results.read.read_range.clone()]
     }
     
     pub fn get_sequence_as_str(&self) -> String {
@@ -44,18 +47,18 @@ impl RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
     pub fn trim(&mut self, trim_end: TrimEnd, start: usize, end: usize) {
         match trim_end {
             TrimEnd::Right | TrimEnd::RTail => {
-                self.alignment_results.read_range.end = self.alignment_results.read_range.start + start;
+                self.alignment_results.read.read_range.end = self.alignment_results.read.read_range.start + start;
             }
             TrimEnd::Left | TrimEnd::LTail => {
-                self.alignment_results.read_range.start += end;
+                self.alignment_results.read.read_range.start += end;
             }
             TrimEnd::Any => {
-                let current_len = self.alignment_results.read_range.end - self.alignment_results.read_range.start;
+                let current_len = self.alignment_results.read.read_range.end - self.alignment_results.read.read_range.start;
                 let right_length = current_len - end;
                 if start > right_length {
-                    self.alignment_results.read_range.end = self.alignment_results.read_range.start + start;
+                    self.alignment_results.read.read_range.end = self.alignment_results.read.read_range.start + start;
                 } else {
-                    self.alignment_results.read_range.start += end;
+                    self.alignment_results.read.read_range.start += end;
                 }
             }
         }
@@ -74,9 +77,11 @@ impl Transformable for SingeRecordDto {
             record: self.clone(),
             alignment_results: SingleAlignmentResults {
                 barcode_tag: None,
-                umi_tags: Vec::new(),
-                removal_tags: Vec::new(),
-                read_range: 0..self.seq().len(),
+                read: PerReadAlignmentResults {
+                    umi_tags: Vec::new(),
+                    removal_tags: Vec::new(),
+                    read_range: 0..self.seq().len(),
+                },
                 record_dropped: false,
             },
             stats: WorkerStatistics::default(),
@@ -91,9 +96,18 @@ impl Transformable for PairedRecordDto {
             record: self.clone(),
             alignment_results: PairedAlignmentResults {
                 barcode_tag: None,
-                umi_tags: Vec::new(),
-                removal_tags: Vec::new(),
-                read_ranges: [0..self.records[0].seq().len(), 0..self.records[1].seq().len()],
+                per_read: [
+                    PerReadAlignmentResults {
+                        umi_tags: Vec::new(),
+                        removal_tags: Vec::new(),
+                        read_range: 0..self.records[0].seq().len(),
+                    },
+                    PerReadAlignmentResults {
+                        umi_tags: Vec::new(),
+                        removal_tags: Vec::new(),
+                        read_range: 0..self.records[1].seq().len(),
+                    },
+                ],
                 record_dropped: false,
             },
             stats: WorkerStatistics::default(),

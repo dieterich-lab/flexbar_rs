@@ -43,7 +43,7 @@ impl SingleAdapterRemover {
         if self.trace && !tags.is_empty() {
             trace!("Adapter remover on {}: Extracted UMI tags {:?}", rec.record.id(), tags);
         }
-        rec.alignment_results.umi_tags.extend(tags);
+        rec.alignment_results.read.umi_tags.extend(tags);
     }
 
     fn trim_record(
@@ -51,12 +51,12 @@ impl SingleAdapterRemover {
         rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>,
         alignment: &MultiAlignerResult,
     ) {
-        let old_len = rec.alignment_results.read_range.end - rec.alignment_results.read_range.start;
+        let old_len = rec.alignment_results.read.read_range.end - rec.alignment_results.read.read_range.start;
         rec.trim(self.trim_end, alignment.get_start_index(), alignment.get_end_index());
-        let new_len = rec.alignment_results.read_range.end - rec.alignment_results.read_range.start;
+        let new_len = rec.alignment_results.read.read_range.end - rec.alignment_results.read.read_range.start;
         rec.stats.bases_adapter_removal += old_len - new_len;
         if self.removal_tags {
-            rec.alignment_results.removal_tags.push(
+            rec.alignment_results.read.removal_tags.push(
                 format!("Flexbar_removal_{}", alignment.reference_index))
             ;
         }

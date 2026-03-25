@@ -146,11 +146,11 @@ fn finalize(mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResul
         None => (),
     }
 
-    for tag in &rec.alignment_results.removal_tags {
+    for tag in &rec.alignment_results.read.removal_tags {
         desc_parts.push(tag);
     }
 
-    for tag in &rec.alignment_results.umi_tags {
+    for tag in &rec.alignment_results.read.umi_tags {
         desc_parts.push(tag);
     }
 

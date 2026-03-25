@@ -118,7 +118,7 @@ impl SingleBarcodeSplitter {
                 rec.record.id(), new_umi_tags.clone()
             );
         }
-        rec.alignment_results.umi_tags.extend(new_umi_tags);
+        rec.alignment_results.read.umi_tags.extend(new_umi_tags);
     }
 
     fn remove_barcode(
@@ -127,12 +127,12 @@ impl SingleBarcodeSplitter {
         best: &MultiAlignerResult,
     ) {
         if self.barcode_keep { return; }
-        let old_len = rec.alignment_results.read_range.end - rec.alignment_results.read_range.start;
+        let old_len = rec.alignment_results.read.read_range.end - rec.alignment_results.read.read_range.start;
         rec.trim(self.trim_end, best.get_start_index(), best.get_end_index());
-        let new_len = rec.alignment_results.read_range.end - rec.alignment_results.read_range.start;
+        let new_len = rec.alignment_results.read.read_range.end - rec.alignment_results.read.read_range.start;
         rec.stats.bases_barcode_removal += old_len - new_len;
         if self.removal_tags {
-            rec.alignment_results.removal_tags.push("Flexbar_removal".to_string());
+            rec.alignment_results.read.removal_tags.push("Flexbar_removal".to_string());
         }
         if self.trace {
             trace!(
@@ -203,7 +203,7 @@ mod tests {
         
         assert!(!res.alignment_results.record_dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_unassigned_".to_string()));
-        assert_eq!(res.alignment_results.read_range.end - res.alignment_results.read_range.start, 8);
+        assert_eq!(res.alignment_results.read.read_range.end - res.alignment_results.read.read_range.start, 8);
     }
 
     fn get_record_with_barcode_at_end() -> SingeRecordDto {
@@ -228,8 +228,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.read_range.start, 0);
-        assert_eq!(res.alignment_results.read_range.end, 44);
+        assert_eq!(res.alignment_results.read.read_range.start, 0);
+        assert_eq!(res.alignment_results.read.read_range.end, 44);
         assert_eq!(res.get_sequence_as_str(), "CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
     }
 
@@ -255,8 +255,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.read_range.start, 28);
-        assert_eq!(res.alignment_results.read_range.end, 72);
+        assert_eq!(res.alignment_results.read.read_range.start, 28);
+        assert_eq!(res.alignment_results.read.read_range.end, 72);
         assert_eq!(res.get_sequence_as_str(), "CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
     }
 
@@ -273,8 +273,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.read_range.start, 0);
-        assert_eq!(res.alignment_results.read_range.end, 44);
+        assert_eq!(res.alignment_results.read.read_range.start, 0);
+        assert_eq!(res.alignment_results.read.read_range.end, 44);
     }
 
     #[test]
@@ -290,8 +290,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.read_range.start, 28);
-        assert_eq!(res.alignment_results.read_range.end, 72);
+        assert_eq!(res.alignment_results.read.read_range.start, 28);
+        assert_eq!(res.alignment_results.read.read_range.end, 72);
     }
 
     #[test]
@@ -307,8 +307,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.read_range.start, 28);
-        assert_eq!(res.alignment_results.read_range.end, 72);
+        assert_eq!(res.alignment_results.read.read_range.start, 28);
+        assert_eq!(res.alignment_results.read.read_range.end, 72);
     }
 
     #[test]
@@ -324,8 +324,8 @@ mod tests {
         );
         
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
-        assert_eq!(res.alignment_results.read_range.start, 0);
-        assert_eq!(res.alignment_results.read_range.end, 44);
+        assert_eq!(res.alignment_results.read.read_range.start, 0);
+        assert_eq!(res.alignment_results.read.read_range.end, 44);
     }
 
     fn get_record_with_last_barcode_base_missing_in_sequence() -> SingeRecordDto {

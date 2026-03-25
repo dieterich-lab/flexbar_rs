@@ -26,7 +26,7 @@ impl GenericStep<SingeRecordDto> for SingleFilterLength {
 
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
         if !rec.alignment_results.record_dropped && self.min_read_length > 0 {
-            let current_len = rec.alignment_results.read_range.end - rec.alignment_results.read_range.start;
+            let current_len = rec.alignment_results.read.read_range.end - rec.alignment_results.read.read_range.start;
             if current_len < self.min_read_length {
                 trace!("Length filter dropped record: {} (length: {})", rec.record.id(), current_len);
                 rec.alignment_results.record_dropped = true;
@@ -41,7 +41,7 @@ impl GenericStep<SingeRecordDto> for SingleFilterLength {
 mod tests {
     use super::*;
     use crate::args::Args;
-    use crate::steps::generic::SingleAlignmentResults;
+    use crate::steps::generic::{SingleAlignmentResults, PerReadAlignmentResults};
     use crate::statistics::WorkerStatistics;
     use clap::Parser;
 
@@ -56,7 +56,10 @@ mod tests {
         let rec_in = RecordInTransformation {
             record: record.clone(),
             alignment_results: SingleAlignmentResults {
-                read_range: 0..10,
+                read: PerReadAlignmentResults {
+                    read_range: 0..10,
+                    ..Default::default()
+                },
                 record_dropped: false,
                 ..Default::default()
             },
@@ -78,7 +81,10 @@ mod tests {
         let rec_in = RecordInTransformation {
             record: record.clone(),
             alignment_results: SingleAlignmentResults {
-                read_range: 0..9,
+                read: PerReadAlignmentResults {
+                    read_range: 0..9,
+                    ..Default::default()
+                },
                 record_dropped: false,
                 ..Default::default()
             },
@@ -100,7 +106,10 @@ mod tests {
         let rec_in = RecordInTransformation {
             record: record.clone(),
             alignment_results: SingleAlignmentResults {
-                read_range: 0..1,
+                read: PerReadAlignmentResults {
+                    read_range: 0..1,
+                    ..Default::default()
+                },
                 record_dropped: false,
                 ..Default::default()
             },

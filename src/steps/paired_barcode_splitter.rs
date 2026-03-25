@@ -30,19 +30,20 @@ impl GenericStep<PairedRecordDto> for PairedBarcodeSplitter {
     type AlignmentResult = PairedAlignmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
+        let config = crate::multi_aligner::AlignerConfig {
+            match_score: args.barcode_match,
+            mismatch_score: args.barcode_mismatch,
+            gap_open: args.barcode_gap_open,
+            gap_extend: args.barcode_gap_extend,
+            error_rate: args.barcode_error_rate,
+            min_overlap: args.barcode_min_overlap,
+            cycles: if args.barcode_keep { 1 } else { args.barcode_cycles },
+        };
         let multi_aligner_setup = MultiAlignerSetup::new(
             "Barcode Splitter R1".to_string(),
             args.barcode_trim_end,
             &context.barcodes,
-            crate::multi_aligner::AlignerConfig {
-                match_score: args.barcode_match,
-                mismatch_score: args.barcode_mismatch,
-                gap_open: args.barcode_gap_open,
-                gap_extend: args.barcode_gap_extend,
-                error_rate: args.barcode_error_rate,
-                min_overlap: args.barcode_min_overlap,
-                cycles: if args.barcode_keep { 1 } else { args.barcode_cycles },
-            },
+            config.clone(),
             args.barcode_kmer
         );
         let multi_aligner = multi_aligner_setup.create_aligner();
@@ -52,15 +53,7 @@ impl GenericStep<PairedRecordDto> for PairedBarcodeSplitter {
                 "Barcode Splitter R2".to_string(),
                 args.barcode_trim_end,
                 &context.barcodes2,
-                crate::multi_aligner::AlignerConfig {
-                    match_score: args.barcode_match,
-                    mismatch_score: args.barcode_mismatch,
-                    gap_open: args.barcode_gap_open,
-                    gap_extend: args.barcode_gap_extend,
-                    error_rate: args.barcode_error_rate,
-                    min_overlap: args.barcode_min_overlap,
-                    cycles: if args.barcode_keep { 1 } else { args.barcode_cycles },
-                },
+                config,
                 args.barcode_kmer
             );
             let aligner = setup.create_aligner();
@@ -156,19 +149,19 @@ impl GenericStep<PairedRecordDto> for PairedBarcodeSplitter {
                     let sequence: &[u8] = best_rec_in.get_sequence();
                     let bar_seq = barcode.sequence.as_bytes();
                     let new_umi_tags = best.get_umi_tags(sequence, bar_seq);
-                    best_rec_in.alignment_results.umi_tags.extend(new_umi_tags.clone());
-                    other_rec_in.alignment_results.umi_tags.extend(new_umi_tags);
+                    best_rec_in.alignment_results.read.umi_tags.extend(new_umi_tags.clone());
+                    other_rec_in.alignment_results.read.umi_tags.extend(new_umi_tags);
                 }
 
                 if !self.barcode_keep {
-                    let old_len = best_rec_in.alignment_results.read_range.end - best_rec_in.alignment_results.read_range.start;
+                    let old_len = best_rec_in.alignment_results.read.read_range.end - best_rec_in.alignment_results.read.read_range.start;
                     best_rec_in.trim(self.trim_end, best.get_start_index(), best.get_end_index());
-                    let new_len = best_rec_in.alignment_results.read_range.end - best_rec_in.alignment_results.read_range.start;
+                    let new_len = best_rec_in.alignment_results.read.read_range.end - best_rec_in.alignment_results.read.read_range.start;
                     
                     if self.removal_tags {
                         let removal_tag = format!("BR:{}:{}:{}", barcode.id, best.get_start_index(), best.get_end_index());
-                        best_rec_in.alignment_results.removal_tags.push(removal_tag.clone());
-                        other_rec_in.alignment_results.removal_tags.push(removal_tag);
+                        best_rec_in.alignment_results.read.removal_tags.push(removal_tag.clone());
+                        other_rec_in.alignment_results.read.removal_tags.push(removal_tag);
                     }
                     rec.stats.bases_barcode_removal += old_len - new_len;
                 }
@@ -190,12 +183,10 @@ impl GenericStep<PairedRecordDto> for PairedBarcodeSplitter {
         rec.record.records[1] = rec2_in.record;
 
         rec.alignment_results.barcode_tag = rec1_in.alignment_results.barcode_tag;
-        rec.alignment_results.umi_tags = rec1_in.alignment_results.umi_tags;
-        rec.alignment_results.removal_tags = rec1_in.alignment_results.removal_tags;
         rec.alignment_results.record_dropped = rec1_in.alignment_results.record_dropped;
 
-        rec.alignment_results.read_ranges[0] = rec1_in.alignment_results.read_range;
-        rec.alignment_results.read_ranges[1] = rec2_in.alignment_results.read_range;
+        rec.alignment_results.per_read[0] = rec1_in.alignment_results.read;
+        rec.alignment_results.per_read[1] = rec2_in.alignment_results.read;
 
         rec
     }

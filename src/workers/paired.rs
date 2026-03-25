@@ -80,17 +80,18 @@ fn finalize(rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResults>
     
     // Apply trimming results from alignment_results to both records
     for i in 0..2 {
-        let range = &rec.alignment_results.read_ranges[i];
+        let results = &rec.alignment_results.per_read[i];
+        let range = &results.read_range;
         let old_rec = &records[i];
         
         let mut desc_parts = Vec::new();
         if let Some(desc) = old_rec.desc() {
             desc_parts.push(desc);
         }
-        for tag in &rec.alignment_results.removal_tags {
+        for tag in &results.removal_tags {
             desc_parts.push(tag);
         }
-        for tag in &rec.alignment_results.umi_tags {
+        for tag in &results.umi_tags {
             desc_parts.push(tag);
         }
 

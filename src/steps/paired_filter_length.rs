@@ -26,9 +26,8 @@ impl GenericStep<PairedRecordDto> for PairedFilterLength {
 
     fn apply(&self, mut rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResults>, _state: &mut Self::State) -> RecordInTransformation<PairedRecordDto, PairedAlignmentResults> {
         if !rec.alignment_results.record_dropped && self.min_read_length > 0 {
-            // Check both reads using the tracked ranges
-            let len1 = rec.alignment_results.read_ranges[0].end - rec.alignment_results.read_ranges[0].start;
-            let len2 = rec.alignment_results.read_ranges[1].end - rec.alignment_results.read_ranges[1].start;
+            let len1 = rec.alignment_results.per_read[0].read_range.end - rec.alignment_results.per_read[0].read_range.start;
+            let len2 = rec.alignment_results.per_read[1].read_range.end - rec.alignment_results.per_read[1].read_range.start;
 
             if len1 < self.min_read_length || len2 < self.min_read_length {
                 trace!("Length filter dropped paired record: {} (lengths: {}, {})", rec.record.id(), len1, len2);

@@ -104,11 +104,11 @@ impl GenericStep<SingeRecordDto> for SingleQualityTrim {
     }
 
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
-        let current_qual = &rec.record.qual()[rec.alignment_results.read_range.clone()];
+        let current_qual = &rec.record.qual()[rec.alignment_results.read.read_range.clone()];
         let trim_pos = self.get_trim_pos(current_qual);
         if trim_pos < current_qual.len() {
             rec.stats.bases_quality_trim += current_qual.len() - trim_pos;
-            rec.alignment_results.read_range.end = rec.alignment_results.read_range.start + trim_pos;
+            rec.alignment_results.read.read_range.end = rec.alignment_results.read.read_range.start + trim_pos;
         }
         if self.trace {
             if trim_pos < current_qual.len() {
