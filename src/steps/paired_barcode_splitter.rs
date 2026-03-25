@@ -172,8 +172,8 @@ impl GenericStep<PairedRecordDto> for PairedBarcodeSplitter {
                     Self::assign_barcode_tag(&mut rec1_in, tag.clone(), self.trace);
                     Self::assign_barcode_tag(&mut rec2_in, tag, self.trace);
                 } else {
-                    rec1_in.alignment_results.record_dropped = true;
-                    rec2_in.alignment_results.record_dropped = true;
+                    rec.alignment_results.per_read[0].dropped = true;
+                    rec.alignment_results.per_read[1].dropped = true;
                     rec.stats.total_discarded_barcode += 1;
                 }
             }
@@ -183,7 +183,6 @@ impl GenericStep<PairedRecordDto> for PairedBarcodeSplitter {
         rec.record.records[1] = rec2_in.record;
 
         rec.alignment_results.barcode_tag = rec1_in.alignment_results.barcode_tag;
-        rec.alignment_results.record_dropped = rec1_in.alignment_results.record_dropped;
 
         rec.alignment_results.per_read[0] = rec1_in.alignment_results.read;
         rec.alignment_results.per_read[1] = rec2_in.alignment_results.read;

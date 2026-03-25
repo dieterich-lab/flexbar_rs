@@ -127,7 +127,7 @@ impl SingleWorker {
 }
 
 fn finalize(mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>) -> FinalRecord<SingeRecordDto> {
-    if rec.alignment_results.record_dropped {
+    if rec.alignment_results.read.dropped {
         rec.stats.bases_discarded = rec.stats.total_bases_read;
         rec.stats.bases_quality_trim = 0;
         rec.stats.bases_barcode_removal = 0;

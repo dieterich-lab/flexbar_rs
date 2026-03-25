@@ -25,13 +25,13 @@ impl GenericStep<SingeRecordDto> for SingleUncalledSequenceFilter {
     }
 
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
-        if !rec.alignment_results.record_dropped {
+        if !rec.alignment_results.read.dropped {
             trace!("Uncalled filter processing record: {}", rec.record.id());
             let seq = &rec.record.seq()[rec.alignment_results.read.read_range.clone()];
             let uncalled_count = seq.iter().filter(|&&b| b == b'N' || b == b'n').count();
             if uncalled_count > self.max_uncalled {
                 trace!("Uncalled filter dropped record: {}", rec.record.id());
-                rec.alignment_results.record_dropped = true;
+                rec.alignment_results.read.dropped = true;
                 rec.stats.total_discarded_uncalled += 1;
             }
         }

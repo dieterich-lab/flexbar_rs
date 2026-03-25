@@ -25,11 +25,11 @@ impl GenericStep<SingeRecordDto> for SingleFilterLength {
     }
 
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
-        if !rec.alignment_results.record_dropped && self.min_read_length > 0 {
+        if !rec.alignment_results.read.dropped && self.min_read_length > 0 {
             let current_len = rec.alignment_results.read.read_range.end - rec.alignment_results.read.read_range.start;
             if current_len < self.min_read_length {
                 trace!("Length filter dropped record: {} (length: {})", rec.record.id(), current_len);
-                rec.alignment_results.record_dropped = true;
+                rec.alignment_results.read.dropped = true;
                 rec.stats.total_discarded_length += 1;
             }
         }
@@ -58,15 +58,15 @@ mod tests {
             alignment_results: SingleAlignmentResults {
                 read: PerReadAlignmentResults {
                     read_range: 0..10,
+                    dropped: false,
                     ..Default::default()
                 },
-                record_dropped: false,
                 ..Default::default()
             },
             stats: WorkerStatistics::default(),
         };
         let res = filter.apply(rec_in, &mut state);
-        assert!(!res.alignment_results.record_dropped);
+        assert!(!res.alignment_results.read.dropped);
         assert_eq!(res.stats.total_discarded_length, 0);
     }
 
@@ -83,15 +83,15 @@ mod tests {
             alignment_results: SingleAlignmentResults {
                 read: PerReadAlignmentResults {
                     read_range: 0..9,
+                    dropped: false,
                     ..Default::default()
                 },
-                record_dropped: false,
                 ..Default::default()
             },
             stats: WorkerStatistics::default(),
         };
         let res = filter.apply(rec_in, &mut state);
-        assert!(res.alignment_results.record_dropped);
+        assert!(res.alignment_results.read.dropped);
         assert_eq!(res.stats.total_discarded_length, 1);
     }
 
@@ -108,14 +108,14 @@ mod tests {
             alignment_results: SingleAlignmentResults {
                 read: PerReadAlignmentResults {
                     read_range: 0..1,
+                    dropped: false,
                     ..Default::default()
                 },
-                record_dropped: false,
                 ..Default::default()
             },
             stats: WorkerStatistics::default(),
         };
         let res = filter.apply(rec_in, &mut state);
-        assert!(!res.alignment_results.record_dropped);
+        assert!(!res.alignment_results.read.dropped);
     }
 }

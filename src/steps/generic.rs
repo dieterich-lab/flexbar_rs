@@ -9,20 +9,19 @@ pub struct PerReadAlignmentResults {
     pub umi_tags: Vec<String>,
     pub removal_tags: Vec<String>,
     pub read_range: Range<usize>,
+    pub dropped: bool,
 }
 
 #[derive(Default, Clone)]
 pub struct SingleAlignmentResults {
     pub barcode_tag: Option<String>,
     pub read: PerReadAlignmentResults,
-    pub record_dropped: bool,
 }
 
 #[derive(Default, Clone)]
 pub struct PairedAlignmentResults {
     pub barcode_tag: Option<String>,
     pub per_read: [PerReadAlignmentResults; 2],
-    pub record_dropped: bool,
 }
 
 pub struct RecordInTransformation<RecordType, AR> {
@@ -81,8 +80,8 @@ impl Transformable for SingeRecordDto {
                     umi_tags: Vec::new(),
                     removal_tags: Vec::new(),
                     read_range: 0..self.seq().len(),
+                    dropped: false,
                 },
-                record_dropped: false,
             },
             stats: WorkerStatistics::default(),
         }
@@ -101,14 +100,15 @@ impl Transformable for PairedRecordDto {
                         umi_tags: Vec::new(),
                         removal_tags: Vec::new(),
                         read_range: 0..self.records[0].seq().len(),
+                        dropped: false,
                     },
                     PerReadAlignmentResults {
                         umi_tags: Vec::new(),
                         removal_tags: Vec::new(),
                         read_range: 0..self.records[1].seq().len(),
+                        dropped: false,
                     },
                 ],
-                record_dropped: false,
             },
             stats: WorkerStatistics::default(),
         }

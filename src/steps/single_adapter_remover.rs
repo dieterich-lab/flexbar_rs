@@ -105,7 +105,7 @@ impl GenericStep<SingeRecordDto> for SingleAdapterRemover {
     fn apply(
         &self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, state: &mut Self::State
     ) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
-        if rec.alignment_results.record_dropped { return rec }
+        if rec.alignment_results.read.dropped { return rec }
         
         if self.trace {
             trace!("Adapter remover processing record: {}", rec.record.id());

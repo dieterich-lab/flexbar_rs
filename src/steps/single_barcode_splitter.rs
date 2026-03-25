@@ -64,6 +64,9 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
     }
 
     fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, state: &mut Self::State) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
+        if rec.alignment_results.read.dropped {
+            return rec;
+        }
         let sequence = rec.get_sequence();
         let best_alignment = self.multi_aligner.align(&mut state.multi_aligner_state, &self.multi_aligner_setup, &sequence);
         
@@ -147,7 +150,7 @@ impl SingleBarcodeSplitter {
 
     fn drop_record(rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>) {
         rec.stats.total_discarded_barcode += 1;
-        rec.alignment_results.record_dropped = true;
+        rec.alignment_results.read.dropped = true;
         trace!("Barcode splitter on {}: no tag assigned and DROPPED.", rec.record.id());
     }
 }
@@ -190,7 +193,7 @@ mod tests {
             Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-min-overlap", "4"])
         );
         
-        assert!(res.alignment_results.record_dropped);
+        assert!(res.alignment_results.read.dropped);
         assert_eq!(res.stats.total_discarded_barcode, 1);
     }
 
@@ -201,7 +204,7 @@ mod tests {
             Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--barcode-min-overlap", "4", "--barcode-unassigned"])
         );
         
-        assert!(!res.alignment_results.record_dropped);
+        assert!(!res.alignment_results.read.dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_unassigned_".to_string()));
         assert_eq!(res.alignment_results.read.read_range.end - res.alignment_results.read.read_range.start, 8);
     }
@@ -352,7 +355,7 @@ mod tests {
                 "--umi-tags"
             ])
         );
-        assert!(!res.alignment_results.record_dropped);
+        assert!(!res.alignment_results.read.dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
         assert_eq!(res.get_sequence(), b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
     }
@@ -381,7 +384,7 @@ mod tests {
                 "--umi-tags",
             ])
         );
-        assert!(!res.alignment_results.record_dropped);
+        assert!(!res.alignment_results.read.dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
         assert_eq!(res.get_sequence(), b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
     }
@@ -410,7 +413,7 @@ mod tests {
                 "--umi-tags"
             ])
         );
-        assert!(res.alignment_results.record_dropped);
+        assert!(res.alignment_results.read.dropped);
     }
 
     #[test]
@@ -426,7 +429,7 @@ mod tests {
                 "--umi-tags"
             ])
         );
-        assert!(!res.alignment_results.record_dropped);
+        assert!(!res.alignment_results.read.dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
         assert_eq!(res.get_sequence(), b"GACGATCACGGGGCGACGCCTGTCTGAGCGTCGCT");
     }
@@ -458,7 +461,7 @@ mod tests {
                 "--umi-tags"
             ])
         );
-        assert!(res.alignment_results.record_dropped);
+        assert!(res.alignment_results.read.dropped);
     }
 
     #[test]
@@ -526,7 +529,7 @@ mod tests {
         // overlap = 6 (TTT vs NNN) -> 0 errors (N matches anything).
         // check_match succeeds!
         
-        assert!(!res.alignment_results.record_dropped);
+        assert!(!res.alignment_results.read.dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
     }
 }

@@ -52,6 +52,15 @@ impl Statistics {
         };
 
         info!("Remaining reads:                {} ({:.1}%)", remaining, remaining_pct);
+        if self.worker.total_single_reads_written > 0 {
+            info!("* Single reads written:         {}", self.worker.total_single_reads_written);
+        }
+        if self.worker.total_single_reads_replaced > 0 {
+            info!("* Reads replaced by N:          {}", self.worker.total_single_reads_replaced);
+        }
+        if self.worker.total_single_reads_dropped > 0 {
+            info!("* Single reads dropped:         {}", self.worker.total_single_reads_dropped);
+        }
         info!("");
 
         info!("Total adapters removed:         {}", self.worker.total_adapters_removed);
