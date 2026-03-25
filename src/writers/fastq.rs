@@ -24,13 +24,15 @@ pub type SingleWriterFastq<'a> = GenericWriter<'a, FastqBackend<'a>>;
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashMap;
+    use std::sync::{Arc, Mutex};
     use super::*;
     use crate::types::{RecordDto, SingeRecordDto};
     use crate::writers::Writer;
 
     #[test]
     fn test_fastq_writer_cursor() {
-        let buffers = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
             let mut writer: SingleWriterFastq = crate::writers::generic::get_test_writer(buffers.clone());
             let record = RecordDto::Single(SingeRecordDto::with_attrs(

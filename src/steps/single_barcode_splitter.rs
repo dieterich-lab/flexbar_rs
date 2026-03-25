@@ -1,10 +1,13 @@
 use crate::args::Args;
 use crate::types::{SingeRecordDto, TrimEnd};
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation, SingleAlignmentResults};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::utils::single::SingleAlignmentResults;
+use crate::steps::utils::assign_barcode_tag;
 use crate::context::{Context, SequenceWithId};
 use crate::multi_aligner::{MultiAligner, MultiAlignerSetup, MultiAlignerState};
 use crate::multi_aligner::result::MultiAlignerResult;
+use crate::steps::utils::barcode::get_barcode_aligner_config;
 
 pub struct SingleBarcodeSplitter {
     pub barcodes: Vec<SequenceWithId>,
@@ -31,15 +34,7 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
             "Barcode Splitter".to_string(),
             args.barcode_trim_end,
             &context.barcodes,
-            crate::multi_aligner::AlignerConfig {
-                match_score: args.barcode_match,
-                mismatch_score: args.barcode_mismatch,
-                gap_open: args.barcode_gap_open,
-                gap_extend: args.barcode_gap_extend,
-                error_rate: args.barcode_error_rate,
-                min_overlap: args.barcode_min_overlap,
-                cycles: if args.barcode_keep { 1 } else { args.barcode_cycles },
-            },
+            get_barcode_aligner_config(args),
             args.barcode_kmer
         );
         let multi_aligner = multi_aligner_setup.create_aligner();
@@ -81,13 +76,13 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
                         );
                     trace!("{}", best.format(sequence, bar_seq));
                 }
-                self.assign_barcode_tag(&mut rec, format!("barcode_{}", barcode.id));
+                assign_barcode_tag(&mut rec, format!("barcode_{}", barcode.id), self.trace);
                 self.handle_umi_tags(&mut rec, &best, barcode);
                 self.remove_barcode(&mut rec, &best);
             },
             None => {
                 if self.barcode_unassigned {
-                    self.assign_barcode_tag(&mut rec, "barcode_unassigned_".to_string());
+                    assign_barcode_tag(&mut rec, "barcode_unassigned_".to_string(), self.trace);
                 } else {
                     Self::drop_record(&mut rec);
                 }
@@ -98,13 +93,6 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
 }
 
 impl SingleBarcodeSplitter {
-    fn assign_barcode_tag(&self, rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, tag: String) {
-        if self.trace {
-            trace!("Barcode splitter on {}: Assigned tag {}", rec.record.id(), tag);
-        }
-        rec.alignment_results.barcode_tag = Some(tag);
-    }
-
     fn handle_umi_tags(
         &self, 
         rec: &mut RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, 

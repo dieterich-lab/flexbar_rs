@@ -28,13 +28,14 @@ pub type SingleWriterFasta<'a> = GenericWriter<'a, FastaBackend<'a>>;
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{Arc, Mutex};
     use super::*;
     use crate::types::{RecordDto, SingeRecordDto};
     use crate::writers::Writer;
 
     #[test]
     fn test_fasta_writer_cursor() {
-        let buffers = std::sync::Arc::new(std::sync::Mutex::new(std::collections::HashMap::new()));
+        let buffers = Arc::new(Mutex::new(std::collections::HashMap::new()));
         {
             let mut writer: SingleWriterFasta = crate::writers::generic::get_test_writer(buffers.clone());
             let record = RecordDto::Single(SingeRecordDto::with_attrs(

@@ -6,3 +6,4 @@ pub mod single_filter_length;
 pub mod paired_barcode_splitter;
 pub mod paired_filter_length;
 pub mod generic;
+pub mod utils;

@@ -1,7 +1,8 @@
 use crate::args::Args;
 use crate::types::SingeRecordDto;
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation, SingleAlignmentResults};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::utils::single::SingleAlignmentResults;
 use crate::context::Context;
 
 pub struct SingleFilterLength {
@@ -41,7 +42,8 @@ impl GenericStep<SingeRecordDto> for SingleFilterLength {
 mod tests {
     use super::*;
     use crate::args::Args;
-    use crate::steps::generic::{SingleAlignmentResults, PerReadAlignmentResults};
+    use crate::steps::utils::single::SingleAlignmentResults;
+    use crate::steps::generic::PerReadAlignmentResults;
     use crate::statistics::WorkerStatistics;
     use clap::Parser;
 

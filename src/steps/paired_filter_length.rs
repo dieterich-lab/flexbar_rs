@@ -1,7 +1,8 @@
 use crate::args::Args;
 use crate::types::PairedRecordDto;
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation, PairedAlignmentResults};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::utils::paired::PairedAlignmentResults;
 use crate::context::Context;
 
 pub struct PairedFilterLength {

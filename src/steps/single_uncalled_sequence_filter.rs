@@ -1,7 +1,8 @@
 use crate::args::Args;
 use crate::types::SingeRecordDto;
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation, SingleAlignmentResults};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
+use crate::steps::utils::single::SingleAlignmentResults;
 use crate::context::Context;
 
 pub struct SingleUncalledSequenceFilter {

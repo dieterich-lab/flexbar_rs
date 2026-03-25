@@ -4,7 +4,8 @@ use crate::args::Args;
 use crate::types::{PairedRecordDto, SingeRecordDto};
 use crate::steps::paired_barcode_splitter::{PairedBarcodeSplitter, PairedBarcodeSplitterState};
 use crate::steps::paired_filter_length::{PairedFilterLength, PairedFilterLengthState};
-use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable, PairedAlignmentResults};
+use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
+use crate::steps::utils::paired::PairedAlignmentResults;
 
 pub struct PairedWorker {
     pub barcode_splitter: Option<PairedBarcodeSplitter>,

@@ -7,7 +7,8 @@ use crate::steps::single_uncalled_sequence_filter::{SingleUncalledSequenceFilter
 use crate::steps::single_barcode_splitter::{SingleBarcodeSplitter, SingleBarcodeSplitterState};
 use crate::steps::single_quality_trim::{SingleQualityTrim, SingleQualityTrimState};
 use crate::steps::single_filter_length::{SingleFilterLength, SingleFilterLengthState};
-use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable, SingleAlignmentResults};
+use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
+use crate::steps::utils::single::SingleAlignmentResults;
 
 pub struct SingleWorker {
     pub adapter_remover: Option<SingleAdapterRemover>,
