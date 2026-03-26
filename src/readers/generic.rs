@@ -173,8 +173,16 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> Iterator for GenericReader<R
                             qual
                         );
                     }
-                    self.statistics.total_records_read += 1;
-                    self.statistics.total_bases_read += record.seq().len();
+                    match &record {
+                        RecordDto::Single(r) => {
+                            self.statistics.total_records_read += 1;
+                            self.statistics.total_bases_read += r.seq().len();
+                        }
+                        RecordDto::Paired(p) => {
+                            self.statistics.total_records_read += 2;
+                            self.statistics.total_bases_read += p.records[0].seq().len() + p.records[1].seq().len();
+                        }
+                    }
                     Some(record)
                 },
                 None => None
@@ -229,6 +237,23 @@ mod tests {
         let stats = gen_reader.statistics();
         assert_eq!(stats.total_records_read, 1);
         assert_eq!(stats.total_bases_read, 4);
+    }
+
+    #[test]
+    fn test_generic_reader_statistics_paired() {
+        let data1 = b"@id1/1\nACGT\n+\n!!!!\n";
+        let data2 = b"@id1/2\nTGCA\n+\n????\n";
+        let reader1 = BufReader::new(&data1[..]);
+        let reader2 = BufReader::new(&data2[..]);
+        
+        let mut gen_reader: GenericReader<_, crate::readers::fastq::PairedFastqBackend<_>> =
+            GenericReader::new(vec![reader1, reader2], "test.fq".to_string(), CompressionType::Uncompressed, 0, None, true);
+        
+        let _ = gen_reader.next();
+        let stats = gen_reader.statistics();
+        // Currently this fails: it might be 1 record and 4 bases instead of 2 records and 8 bases.
+        assert_eq!(stats.total_records_read, 2, "Should count both reads in a pair");
+        assert_eq!(stats.total_bases_read, 8, "Should count bases from both reads in a pair");
     }
 
     #[test]
