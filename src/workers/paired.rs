@@ -78,8 +78,7 @@ fn finalize(rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResults>
     }
 
     let mut records = rec.record.records;
-    
-    // Apply trimming results from alignment_results to both records
+    let mut good_reads: u32 = 0;
     for i in 0..2 {
         let results = &rec.alignment_results.per_read[i];
         let old_rec = &records[i];
@@ -93,6 +92,7 @@ fn finalize(rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResults>
             );
             continue;
         }
+        good_reads += 1;
 
         let range = &results.read_range;
         
@@ -117,34 +117,22 @@ fn finalize(rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResults>
             Some(desc_parts.join("_"))
         };
 
-        let seq = if range.start == 0 && range.end == 1 && old_rec.seq().len() > 0 && !results.dropped && 
-                    (range.end - range.start < old_rec.seq().len()) && old_rec.seq()[0] != b'N' && range.clone().len() == 1 {
-             // This is a bit hacky to detect the 'N' replacement from paired_filter_length
-             // Actually, let's just use the range. If range is 0..1 and it's not dropped, and original was longer...
-             // Wait, paired_filter_length sets range to 0..1.
-             // If we want to replace with 'N', we should do it here or there.
-             // The requirement says: replace short reads with the sequence 'N', using the quality of the first base in the original sequence.
-             b"N".as_slice()
-        } else {
-             &old_rec.seq()[range.clone()]
-        };
-
-        let qual = if range.start == 0 && range.end == 1 && old_rec.seq().len() > 0 && seq == b"N" {
-            &old_rec.qual()[0..1]
-        } else {
-            &old_rec.qual()[range.clone()]
-        };
-
         records[i] = SingeRecordDto::with_attrs(
             old_rec.id(),
             new_desc.as_deref(),
-            seq,
-            qual,
+            &old_rec.seq()[range.clone()],
+            &old_rec.qual()[range.clone()],
         );
     }
+    
+    let record = if good_reads > 0 {
+        Some(PairedRecordDto { records })
+    } else {
+        None
+    };
 
     FinalRecord {
-        record: Some(PairedRecordDto { records }),
+        record,
         output_tag: rec.alignment_results.barcode_tag,
         stats: rec.stats,
     }

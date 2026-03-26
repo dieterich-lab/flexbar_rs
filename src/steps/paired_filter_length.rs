@@ -1,3 +1,4 @@
+use bio::io::fastq::Record;
 use crate::args::Args;
 use crate::types::PairedRecordDto;
 use log::trace;
@@ -33,48 +34,68 @@ impl GenericStep<PairedRecordDto> for PairedFilterLength {
         if self.min_read_length == 0 {
             return rec;
         }
-
-        let len1 = if rec.alignment_results.per_read[0].dropped { 0 } else {
-            rec.alignment_results.per_read[0].read_range.end - rec.alignment_results.per_read[0].read_range.start
-        };
-        let len2 = if rec.alignment_results.per_read[1].dropped { 0 } else {
-            rec.alignment_results.per_read[1].read_range.end - rec.alignment_results.per_read[1].read_range.start
-        };
-
-        let short1 = !rec.alignment_results.per_read[0].dropped && len1 < self.min_read_length;
-        let short2 = !rec.alignment_results.per_read[1].dropped && len2 < self.min_read_length;
-
-        if short1 || short2 {
-            if self.single_reads_paired {
-                if short1 {
-                    rec.alignment_results.per_read[0].read_range = 0..1;
-                    rec.stats.total_single_reads_replaced += 1;
-                    trace!("Length filter replaced R1 with N: {} (length: {})", rec.record.id(), len1);
+        let mut short = [false; 2];
+        let mut good_reads: u32 = 0;
+        for i in 0..2 {
+            let per_read = &rec.alignment_results.per_read[i];
+            if !per_read.dropped {
+                if per_read.read_range.end - per_read.read_range.start < self.min_read_length {
+                    short[i] = true;
+                } else {
+                    good_reads += 1;
                 }
-                if short2 {
-                    rec.alignment_results.per_read[1].read_range = 0..1;
-                    rec.stats.total_single_reads_replaced += 1;
-                    trace!("Length filter replaced R2 with N: {} (length: {})", rec.record.id(), len2);
-                }
-            } else if self.single_reads {
-                if short1 {
-                    rec.alignment_results.per_read[0].dropped = true;
-                    rec.stats.total_single_reads_written += 1;
-                    trace!("Length filter dropped R1, keeping R2: {} (length: {})", rec.record.id(), len1);
-                }
-                if short2 {
-                    rec.alignment_results.per_read[1].dropped = true;
-                    rec.stats.total_single_reads_written += 1;
-                    trace!("Length filter dropped R2, keeping R1: {} (length: {})", rec.record.id(), len2);
-                }
-            } else {
-                rec.alignment_results.per_read[0].dropped = true;
-                rec.alignment_results.per_read[1].dropped = true;
-                rec.stats.total_discarded_length += 1;
-                rec.stats.total_single_reads_dropped += 2;
-                trace!("Length filter dropped paired record: {} (lengths: {}, {})", rec.record.id(), len1, len2);
             }
+        }
+        if good_reads == 2 {
+            // All fine ...
+        } else if good_reads == 0 {
+            for i in 0..2 {
+                if short[i] {
+                    rec.stats.total_discarded_length += 1;
+                    rec.alignment_results.per_read[i].dropped = true;
+                }
+            }
+            trace!("Length filter dropped paired record: {}", rec.record.id());
+        } else if self.single_reads_paired {
+            for i in 0..2 {
+                if short[i] {
+                    let start = rec.alignment_results.per_read[i].read_range.start;
+                    rec.alignment_results.per_read[i].read_range.end = start + 1;
+                    rec.record.records[i] = get_place_holder_record(&rec.record.records[i], start);
+                    rec.stats.total_single_reads_replaced += 1;
+                    trace!("Length filter replaced R{} with 'N': {}", i + 1, rec.record.id());
+                }
+            }
+        } else if self.single_reads {
+            for i in 0..2 {
+                if short[i] {
+                    rec.alignment_results.per_read[i].dropped = true;
+                    rec.stats.total_single_reads_written += 1;
+                    trace!("Length filter dropped R{}, keeping R{}: {}",
+                        i + 1, 2 - i, rec.record.id()
+                    );
+                }
+            }
+        } else {
+            for i in 0..2 {
+                if !rec.alignment_results.per_read[i].dropped {
+                    rec.alignment_results.per_read[i].dropped = true;
+                    rec.stats.total_single_reads_dropped += 1;
+                    rec.stats.total_discarded_length += 1;
+                }
+            }
+            trace!("Length filter dropped paired record: {}", rec.record.id());
         }
         rec
     }
+}
+
+fn get_place_holder_record(record: &Record, start: usize) -> Record {
+    let seq = record.seq();
+    let len = seq.len();
+    let mut new_sequence: Vec<u8> = Vec::with_capacity(len);
+    new_sequence.extend_from_slice(&seq[..start]);
+    new_sequence.push(b'N');
+    new_sequence.extend_from_slice(&seq[start + 1..]);
+    Record::with_attrs(record.id(), record.desc(), &*new_sequence, record.qual())
 }

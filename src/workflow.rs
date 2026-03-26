@@ -119,7 +119,9 @@ struct ProcessedBatch {
     stats: WorkerStatistics,
 }
 
-fn get_reader(reads_path: &Path, reads_path2: Option<&std::path::PathBuf>, format: FileFormat, args: &Args) -> Box<dyn SequenceReader + Send> {
+fn get_reader(
+    reads_path: &Path, reads_path2: Option<&std::path::PathBuf>, format: FileFormat, args: &Args
+) -> Box<dyn SequenceReader + Send> {
     let mut paths = vec![reads_path];
     if let Some(p) = reads_path2 {
         paths.push(p);
