@@ -32,14 +32,6 @@ impl RecordInTransformation<PairedRecordDto, PairedAlignmentResults> {
         &self.record.records[read_index].seq()[self.alignment_results.per_read[read_index].read_range.clone()]
     }
 
-    pub fn get_qual(&self, read_index: usize) -> &[u8] {
-        &self.record.records[read_index].qual()[self.alignment_results.per_read[read_index].read_range.clone()]
-    }
-
-    pub fn get_sequence_as_str(&self, read_index: usize) -> String {
-        String::from_utf8_lossy(self.get_sequence(read_index)).to_string()
-    }
-
     pub fn trim(&mut self, read_index: usize, trim_end: TrimEnd, start: usize, end: usize) {
         let range = &mut self.alignment_results.per_read[read_index].read_range;
         match trim_end {
