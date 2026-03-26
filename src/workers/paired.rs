@@ -137,3 +137,187 @@ fn finalize(rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResults>
         stats: rec.stats,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use clap::Parser;
+    use crate::context::SequenceWithId;
+    use crate::types::{SingeRecordDto, PairedRecordDto, TrimEnd};
+
+    fn process_record(args: Args, record: &PairedRecordDto, barcodes: Vec<SequenceWithId>, barcodes2: Vec<SequenceWithId>) -> FinalRecord<PairedRecordDto> {
+        let mut context = Context::empty();
+        context.barcodes = barcodes;
+        context.barcodes2 = barcodes2;
+        let worker = PairedWorker::new(&args, &context);
+        let mut state = worker.create_state();
+        worker.process_record(record, &mut state)
+    }
+
+    #[test]
+    fn test_barcode_splitting_better_match_first() {
+        let args = Args::parse_from(&["flexbar_rs", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "5", "--min-read-length", "0"]);
+        
+        let barcodes = vec![
+            SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() },
+        ];
+        let barcodes2 = vec![
+            SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() },
+        ];
+        
+        // R1 starts with AAAAA (perfect match), R2 starts with TTTTT (no match)
+        let r1 = SingeRecordDto::with_attrs("R1", None, b"AAAAAGGGGG", b"IIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("R1", None, b"TTTTTGGGGG", b"IIIIIIIIII");
+        let rec = PairedRecordDto::new(r1, r2);
+        
+        let res = process_record(args, &rec, barcodes, barcodes2);
+        
+        assert_eq!(res.output_tag, Some("barcode_B1".to_string()));
+        let records = res.record.unwrap().records;
+        // B1 (AAAAA) should be removed from R1
+        assert_eq!(records[0].seq(), b"GGGGG");
+        // R2 should be unchanged
+        assert_eq!(records[1].seq(), b"TTTTTGGGGG");
+    }
+
+    #[test]
+    fn test_barcode_splitting_better_match_second() {
+        let args = Args::parse_from(&["flexbar_rs", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "5", "--min-read-length", "0"]);
+        
+        let barcodes = vec![
+            SequenceWithId { id: "B2".to_string(), sequence: "CCCCC".to_string() },
+        ];
+        let barcodes2 = vec![
+            SequenceWithId { id: "B2".to_string(), sequence: "CCCCC".to_string() },
+        ];
+        
+        // R1 starts with TTTTT, R2 starts with CCCCC
+        let r1 = SingeRecordDto::with_attrs("R1", None, b"TTTTTGGGGG", b"IIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("R1", None, b"CCCCCGGGGG", b"IIIIIIIIII");
+        let rec = PairedRecordDto::new(r1, r2);
+        
+        let res = process_record(args, &rec, barcodes, barcodes2);
+        
+        assert_eq!(res.output_tag, Some("barcode_B2".to_string()));
+        let records = res.record.unwrap().records;
+        assert_eq!(records[0].seq(), b"TTTTTGGGGG");
+        assert_eq!(records[1].seq(), b"GGGGG");
+    }
+
+    #[test]
+    fn test_barcode_splitting_no_match_unassigned() {
+        let args = Args::parse_from(&["flexbar_rs", "--barcode-unassigned", "--min-read-length", "0"]);
+        
+        let barcodes = vec![
+            SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() },
+        ];
+        let barcodes2 = vec![
+            SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() },
+        ];
+        
+        let r1 = SingeRecordDto::with_attrs("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
+        let rec = PairedRecordDto::new(r1, r2);
+        
+        let res = process_record(args, &rec, barcodes, barcodes2);
+        
+        assert_eq!(res.output_tag, Some("barcode_unassigned_".to_string()));
+        assert!(res.record.is_some());
+    }
+
+    #[test]
+    fn test_barcode_splitting_no_match_no_unassigned() {
+        let args = Args::parse_from(&["flexbar_rs", "--min-read-length", "0"]);
+        
+        let barcodes = vec![
+            SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() },
+        ];
+        let barcodes2 = vec![
+            SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() },
+        ];
+        
+        let r1 = SingeRecordDto::with_attrs("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
+        let rec = PairedRecordDto::new(r1, r2);
+        
+        let res = process_record(args, &rec, barcodes, barcodes2);
+        
+        assert_eq!(res.output_tag, None);
+        assert!(res.record.is_none());
+    }
+
+    #[test]
+    fn test_length_filter_drop_default() {
+        let mut args = Args::default();
+        args.barcode_trim_end = TrimEnd::Left;
+        args.barcode_min_overlap = Some(5);
+        args.min_read_length = 10;
+        
+        // R1 is 14 bases, B1 (AAAAA) at start, R2 is 10 bases.
+        // After B1 removal: R1 becomes 9 bases (short).
+        let barcodes = vec![
+            SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() },
+        ];
+        
+        let r1 = SingeRecordDto::with_attrs("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII"); // 14 bases
+        let r2 = SingeRecordDto::with_attrs("R1", None, b"0123456789", b"IIIIIIIIII");    // 10 bases
+        let rec = PairedRecordDto::new(r1, r2);
+        
+        let res = process_record(args, &rec, barcodes, vec![]);
+        
+        // Default: both dropped if one is short
+        assert!(res.record.is_none());
+        assert_eq!(res.stats.total_single_reads_dropped, 2); // R2 is dropped as counterpart of short R1, and R1 also counted here?
+        assert_eq!(res.stats.total_discarded_length, 2);    // Both R1 and R2 are discarded
+    }
+
+    #[test]
+    fn test_length_filter_single_reads() {
+        let mut args = Args::default();
+        args.barcode_trim_end = TrimEnd::Left;
+        args.barcode_min_overlap = Some(5);
+        args.min_read_length = 10;
+        args.single_reads = true;
+        
+        let barcodes = vec![
+            SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() },
+        ];
+        
+        let r1 = SingeRecordDto::with_attrs("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII"); // 14 -> 9 (short)
+        let r2 = SingeRecordDto::with_attrs("R1", None, b"0123456789", b"IIIIIIIIII");    // 10 (good)
+        let rec = PairedRecordDto::new(r1, r2);
+        
+        let res = process_record(args, &rec, barcodes, vec![]);
+        
+        assert!(res.record.is_some());
+        let records = res.record.unwrap().records;
+        assert_eq!(records[0].seq(), b""); // R1 dropped
+        assert_eq!(records[1].seq(), b"0123456789"); // R2 kept
+        assert_eq!(res.stats.total_single_reads_written, 1);
+    }
+
+    #[test]
+    fn test_length_filter_single_reads_paired() {
+        let mut args = Args::default();
+        args.barcode_trim_end = TrimEnd::Left;
+        args.barcode_min_overlap = Some(5);
+        args.min_read_length = 10;
+        args.single_reads_paired = true;
+        
+        let barcodes = vec![
+            SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() },
+        ];
+        
+        let r1 = SingeRecordDto::with_attrs("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII"); // 14 -> 9 (short)
+        let r2 = SingeRecordDto::with_attrs("R1", None, b"0123456789", b"IIIIIIIIII");    // 10 (good)
+        let rec = PairedRecordDto::new(r1, r2);
+        
+        let res = process_record(args, &rec, barcodes, vec![]);
+        
+        assert!(res.record.is_some());
+        let records = res.record.unwrap().records;
+        assert_eq!(records[0].seq(), b"N");
+        assert_eq!(records[1].seq(), b"0123456789");
+        assert_eq!(res.stats.total_single_reads_replaced, 1);
+    }
+}
