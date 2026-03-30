@@ -2,7 +2,7 @@ use std::io::{BufRead, self};
 use std::path::Path;
 use log::{trace};
 use crate::readers::SequenceReader;
-use crate::types::{CompressionType, RecordDto, PairedRecordDto};
+use crate::types::{CompressionType, RecordDto, PairedRecordDto, SingeRecordDto};
 use crate::logging::log_fatal;
 use crate::args::Args;
 use crate::utils::io::get_raw_reader;
@@ -92,7 +92,7 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
     fn try_get_record(&mut self) -> Option<RecordDto> {
         match self.backend.read_record() {
             Ok(Some(record)) => {
-                self.last_id = Self::truncate_id(record.id());
+                self.last_id = Self::truncate_id(record.id(None));
                 Some(record)
             },
             Ok(None) => None,
@@ -114,9 +114,28 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
             id.to_string()
         }
     }
+
+    pub fn count_record(&mut self, record: &SingeRecordDto, read_index: Option<usize>) {
+        self.statistics.total_records_read += 1;
+        self.statistics.total_bases_read += record.seq().len();
+        if self.trace {
+            let cooked_id = match read_index {
+                None => record.id(),
+                Some(i) => &*format!("{} Read {}", record.id(), i + 1)
+            };
+            trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {:?}",
+                cooked_id,
+                record.desc().unwrap_or("None"),
+                String::from_utf8_lossy(record.seq()),
+                record.qual()
+            );
+        }
+    }
 }
 
-impl<B: GenericReaderBackend<io::BufReader<Box<dyn io::Read + Send>>>> GenericReader<io::BufReader<Box<dyn io::Read + Send>>, B> {
+impl<B: GenericReaderBackend<io::BufReader<Box<dyn io::Read + Send>>>>
+    GenericReader<io::BufReader<Box<dyn io::Read + Send>>, B>
+{
     pub fn create_form_args<P: AsRef<Path>>(paths: Vec<P>, args: &Args) -> io::Result<Self> {
         let mut readers = Vec::with_capacity(paths.len());
         let mut sources = Vec::with_capacity(paths.len());
@@ -161,26 +180,14 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> Iterator for GenericReader<R
                             return None;
                         }
                     }
-                    if self.trace {
-                        let qual = match record.qual() {
-                            None => "n/a",
-                            Some(x) => &*String::from_utf8_lossy(x)
-                        };
-                        trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {}",
-                            record.id(),
-                            record.desc().unwrap_or("None"),
-                            String::from_utf8_lossy(record.seq()),
-                            qual
-                        );
-                    }
                     match &record {
                         RecordDto::Single(r) => {
-                            self.statistics.total_records_read += 1;
-                            self.statistics.total_bases_read += r.seq().len();
+                            self.count_record(r, None);
                         }
                         RecordDto::Paired(p) => {
-                            self.statistics.total_records_read += 2;
-                            self.statistics.total_bases_read += p.records[0].seq().len() + p.records[1].seq().len();
+                            for i in 0..2 {
+                                self.count_record(&p.records[i], Some(i));
+                            }
                         }
                     }
                     Some(record)

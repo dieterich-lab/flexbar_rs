@@ -57,7 +57,7 @@ impl SingleWorker {
             }
             if !qtrim_post_removal && let Some(s) = &quality_trim {
                 debug!("- Step SingleQualityTrim (threshold: {}, window size: {})",
-                    s.threshold, s.win_size
+                    s.inner.threshold, s.inner.win_size
                 );
             }
             if let Some(s) = &barcode_splitter {
@@ -70,7 +70,7 @@ impl SingleWorker {
             }
             if qtrim_post_removal && let Some(s) = &quality_trim {
                 debug!("- Step SingleQualityTrim (threshold: {}, window size: {})",
-                    s.threshold, s.win_size
+                    s.inner.threshold, s.inner.win_size
                 );
             }
             debug!("- Step SingleFilterLength (min length: {})",

@@ -4,6 +4,7 @@ pub mod single_barcode_splitter;
 pub mod single_quality_trim;
 pub mod single_filter_length;
 pub mod paired_barcode_splitter;
+pub mod paired_quality_trim;
 pub mod paired_filter_length;
 pub mod generic;
 pub mod utils;

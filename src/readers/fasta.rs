@@ -57,8 +57,8 @@ mod tests {
         let records: Vec<_> = reader.collect();
         assert_eq!(records.len(), 2);
         let ref r = records[0];
-        assert_eq!(r.id(), "id1");
-        assert_eq!(r.seq(), b"ACGT");
-        assert_eq!(r.qual().unwrap(), b"IIII");
+        assert_eq!(r.id(None), "id1");
+        assert_eq!(r.seq(None), b"ACGT");
+        assert_eq!(r.qual(None), b"IIII");
     }
 }

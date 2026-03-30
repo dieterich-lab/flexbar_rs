@@ -125,7 +125,7 @@ impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
                 }
             }
         }
-        trace!("Writer processed record: {} with tag: {:?}", record.id(), tag);
+        trace!("Writer processed record: {} with tag: {:?}", record.id(None), tag);
         Ok(())
     }
 

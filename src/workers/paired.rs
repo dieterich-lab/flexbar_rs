@@ -1,35 +1,54 @@
 use log::debug;
 use crate::context::Context;
 use crate::args::Args;
-use crate::types::{PairedRecordDto, SingeRecordDto};
+use crate::types::{PairedRecordDto, SingeRecordDto, QualTrimType};
 use crate::steps::paired_barcode_splitter::{PairedBarcodeSplitter, PairedBarcodeSplitterState};
+use crate::steps::paired_quality_trim::{PairedQualityTrim, PairedQualityTrimState};
 use crate::steps::paired_filter_length::{PairedFilterLength, PairedFilterLengthState};
 use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
 use crate::steps::utils::paired::PairedAlignmentResults;
 
 pub struct PairedWorker {
     pub barcode_splitter: Option<PairedBarcodeSplitter>,
+    pub quality_trim: Option<PairedQualityTrim>,
     pub filter_length: PairedFilterLength,
+    pub qtrim_post_removal: bool,
 }
 
 pub struct PairedWorkerState {
     pub barcode_splitter: Option<PairedBarcodeSplitterState>,
+    pub quality_trim: Option<PairedQualityTrimState>,
     pub filter_length: PairedFilterLengthState,
 }
 
 impl PairedWorker {
     pub fn new(args: &Args, context: &Context) -> Self {
+        let quality_trim = match args.qtrim {
+            QualTrimType::Off => None,
+            _ => Some(PairedQualityTrim::new(args, context))
+        };
         let barcode_splitter = match context.barcodes.is_empty() {
             true => None,
             _ => Some(PairedBarcodeSplitter::new(args, context))
         };
         let filter_length = PairedFilterLength::new(args, context);
         
+        let qtrim_post_removal = args.qtrim_post_removal;
         if args.trace {
             debug!("Paired worker pipeline:");
+            if !qtrim_post_removal && let Some(s) = &quality_trim {
+                debug!("- Step PairedQualityTrim (threshold: {}, window size: {})",
+                    s.inner.threshold, s.inner.win_size
+                );
+            }
             if let Some(s) = &barcode_splitter {
                 debug!("- Step PairedBarcodeSplitter (trim end {:?}, keep: {}, unassigned: {})",
                     s.trim_end, s.barcode_keep, s.barcode_unassigned
+                );
+            }
+            if qtrim_post_removal && let Some(s) = &quality_trim {
+                debug!("- Step PairedQualityTrim (threshold: {}, window size: {})",
+                    s.inner.threshold, s.inner.win_size
                 );
             }
             debug!("- Step PairedFilterLength (min length: {})",
@@ -39,13 +58,16 @@ impl PairedWorker {
 
         Self {
             barcode_splitter,
+            quality_trim,
             filter_length,
+            qtrim_post_removal,
         }
     }
 
     pub fn create_state(&self) -> PairedWorkerState {
         PairedWorkerState {
             barcode_splitter: self.barcode_splitter.as_ref().map(|s| s.create_state()),
+            quality_trim: self.quality_trim.as_ref().map(|s| s.create_state()),
             filter_length: self.filter_length.create_state(),
         }
     }
@@ -58,8 +80,16 @@ impl PairedWorker {
         let mut rec_in: RecordInTransformation<PairedRecordDto, PairedAlignmentResults> = record.get_record_in_transformation();
         rec_in.stats.total_bases_read = record.records[0].seq().len() + record.records[1].seq().len();
 
+        if !self.qtrim_post_removal && let Some(step) = &self.quality_trim {
+            rec_in = step.apply(rec_in, state.quality_trim.as_mut().unwrap());
+        }
+
         if let Some(step) = &self.barcode_splitter {
             rec_in = step.apply(rec_in, state.barcode_splitter.as_mut().unwrap());
+        }
+
+        if self.qtrim_post_removal && let Some(step) = &self.quality_trim {
+            rec_in = step.apply(rec_in, state.quality_trim.as_mut().unwrap());
         }
 
         rec_in = self.filter_length.apply(rec_in, &mut state.filter_length);
@@ -319,5 +349,32 @@ mod tests {
         assert_eq!(records[0].seq(), b"N");
         assert_eq!(records[1].seq(), b"0123456789");
         assert_eq!(res.stats.total_single_reads_replaced, 1);
+    }
+
+    #[test]
+    fn test_quality_trimming() {
+        let mut args = Args::default();
+        args.qtrim = QualTrimType::Tail;
+        args.qtrim_threshold = 20; // 20 + 33 = 53 ('5')
+        args.min_read_length = 0;
+        
+        // R1: 5555544444 (qual: 8888877777 - all above 53) -> No trim
+        // R2: 5555544444 (qual: 8888833333 - last 5 below 53) -> Trimmed to 5 bases
+        // Note: '8' is 56, '7' is 55, '3' is 51. 51 < 53.
+        let r1 = SingeRecordDto::with_attrs("R1", None, b"5555544444", b"8888877777");
+        let r2 = SingeRecordDto::with_attrs("R2", None, b"5555544444", b"8888833333");
+        let rec = PairedRecordDto::new(r1, r2);
+        
+        let mut context = Context::empty();
+        context.format = crate::types::FileFormat::Fastq;
+        let worker = PairedWorker::new(&args, &context);
+        let mut state = worker.create_state();
+        let res = worker.process_record(&rec, &mut state);
+        
+        assert!(res.record.is_some());
+        let records = res.record.unwrap().records;
+        assert_eq!(records[0].seq(), b"5555544444");
+        assert_eq!(records[1].seq(), b"55555");
+        assert_eq!(res.stats.bases_quality_trim, 5);
     }
 }

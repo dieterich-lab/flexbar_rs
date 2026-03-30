@@ -290,32 +290,33 @@ pub enum RecordDto {
     Paired(PairedRecordDto),
 }
 
+macro_rules! implement_by_record_index {
+    ($name: ident, $ReturnType: ty) => {
+        #[inline(always)]
+        pub fn $name(&self, read_index: Option<usize>) -> $ReturnType {
+            match (self, read_index) {
+                (RecordDto::Single(record), None) => record.$name(),
+                (RecordDto::Paired(paired), Some(0)) => paired.records[0].$name(),
+                (RecordDto::Paired(paired), Some(1)) => paired.records[1].$name(),
+                _ => panic!("Invalid read index {:?}", read_index),
+            }
+        }
+    };
+}
+
 impl RecordDto {
-    pub fn id(&self) -> &str {
-        match self {
-            RecordDto::Single(record) => record.id(),
-            RecordDto::Paired(paired) => paired.records[0].id(),
+    pub fn id(&self, read_index: Option<usize>) -> &str {
+        match (self, read_index) {
+            (RecordDto::Single(record), None) => record.id(),
+            (RecordDto::Paired(paired), Some(0)) => paired.records[0].id(),
+            (RecordDto::Paired(paired), Some(1)) => paired.records[1].id(),
+            // We sometimes need an ID for error messages without knowing if it's a single or
+            // paired record. So we allow None here too and just return the first ID.
+            (RecordDto::Paired(paired), None) => paired.records[0].id(),
+            _ => panic!("Invalid read index {:?}", read_index),
         }
     }
-    
-    pub fn desc(&self) -> Option<&str> {
-        match self {
-            RecordDto::Single(record) => record.desc(),
-            RecordDto::Paired(paired) => paired.records[0].desc(),
-        }
-    }
-    
-    pub fn seq(&self) -> &[u8] {
-        match self {
-            RecordDto::Single(record) => record.seq(),
-            RecordDto::Paired(paired) => paired.records[0].seq(),
-        }
-    }
-    
-    pub fn qual(&self) -> Option<&[u8]> {
-        match self {
-            RecordDto::Single(record) => Some(record.qual()),
-            RecordDto::Paired(paired) => Some(paired.records[0].qual()),
-        }
-    }
+    implement_by_record_index!(desc, Option<&str>);
+    implement_by_record_index!(seq, &[u8]);
+    implement_by_record_index!(qual, &[u8]);
 }

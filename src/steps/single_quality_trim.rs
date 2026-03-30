@@ -1,102 +1,23 @@
 use crate::args::Args;
-use crate::types::{FileFormat, QualTrimType, QualityType, SingeRecordDto};
-use log::trace;
+use crate::types::SingeRecordDto;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::utils::single::SingleAlignmentResults;
 use crate::context::Context;
+use crate::steps::utils::quality_trim::QualityTrim;
 
 pub struct SingleQualityTrim {
-    pub qtrim: QualTrimType,
-    pub threshold: usize,
-    pub win_size: usize,
-    pub trace: bool,
+    pub inner: QualityTrim,
 }
 
 pub struct SingleQualityTrimState {}
-
-impl SingleQualityTrim {
-    pub fn get_trim_pos(&self, qual: &[u8]) -> usize {
-        match self.qtrim {
-            QualTrimType::Tail => self.get_tail_trim_pos(qual),
-            QualTrimType::Win => self.get_win_trim_pos(qual),
-            QualTrimType::Bwa => self.get_bwa_trim_pos(qual),
-            QualTrimType::Off => qual.len(),
-        }
-    }
-
-    fn get_tail_trim_pos(&self, qual: &[u8]) -> usize {
-        let mut trim_pos = qual.len();
-        while trim_pos > 0 && qual[trim_pos - 1] < self.threshold as u8 {
-            trim_pos -= 1;
-        }
-        trim_pos
-    }
-
-    fn get_win_trim_pos(&self, qual: &[u8]) -> usize {
-        if qual.len() < self.win_size {
-            return self.get_tail_trim_pos(qual);
-        }
-
-        let mut current_sum: usize = qual.iter().take(self.win_size).map(|&q| q as usize).sum();
-        let threshold_sum = self.threshold * self.win_size;
-
-        if current_sum < threshold_sum {
-            return 0;
-        }
-
-        for i in 0..=(qual.len() - self.win_size) {
-            if current_sum < threshold_sum {
-                return i;
-            }
-            if i + self.win_size < qual.len() {
-                current_sum -= qual[i] as usize;
-                current_sum += qual[i + self.win_size] as usize;
-            }
-        }
-        qual.len()
-    }
-
-    fn get_bwa_trim_pos(&self, qual: &[u8]) -> usize {
-        let mut max_score = 0i64;
-        let mut current_score = 0i64;
-        let mut trim_pos = qual.len();
-
-        for (i, &q) in qual.iter().enumerate().rev() {
-            current_score += (self.threshold as i64) - (q as i64);
-            if current_score < 0 {
-                current_score = 0;
-            }
-            if current_score > max_score {
-                max_score = current_score;
-                trim_pos = i;
-            }
-        }
-        trim_pos
-    }
-}
 
 impl GenericStep<SingeRecordDto> for SingleQualityTrim {
     type State = SingleQualityTrimState;
     type AlignmentResult = SingleAlignmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
-        let format = context.format;
-        let threshold = if format == FileFormat::Fastq {
-            args.qtrim_threshold
-                + match args.qtrim_format {
-                    QualityType::Sanger => 33,
-                    QualityType::Solexa => 59,
-                    QualityType::Illumina => 64,
-                }
-        } else {
-            args.qtrim_threshold
-        };
-
         Self {
-            qtrim: args.qtrim,
-            threshold,
-            win_size: args.qtrim_win_size,
-            trace: args.trace,
+            inner: QualityTrim::new(args, context),
         }
     }
 
@@ -104,23 +25,12 @@ impl GenericStep<SingeRecordDto> for SingleQualityTrim {
         SingleQualityTrimState {}
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, _state: &mut Self::State) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
-        let current_qual = &rec.record.qual()[rec.alignment_results.read.read_range.clone()];
-        let trim_pos = self.get_trim_pos(current_qual);
-        if trim_pos < current_qual.len() {
-            rec.stats.bases_quality_trim += current_qual.len() - trim_pos;
-            rec.alignment_results.read.read_range.end = rec.alignment_results.read.read_range.start + trim_pos;
-        }
-        if self.trace {
-            if trim_pos < current_qual.len() {
-                trace!(
-                    "Quality trim on {}: Shortened to {} bases - new sequence:\n{}",
-                    rec.record.id(), trim_pos, rec.get_sequence_as_str()
-                );
-            } else {
-                trace!("Quality trim on {}: NOP", rec.record.id());
-            }
-        }
+    fn apply(
+        &self,
+        mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>, 
+        _state: &mut Self::State
+    ) -> RecordInTransformation<SingeRecordDto, SingleAlignmentResults> {
+        self.inner.trim_read(&rec.record, None, &mut rec.alignment_results.read, &mut rec.stats);
         rec
     }
 }
@@ -130,6 +40,7 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
+    use crate::types::FileFormat;
 
     #[test]
     fn test_qtrim_threshold_calculation() {
@@ -145,25 +56,25 @@ mod tests {
         let mut context_fastq = Context::empty();
         context_fastq.format = FileFormat::Fastq;
         let setup_fastq = SingleQualityTrim::new(&args, &context_fastq);
-        assert_eq!(setup_fastq.threshold, 20 + 33);
+        assert_eq!(setup_fastq.inner.threshold, 20 + 33);
 
         // Fasta format should NOT add quality offset
         let mut context_fasta = Context::empty();
         context_fasta.format = FileFormat::Fasta;
         let setup_fasta = SingleQualityTrim::new(&args, &context_fasta);
-        assert_eq!(setup_fasta.threshold, 20);
+        assert_eq!(setup_fasta.inner.threshold, 20);
 
         // Test other quality formats
         let args_solexa = Args::parse_from(&["flexbar_rs", "--qtrim-format", "solexa", "--qtrim-threshold", "20"]);
         let mut context_solexa = Context::empty();
         context_solexa.format = FileFormat::Fastq;
         let setup_solexa = SingleQualityTrim::new(&args_solexa, &context_solexa);
-        assert_eq!(setup_solexa.threshold, 20 + 59);
+        assert_eq!(setup_solexa.inner.threshold, 20 + 59);
 
         let args_illumina = Args::parse_from(&["flexbar_rs", "--qtrim-format", "i1.3", "--qtrim-threshold", "20"]);
         let mut context_illumina = Context::empty();
         context_illumina.format = FileFormat::Fastq;
         let setup_illumina = SingleQualityTrim::new(&args_illumina, &context_illumina);
-        assert_eq!(setup_illumina.threshold, 20 + 64);
+        assert_eq!(setup_illumina.inner.threshold, 20 + 64);
     }
 }

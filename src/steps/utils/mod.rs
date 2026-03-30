@@ -4,6 +4,7 @@ use crate::steps::generic::{RecordInTransformation, RecordId};
 pub mod single;
 pub mod paired;
 pub mod barcode;
+pub mod quality_trim;
 
 pub fn assign_barcode_tag<RecordType, AlignmentResults, T: BarcodeAlignmentResults>(
     rec: &mut RecordInTransformation<RecordType, AlignmentResults>,
