@@ -430,16 +430,12 @@ mod tests {
             b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFF:FFFFFFFF,FFFFFFFFFF",
         );
 
-        assert_eq!(r1.seq().len(), 101, "R1 seq length should be 101");
-        assert_eq!(r1.qual().len(), 101, "R1 qual length should be 101");
-        assert_eq!(r2.seq().len(), 101, "R2 seq length should be 101");
-        assert_eq!(r2.qual().len(), 101, "R2 qual length should be 101");
-
         let rec = PairedRecordDto::new(r1, r2);
 
         let mut context = Context::empty();
         context.barcodes = barcodes;
-        context.adapters = adapters;
+        context.adapters = adapters.clone();
+        context.adapters2 = adapters;
         context.format = FileFormat::Fastq;
         
         let worker = PairedWorker::new(&args, &context);
@@ -448,11 +444,57 @@ mod tests {
 
         assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
         
-        assert_eq!(res.record.unwrap().records[0].seq(),
+        assert_eq!(res.record.as_ref().unwrap().records[0].seq(),
                    b"GGGCTAGACTAGGCTGTCTTTGAATAACACTTAAAAATACATTAAAAGGAAAACCCAACTAATAACCTTGTTATTCTCTTCC"
         );
         
         let stats = res.stats;
         assert_eq!(stats.total_adapters_removed, 0, "Expected no adapters to be found");
+    }
+
+    #[test]
+    fn test_short_read_discard() {
+        let args = Args::parse_from(&[
+            "flexbar_rs",
+            "--barcode-trim-end", "ANY",
+            "--adapter-trim-end", "ANY",
+            "--min-read-length", "18",
+            "--max-uncalled", "1",
+            "--qtrim", "TAIL",
+            "--qtrim-threshold", "10",
+            "--barcode-unassigned",
+            "--post-trim-length", "248",
+            "--adapter-min-overlap", "6",
+            "--qtrim-format", "sanger",
+        ]);
+
+        let r1 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1101:5936:2253 1:N:0:TGCCGGTCAG+GTGTATCAGG",
+            None,
+            b"ATTGCGCAATGGCTGTCTCTTATACACATCTCCGAGCCCACGAGACTGCCGGTCAGATCTCGTATGCCGGCTTCTGCTTGAAAAGGGGGGGGGGGGGGGGG",
+            b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFF,FF::FF,FF,:,F,,F,::F,F,,,:,F:FFFFFFFFFFF!",
+        );
+        let r2 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1101:5936:2253 2:N:0:TGCCGGTCAG+GTGTATCAGG",
+            None,
+            b"CCATTGCGCAATCTGTCTCTTATACACATCTGACGCTGCCGACGATTGTATCAGGGTGTAGATCTCGGTGGTCGCCGTATCATTAAAATGGGGGGGGGGGG",
+            b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FF:FFFFF::,,,FFFFFFFFFF!",
+        );
+
+        let adapters = vec![
+            SequenceWithId { id: "Trans1_rc".to_string(), sequence: "CTGTCTCTTATACACATCTGACGCTGCCGACGA".to_string() },
+        ];
+
+        let rec = PairedRecordDto::new(r1, r2);
+
+        let mut context = Context::empty();
+        context.format = FileFormat::Fastq;
+        context.adapters = adapters;
+        
+        let worker = PairedWorker::new(&args, &context);
+        let mut state = worker.create_state();
+        let res = worker.process_record(&rec, &mut state);
+
+        assert!(res.record.is_none(), "Record should be discarded");
     }
 }

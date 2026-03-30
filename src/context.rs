@@ -248,6 +248,13 @@ impl Context {
                 .collect();
         }
 
+        if self.adapters2.is_empty()
+            && (args.adapter_read_set == AdapterReadset::Two || args.adapter_read_set == AdapterReadset::None)
+            && (self.run_type == RunType::Paired || self.run_type == RunType::PairedBarcoded)
+        {
+            self.adapters2 = self.adapters.clone();
+        }
+
         if let Some(barcode_file) = &args.barcodes {
             self.barcodes = self.load_fasta_file(barcode_file);
         }
@@ -531,5 +538,48 @@ mod tests {
         };
         let context = Context::new(&args);
         assert_eq!(context.adapter_removal, AdapterRemoval::Normal2);
+    }
+
+    #[test]
+    fn test_context_adapter_copy_to_second_read() {
+        // Case 1: adapter_read_set = Two, no adapters2
+        let args = Args {
+            reads: Some(PathBuf::from("r1.fq")),
+            reads2: Some(PathBuf::from("r2.fq")),
+            adapter_seq: Some("AGCT".to_string()),
+            adapter_read_set: AdapterReadset::Two,
+            ..Args::parse_from(["flexbar"])
+        };
+        let context = Context::new(&args);
+        assert_eq!(context.adapters.len(), 1);
+        assert_eq!(context.adapters[0].sequence, "AGCT");
+        assert_eq!(context.adapters2.len(), 1);
+        assert_eq!(context.adapters2[0].sequence, "AGCT");
+
+        // Case 2: adapter_read_set = None, no adapters2
+        let args = Args {
+            reads: Some(PathBuf::from("r1.fq")),
+            reads2: Some(PathBuf::from("r2.fq")),
+            adapter_seq: Some("AGCT".to_string()),
+            adapter_read_set: AdapterReadset::None,
+            ..Args::parse_from(["flexbar"])
+        };
+        let context = Context::new(&args);
+        assert_eq!(context.adapters.len(), 1);
+        assert_eq!(context.adapters[0].sequence, "AGCT");
+        assert_eq!(context.adapters2.len(), 1);
+        assert_eq!(context.adapters2[0].sequence, "AGCT");
+
+        // Case 3: adapter_read_set = One, no adapters2 -> adapters2 should be empty
+        let args = Args {
+            reads: Some(PathBuf::from("r1.fq")),
+            reads2: Some(PathBuf::from("r2.fq")),
+            adapter_seq: Some("AGCT".to_string()),
+            adapter_read_set: AdapterReadset::One,
+            ..Args::parse_from(["flexbar"])
+        };
+        let context = Context::new(&args);
+        assert_eq!(context.adapters.len(), 1);
+        assert_eq!(context.adapters2.len(), 0);
     }
 }

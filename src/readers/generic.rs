@@ -1,4 +1,4 @@
-use std::io::{BufRead, self, Read};
+use std::io::{BufRead, self};
 use std::path::Path;
 use log::{trace};
 use crate::readers::SequenceReader;
