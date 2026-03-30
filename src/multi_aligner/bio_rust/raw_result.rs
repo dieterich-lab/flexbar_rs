@@ -19,7 +19,7 @@ impl GenericRawResult for Alignment {
             Some(x) => if x > check_length {return false},
             None => ()
         }
-        let allowed_errors = (y.len() as f32 * error_rate) as usize;
+        let allowed_errors = (check_length as f32 * error_rate) as usize;
         check_match(self, y_part, check_length, allowed_errors)
     }
 

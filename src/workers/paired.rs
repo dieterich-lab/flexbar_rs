@@ -189,7 +189,7 @@ mod tests {
     use super::*;
     use clap::Parser;
     use crate::context::SequenceWithId;
-    use crate::types::{SingeRecordDto, PairedRecordDto, TrimEnd};
+    use crate::types::{SingeRecordDto, PairedRecordDto, TrimEnd, FileFormat};
 
     fn process_record(args: Args, record: &PairedRecordDto, barcodes: Vec<SequenceWithId>, barcodes2: Vec<SequenceWithId>) -> FinalRecord<PairedRecordDto> {
         let mut context = Context::empty();
@@ -392,5 +392,67 @@ mod tests {
         assert_eq!(records[0].seq(), b"5555544444");
         assert_eq!(records[1].seq(), b"55555");
         assert_eq!(res.stats.bases_quality_trim, 5);
+    }
+
+    #[test]
+    fn test_near_miss_with_adapter_trim() {
+        let args = Args::parse_from(&[
+            "flexbar_rs",
+            "--barcode-trim-end", "ANY",
+            "--adapter-trim-end", "ANY",
+            "--min-read-length", "18",
+            "--max-uncalled", "1",
+            "--qtrim", "TAIL",
+            "--qtrim-threshold", "10",
+            "--barcode-unassigned",
+            "--post-trim-length", "248",
+            "--adapter-min-overlap", "6",
+            "--qtrim-format", "sanger",
+        ]);
+
+        let barcodes = vec![
+            SequenceWithId { id: "SmartSeqUMI".to_string(), sequence: "ATTGCGCAATGNNNNNNNN".to_string() },
+        ];
+        let adapters = vec![
+            SequenceWithId { id: "Trans1".to_string(), sequence: "TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG".to_string() },
+        ];
+
+        let r1 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1101:17562:1031 1:N:0:TGCCGGTCAG+TTGTATCAGG",
+            None,
+            b"ATTGCGCAATGGTAGACTGGGGCTAGACTAGGCTGTCTTTGAATAACACTTAAAAATACATTAAAAGGAAAACCCAACTAATAACCTTGTTATTCTCTTCC",
+            b"FFFFFFFF:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        );
+        let r2 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1101:17562:1031 2:N:0:TGCCGGTCAG+TTGTATCAGG",
+            None,
+            b"GAATACAGAGATGTGGTCCCCACCATCAAGGGACCAGAAACTTATTGCACAGTAAGTTGAATGTTGTGGAACTTTGATAGGTATTTCCTGAAAAGCTGACA",
+            b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFF:FFFFFFFF,FFFFFFFFFF",
+        );
+
+        assert_eq!(r1.seq().len(), 101, "R1 seq length should be 101");
+        assert_eq!(r1.qual().len(), 101, "R1 qual length should be 101");
+        assert_eq!(r2.seq().len(), 101, "R2 seq length should be 101");
+        assert_eq!(r2.qual().len(), 101, "R2 qual length should be 101");
+
+        let rec = PairedRecordDto::new(r1, r2);
+
+        let mut context = Context::empty();
+        context.barcodes = barcodes;
+        context.adapters = adapters;
+        context.format = FileFormat::Fastq;
+        
+        let worker = PairedWorker::new(&args, &context);
+        let mut state = worker.create_state();
+        let res = worker.process_record(&rec, &mut state);
+
+        assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
+        
+        assert_eq!(res.record.unwrap().records[0].seq(),
+                   b"GGGCTAGACTAGGCTGTCTTTGAATAACACTTAAAAATACATTAAAAGGAAAACCCAACTAATAACCTTGTTATTCTCTTCC"
+        );
+        
+        let stats = res.stats;
+        assert_eq!(stats.total_adapters_removed, 0, "Expected no adapters to be found");
     }
 }

@@ -27,8 +27,12 @@ impl GenericStep<PairedRecordDto> for PairedAdapterRemover {
         };
 
         let inner = [
-            if apply1 { Some(AdapterRemover::new(args, &context.adapters)) } else { None },
-            if apply2 { Some(AdapterRemover::new(args, &context.adapters2)) } else { None },
+            if apply1 && !context.adapters.is_empty() {
+                Some(AdapterRemover::new(args, &context.adapters))
+            } else { None },
+            if apply2 && !context.adapters2.is_empty() {
+                Some(AdapterRemover::new(args, &context.adapters2))
+            } else { None },
         ];
 
         Self { inner }

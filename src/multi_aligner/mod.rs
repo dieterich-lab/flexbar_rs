@@ -394,6 +394,7 @@ impl MultiAligner {
             }
             let window = Self::get_shrink_window(trim_end, sequence.len(), ref_len, &best);
             let next_seq = &sequence[window.start..window.end];
+            if next_seq.len() == 0 { break; }
             aligner.setup_aligner(s_state, next_seq.len());
             let mut result = Self::align_local(aligner, s_state, next_seq, ref_index);
             result.sequence_offset += window.start;
@@ -683,13 +684,13 @@ mod tests {
         let references = get_as_references(b"TTTTTTT");
         let result = run_alignment(
             TrimEnd::Right, get_with_tolerance_config(), None,
-            b"AAAAATTATT", &references
+            b"AAAAATTATTT", &references
         );
         let alignment = result.unwrap();
         // Matching prefix TTxTT with an error starting at x[5]
-        assert_eq!(alignment.score(), 3);
+        assert_eq!(alignment.score(), 4);
         assert_eq!(alignment.get_start_index(), 5);
-        assert_eq!(alignment.get_end_index(), 10);
+        assert_eq!(alignment.get_end_index(), 11);
     }
 
     #[test]
@@ -977,8 +978,8 @@ mod tests {
 
     #[test]
     fn test_format_alignment_partial_with_error() {
-        let x = b"CCCCCGGG";
-        let y = b"AAACCACC";
+        let x = b"CCCCCCGGG";
+        let y = b"AAACCACCC";
         let references = get_as_references(y);
         let result = run_alignment(
             TrimEnd::Any, get_with_tolerance_config(), None,
@@ -987,14 +988,11 @@ mod tests {
         let alignment = result.unwrap();
         let formatted = alignment.format(x, y);
 
-        assert!(formatted.contains("CCCCCGGG"));
-        assert!(formatted.contains("|\\|"));
-        assert!(formatted.contains("AAACCACC"));
         assert_eq!(formatted, concat!(
-        "Alignment with score 3:\n",
-        "     CCCCCGGG\n",
-        "  ,,,||\\||´´´\n",
-        "  AAACCACC   \n"
+        "Alignment with score 4:\n",
+        "     CCCCCCGGG\n",
+        "  ,,,||\\|||´´´\n",
+        "  AAACCACCC   \n"
         ));
     }
 
