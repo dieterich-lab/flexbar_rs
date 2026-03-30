@@ -62,10 +62,28 @@ impl AdapterRemover {
         let current_seq = &read.seq()[per_read.read_range.clone()];
         let best_alignment = self.multi_aligner.align(state, &self.multi_aligner_setup, current_seq);
         if let Some(alignment) = best_alignment {
+            self.trace_alignment(read, read_index, &alignment);
             let adapter = &self.adapters[alignment.reference_index].sequence;
             self.handle_umi_tags(read, read_index, per_read, &alignment, adapter);
             self.trim_record(read, read_index, per_read, stats, &alignment);
             stats.total_adapters_removed += 1;
+        }
+    }
+
+    fn trace_alignment(&self, read: &SingeRecordDto, read_index: Option<usize>, alignment: &MultiAlignerResult) {
+        if self.trace {
+            let adapter_seq = self.adapters[alignment.reference_index].sequence.as_bytes();
+            let read_str = match read_index {
+                Some(i) => format!(" from read {}", i + 1),
+                None => "".to_string(),
+            };
+            let sequence: &[u8] = read.seq();
+            trace!(
+                    "Barcode splitter on {} selected the following alignment{}:",
+                    read.id(),
+                    read_str
+                );
+            trace!("{}", alignment.format(sequence, adapter_seq));
         }
     }
 

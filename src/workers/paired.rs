@@ -382,7 +382,7 @@ mod tests {
         let rec = PairedRecordDto::new(r1, r2);
         
         let mut context = Context::empty();
-        context.format = crate::types::FileFormat::Fastq;
+        context.format = FileFormat::Fastq;
         let worker = PairedWorker::new(&args, &context);
         let mut state = worker.create_state();
         let res = worker.process_record(&rec, &mut state);
@@ -398,8 +398,6 @@ mod tests {
     fn test_near_miss_with_adapter_trim() {
         let args = Args::parse_from(&[
             "flexbar_rs",
-            "--barcode-trim-end", "ANY",
-            "--adapter-trim-end", "ANY",
             "--min-read-length", "18",
             "--max-uncalled", "1",
             "--qtrim", "TAIL",
@@ -456,8 +454,6 @@ mod tests {
     fn test_short_read_discard() {
         let args = Args::parse_from(&[
             "flexbar_rs",
-            "--barcode-trim-end", "ANY",
-            "--adapter-trim-end", "ANY",
             "--min-read-length", "18",
             "--max-uncalled", "1",
             "--qtrim", "TAIL",
@@ -489,7 +485,8 @@ mod tests {
 
         let mut context = Context::empty();
         context.format = FileFormat::Fastq;
-        context.adapters = adapters;
+        context.adapters = adapters.clone();
+        context.adapters2 = adapters;
         
         let worker = PairedWorker::new(&args, &context);
         let mut state = worker.create_state();
