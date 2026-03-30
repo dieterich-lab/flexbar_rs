@@ -2,6 +2,7 @@ use log::debug;
 use crate::context::Context;
 use crate::args::Args;
 use crate::types::{PairedRecordDto, SingeRecordDto, QualTrimType};
+use crate::steps::paired_adapter_remover::{PairedAdapterRemover, PairedAdapterRemoverState};
 use crate::steps::paired_barcode_splitter::{PairedBarcodeSplitter, PairedBarcodeSplitterState};
 use crate::steps::paired_quality_trim::{PairedQualityTrim, PairedQualityTrimState};
 use crate::steps::paired_filter_length::{PairedFilterLength, PairedFilterLengthState};
@@ -10,6 +11,7 @@ use crate::steps::utils::paired::PairedAlignmentResults;
 
 pub struct PairedWorker {
     pub barcode_splitter: Option<PairedBarcodeSplitter>,
+    pub adapter_remover: Option<PairedAdapterRemover>,
     pub quality_trim: Option<PairedQualityTrim>,
     pub filter_length: PairedFilterLength,
     pub qtrim_post_removal: bool,
@@ -17,6 +19,7 @@ pub struct PairedWorker {
 
 pub struct PairedWorkerState {
     pub barcode_splitter: Option<PairedBarcodeSplitterState>,
+    pub adapter_remover: Option<PairedAdapterRemoverState>,
     pub quality_trim: Option<PairedQualityTrimState>,
     pub filter_length: PairedFilterLengthState,
 }
@@ -30,6 +33,10 @@ impl PairedWorker {
         let barcode_splitter = match context.barcodes.is_empty() {
             true => None,
             _ => Some(PairedBarcodeSplitter::new(args, context))
+        };
+        let adapter_remover = match context.adapters.is_empty() && context.adapters2.is_empty() {
+            true => None,
+            _ => Some(PairedAdapterRemover::new(args, context))
         };
         let filter_length = PairedFilterLength::new(args, context);
         
@@ -46,6 +53,9 @@ impl PairedWorker {
                     s.trim_end, s.barcode_keep, s.barcode_unassigned
                 );
             }
+            if let Some(_) = &adapter_remover {
+                debug!("- Step PairedAdapterRemover (trim end {:?})", args.adapter_trim_end);
+            }
             if qtrim_post_removal && let Some(s) = &quality_trim {
                 debug!("- Step PairedQualityTrim (threshold: {}, window size: {})",
                     s.inner.threshold, s.inner.win_size
@@ -58,6 +68,7 @@ impl PairedWorker {
 
         Self {
             barcode_splitter,
+            adapter_remover,
             quality_trim,
             filter_length,
             qtrim_post_removal,
@@ -67,6 +78,7 @@ impl PairedWorker {
     pub fn create_state(&self) -> PairedWorkerState {
         PairedWorkerState {
             barcode_splitter: self.barcode_splitter.as_ref().map(|s| s.create_state()),
+            adapter_remover: self.adapter_remover.as_ref().map(|s| s.create_state()),
             quality_trim: self.quality_trim.as_ref().map(|s| s.create_state()),
             filter_length: self.filter_length.create_state(),
         }
@@ -86,6 +98,10 @@ impl PairedWorker {
 
         if let Some(step) = &self.barcode_splitter {
             rec_in = step.apply(rec_in, state.barcode_splitter.as_mut().unwrap());
+        }
+
+        if let Some(step) = &self.adapter_remover {
+            rec_in = step.apply(rec_in, state.adapter_remover.as_mut().unwrap());
         }
 
         if self.qtrim_post_removal && let Some(step) = &self.quality_trim {

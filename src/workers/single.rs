@@ -66,7 +66,7 @@ impl SingleWorker {
                 );
             }
             if let Some(s) = &adapter_remover {
-                debug!("- Step SingleAdapterRemover (trim end {:?})", s.trim_end);
+                debug!("- Step SingleAdapterRemover (trim end {:?})", s.inner.trim_end);
             }
             if qtrim_post_removal && let Some(s) = &quality_trim {
                 debug!("- Step SingleQualityTrim (threshold: {}, window size: {})",
