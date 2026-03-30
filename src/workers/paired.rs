@@ -267,7 +267,7 @@ mod tests {
         
         let res = process_record(args, &rec, barcodes, barcodes2);
         
-        assert_eq!(res.output_tag, Some("barcode_unassigned_".to_string()));
+        assert_eq!(res.output_tag, Some("barcode_unassigned".to_string()));
         assert!(res.record.is_some());
     }
 

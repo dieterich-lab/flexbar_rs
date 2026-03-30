@@ -82,7 +82,7 @@ impl GenericStep<SingeRecordDto> for SingleBarcodeSplitter {
             },
             None => {
                 if self.barcode_unassigned {
-                    assign_barcode_tag(&mut rec, "barcode_unassigned_".to_string(), self.trace);
+                    assign_barcode_tag(&mut rec, "barcode_unassigned".to_string(), self.trace);
                 } else {
                     Self::drop_record(&mut rec);
                 }
@@ -193,7 +193,7 @@ mod tests {
         );
         
         assert!(!res.alignment_results.read.dropped);
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_unassigned_".to_string()));
+        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_unassigned".to_string()));
         assert_eq!(res.alignment_results.read.read_range.end - res.alignment_results.read.read_range.start, 8);
     }
 

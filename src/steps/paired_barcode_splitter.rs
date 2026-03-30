@@ -184,7 +184,7 @@ impl PairedBarcodeSplitter {
 
     fn handle_unassigned(&self, rec: &mut RecordInTransformation<PairedRecordDto, PairedAlignmentResults>) {
         if self.barcode_unassigned {
-            assign_barcode_tag(rec, "barcode_unassigned_".to_string(), self.trace);
+            assign_barcode_tag(rec, "barcode_unassigned".to_string(), self.trace);
         } else {
             for read_idx in 0..2 {
                 if !rec.alignment_results.per_read[read_idx].dropped {
