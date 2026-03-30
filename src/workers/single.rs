@@ -270,7 +270,7 @@ mod tests {
     fn test_removal_tags_adapter() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--removal-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.adapters = vec![SequenceWithId { id: "adapter".to_string(), sequence: "AGATCGGAAGAG".to_string() }];
+        context.adapters = vec![SequenceWithId { id: "ad1".to_string(), sequence: "AGATCGGAAGAG".to_string() }];
         
         let worker = SingleWorker::new(&args, &context);
         let mut state = worker.create_state();
@@ -280,7 +280,7 @@ mod tests {
         let processed = result.record.expect("Should not be dropped by length filter");
         
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc(), Some("Flexbar_removal_0"));
+        assert_eq!(processed.desc(), Some("Flexbar_removal_ad1"));
     }
 
     #[test]
@@ -290,7 +290,7 @@ mod tests {
             "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5",
             "--removal-tags", "--min-read-length", "0"]);
         let mut context = Context::new(&args);
-        context.adapters = vec![SequenceWithId { id: "adapter".to_string(), sequence: "AGATCGGAAGAG".to_string() }];
+        context.adapters = vec![SequenceWithId { id: "ad1".to_string(), sequence: "AGATCGGAAGAG".to_string() }];
         context.barcodes = vec![
             SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}
         ];
@@ -305,7 +305,7 @@ mod tests {
         // barcode removal appends _Flexbar_removal
         // adapter removal appends _Flexbar_removal_0
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc(), Some("Flexbar_removal_Flexbar_removal_0"));
+        assert_eq!(processed.desc(), Some("Flexbar_removal_Flexbar_removal_ad1"));
     }
 
     #[test]
