@@ -1,4 +1,4 @@
-use std::io::{BufRead, self};
+use std::io::{BufRead, self, Read};
 use std::path::Path;
 use log::{trace};
 use crate::readers::SequenceReader;
@@ -123,11 +123,11 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReader<R, B> {
                 None => record.id(),
                 Some(i) => &*format!("{} Read {}", record.id(), i + 1)
             };
-            trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {:?}",
+            trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {}",
                 cooked_id,
                 record.desc().unwrap_or("None"),
                 String::from_utf8_lossy(record.seq()),
-                record.qual()
+                String::from_utf8_lossy(record.qual())
             );
         }
     }
