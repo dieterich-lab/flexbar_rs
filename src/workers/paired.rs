@@ -394,8 +394,7 @@ mod tests {
         assert_eq!(res.stats.bases_quality_trim, 5);
     }
 
-    #[test]
-    fn test_near_miss_with_adapter_trim() {
+    fn process_with_reference_setup(record: &PairedRecordDto) -> FinalRecord<PairedRecordDto> {
         let args = Args::parse_from(&[
             "flexbar_rs",
             "--min-read-length", "18",
@@ -411,10 +410,27 @@ mod tests {
         let barcodes = vec![
             SequenceWithId { id: "SmartSeqUMI".to_string(), sequence: "ATTGCGCAATGNNNNNNNN".to_string() },
         ];
+
         let adapters = vec![
             SequenceWithId { id: "Trans1".to_string(), sequence: "TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG".to_string() },
+            SequenceWithId { id: "Trans1_rc".to_string(), sequence: "CTGTCTCTTATACACATCTGACGCTGCCGACGA".to_string() },
+            SequenceWithId { id: "Trans2".to_string(), sequence: "GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG".to_string() },
+            SequenceWithId { id: "Trans2_rc".to_string(), sequence: "CTGTCTCTTATACACATCTCCGAGCCCACGAGAC".to_string() },
         ];
 
+        let mut context = Context::empty();
+        context.barcodes = barcodes;
+        context.adapters = adapters.clone();
+        context.adapters2 = adapters;
+        context.format = FileFormat::Fastq;
+
+        let worker = PairedWorker::new(&args, &context);
+        let mut state = worker.create_state();
+        worker.process_record(record, &mut state)
+    }
+
+    #[test]
+    fn test_near_miss_with_adapter_trim() {
         let r1 = SingeRecordDto::with_attrs(
             "A00620:147:H225CDMXY:2:1101:17562:1031 1:N:0:TGCCGGTCAG+TTGTATCAGG",
             None,
@@ -429,16 +445,7 @@ mod tests {
         );
 
         let rec = PairedRecordDto::new(r1, r2);
-
-        let mut context = Context::empty();
-        context.barcodes = barcodes;
-        context.adapters = adapters.clone();
-        context.adapters2 = adapters;
-        context.format = FileFormat::Fastq;
-        
-        let worker = PairedWorker::new(&args, &context);
-        let mut state = worker.create_state();
-        let res = worker.process_record(&rec, &mut state);
+        let res = process_with_reference_setup(&rec);
 
         assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
         
@@ -452,18 +459,6 @@ mod tests {
 
     #[test]
     fn test_short_read_discard() {
-        let args = Args::parse_from(&[
-            "flexbar_rs",
-            "--min-read-length", "18",
-            "--max-uncalled", "1",
-            "--qtrim", "TAIL",
-            "--qtrim-threshold", "10",
-            "--barcode-unassigned",
-            "--post-trim-length", "248",
-            "--adapter-min-overlap", "6",
-            "--qtrim-format", "sanger",
-        ]);
-
         let r1 = SingeRecordDto::with_attrs(
             "A00620:147:H225CDMXY:2:1101:5936:2253 1:N:0:TGCCGGTCAG+GTGTATCAGG",
             None,
@@ -477,20 +472,8 @@ mod tests {
             b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FF:FFFFF::,,,FFFFFFFFFF!",
         );
 
-        let adapters = vec![
-            SequenceWithId { id: "Trans1_rc".to_string(), sequence: "CTGTCTCTTATACACATCTGACGCTGCCGACGA".to_string() },
-        ];
-
         let rec = PairedRecordDto::new(r1, r2);
-
-        let mut context = Context::empty();
-        context.format = FileFormat::Fastq;
-        context.adapters = adapters.clone();
-        context.adapters2 = adapters;
-        
-        let worker = PairedWorker::new(&args, &context);
-        let mut state = worker.create_state();
-        let res = worker.process_record(&rec, &mut state);
+        let res = process_with_reference_setup(&rec);
 
         assert!(res.record.is_none(), "Record should be discarded");
     }
