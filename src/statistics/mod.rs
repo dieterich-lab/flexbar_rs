@@ -43,7 +43,15 @@ impl Statistics {
         info!("* Uncalled:                     {}", self.worker.total_discarded_uncalled);
         info!("* Barcode:                      {}", self.worker.total_discarded_barcode);
         info!("* Length:                       {}", self.worker.total_discarded_length);
-
+        if self.worker.total_single_reads_written > 0 {
+            info!("  ** Single reads written:         {}", self.worker.total_single_reads_written);
+        }
+        if self.worker.total_single_reads_replaced > 0 {
+            info!("  ** Reads replaced by N:          {}", self.worker.total_single_reads_replaced);
+        }
+        if self.worker.total_single_reads_dropped > 0 {
+            info!("  ** Single reads dropped:         {}", self.worker.total_single_reads_dropped);
+        }
         let remaining = self.writer.total_records_written;
         let remaining_pct = if self.reader.total_records_read > 0 {
             (remaining as f64 / self.reader.total_records_read as f64) * 100.0
@@ -52,15 +60,6 @@ impl Statistics {
         };
 
         info!("Remaining reads:                {} ({:.1}%)", remaining, remaining_pct);
-        if self.worker.total_single_reads_written > 0 {
-            info!("* Single reads written:         {}", self.worker.total_single_reads_written);
-        }
-        if self.worker.total_single_reads_replaced > 0 {
-            info!("* Reads replaced by N:          {}", self.worker.total_single_reads_replaced);
-        }
-        if self.worker.total_single_reads_dropped > 0 {
-            info!("* Single reads dropped:         {}", self.worker.total_single_reads_dropped);
-        }
         info!("");
 
         info!("Total adapters removed:         {}", self.worker.total_adapters_removed);
