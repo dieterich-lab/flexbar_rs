@@ -27,7 +27,7 @@ impl<'r> MultiAlignerResult {
     }
 
     pub fn validate(
-        &self, error_rate: f32, x: &[u8], y: &[u8], min_overlap: Option<usize>, x_offset: usize
+        &self, allowed_errors: usize, check_length: usize, x: &[u8], y: &[u8], min_overlap: Option<usize>, x_offset: usize
     ) -> bool {
         let corrected_min_overlap: Option<usize> = match min_overlap {
             Some(min_overlap) => {
@@ -36,10 +36,14 @@ impl<'r> MultiAlignerResult {
             },
             None => None,
         };
+        match corrected_min_overlap {
+            Some(min_overlap_val) => if min_overlap_val > check_length { return false },
+            None => ()
+        }
         match &self.raw {
             RawAlignment::BioRust(raw) =>
                 raw.validate(
-                    x, y, error_rate, corrected_min_overlap, x_offset, self.reference_range.clone()
+                    x, y, allowed_errors, check_length, x_offset, self.reference_range.clone()
                 ),
         }
     }

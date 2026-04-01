@@ -10,7 +10,7 @@ use crate::context::SequenceWithId;
 use crate::multi_aligner::bio_rust::aligner::{AlignerState, BioRustPairwiseAligner, BioRustPairwiseRawAligner};
 use crate::multi_aligner::bio_rust::aligner_banded::{BandedExtraConfig, BandedStateExtra, BioRustBandedPairwiseAligner, BioRustBandedRawAligner};
 use crate::multi_aligner::generic::AlignerMode;
-use crate::multi_aligner::result::MultiAlignerResult;
+use crate::multi_aligner::result::{MultiAlignerResult, RawAlignment};
 use log::{debug, info, warn};
 use bio_rust::generic_aligner::BioRustAlignerParameters;
 use crate::multi_aligner::bio_rust::generic_aligner::{BioRustAlignerConfig, BioRustAlignerState};
@@ -305,6 +305,30 @@ impl MultiAligner {
         best
     }
 
+    fn calculate_allowed_errors(setup: &MultiAlignerSetup, index: usize, error_rate: f32, check_length: usize, mode: AlignerMode) -> usize {
+        match mode {
+            AlignerMode::LeftMin | AlignerMode::RightMin => {
+                let ref_len = setup.references[index].sequence.len();
+                (ref_len as f32 * error_rate) as usize
+            },
+            _ => (check_length as f32 * error_rate) as usize,
+        }
+    }
+
+    fn calculate_check_length(result: &MultiAlignerResult, sequence_len: usize, reference_len: usize) -> usize {
+        match &result.raw {
+            RawAlignment::BioRust(raw) => {
+                let y_range = result.reference_range.clone();
+                let y_start_real = y_range.start + raw.ystart;
+                if raw.xstart + result.sequence_offset > y_start_real {
+                    min(y_range.end - y_range.start, sequence_len - raw.xstart - result.sequence_offset)
+                } else {
+                    min(y_range.end - y_range.start, reference_len - (y_start_real - raw.xstart - result.sequence_offset))
+                }
+            }
+        }
+    }
+
     fn find_best_match(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8]) -> Option<MultiAlignerResult> {
         let mut best: Option<MultiAlignerResult> = None;
 
@@ -325,8 +349,15 @@ impl MultiAligner {
                     _ => false,
                 };
                 let reference = &setup.references[index].sequence.as_bytes();
+                
+                let check_length = Self::calculate_check_length(&result, sequence.len(), reference.len());
+
+                let allowed_errors = Self::calculate_allowed_errors(
+                    setup, index, setup.config.error_rate, check_length, mode
+                );
+
                 if result.validate(
-                    setup.config.error_rate, sequence, reference, setup.config.min_overlap, result.sequence_offset
+                    allowed_errors, check_length, sequence, reference, setup.config.min_overlap, result.sequence_offset
                 ) {
                     if !is_precheck {
                         result.may_need_shrink = may_need_shrink;
@@ -398,7 +429,13 @@ impl MultiAligner {
             aligner.setup_aligner(s_state, next_seq.len());
             let mut result = Self::align_local(aligner, s_state, next_seq, ref_index);
             result.sequence_offset += window.start;
-            if result.validate(setup.config.error_rate, sequence, reference, setup.config.min_overlap, result.sequence_offset) {
+
+            let check_length = Self::calculate_check_length(&result, sequence.len(), reference.len());
+            let allowed_errors = Self::calculate_allowed_errors(
+                setup, ref_index, setup.config.error_rate, check_length, AlignerMode::Local
+            );
+
+            if result.validate(allowed_errors, check_length, sequence, reference, setup.config.min_overlap, result.sequence_offset) {
                 best = result;
                 cycle += 1;
                 if cycle > max_cycle { break; }
