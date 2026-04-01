@@ -6,6 +6,7 @@ use crate::steps::paired_adapter_remover::{PairedAdapterRemover, PairedAdapterRe
 use crate::steps::paired_barcode_splitter::{PairedBarcodeSplitter, PairedBarcodeSplitterState};
 use crate::steps::paired_quality_trim::{PairedQualityTrim, PairedQualityTrimState};
 use crate::steps::paired_filter_length::{PairedFilterLength, PairedFilterLengthState};
+use crate::steps::paired_post_trim::{PairedPostTrim, PairedPostTrimState};
 use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
 use crate::steps::utils::paired::PairedAlignmentResults;
 use crate::workers::util::finalize_read_stats;
@@ -15,6 +16,7 @@ pub struct PairedWorker {
     pub adapter_remover: Option<PairedAdapterRemover>,
     pub quality_trim: Option<PairedQualityTrim>,
     pub filter_length: PairedFilterLength,
+    pub post_trim: PairedPostTrim,
     pub qtrim_post_removal: bool,
 }
 
@@ -23,6 +25,7 @@ pub struct PairedWorkerState {
     pub adapter_remover: Option<PairedAdapterRemoverState>,
     pub quality_trim: Option<PairedQualityTrimState>,
     pub filter_length: PairedFilterLengthState,
+    pub post_trim: PairedPostTrimState,
 }
 
 impl PairedWorker {
@@ -40,7 +43,8 @@ impl PairedWorker {
             _ => Some(PairedAdapterRemover::new(args, context))
         };
         let filter_length = PairedFilterLength::new(args, context);
-        
+        let post_trim = PairedPostTrim::new(args, context);
+
         let qtrim_post_removal = args.qtrim_post_removal;
         if args.trace {
             debug!("Paired worker pipeline:");
@@ -65,6 +69,9 @@ impl PairedWorker {
             debug!("- Step PairedFilterLength (min length: {})",
                 filter_length.min_read_length
             );
+            if post_trim.post_trim_length > 0 {
+                debug!("- Step PostTrim (length: {})", post_trim.post_trim_length);
+            }
         }
 
         Self {
@@ -72,6 +79,7 @@ impl PairedWorker {
             adapter_remover,
             quality_trim,
             filter_length,
+            post_trim,
             qtrim_post_removal,
         }
     }
@@ -82,6 +90,7 @@ impl PairedWorker {
             adapter_remover: self.adapter_remover.as_ref().map(|s| s.create_state()),
             quality_trim: self.quality_trim.as_ref().map(|s| s.create_state()),
             filter_length: self.filter_length.create_state(),
+            post_trim: self.post_trim.create_state(),
         }
     }
     
@@ -111,6 +120,9 @@ impl PairedWorker {
 
         rec_in = self.filter_length.apply(rec_in, &mut state.filter_length);
 
+        if self.post_trim.post_trim_length > 0 {
+            rec_in = self.post_trim.apply(rec_in, &mut state.post_trim);
+        }
         finalize(rec_in)
     }
 }
@@ -514,5 +526,26 @@ mod tests {
         let res = process_with_reference_setup(&rec);
 
         assert!(res.record.is_none(), "Record should be discarded");
+    }
+
+    #[test]
+    fn test_paired_post_trim() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "r1.fq", "--reads2", "r2.fq", "--post-trim-length", "10", "--min-read-length", "0"]);
+        let context = Context::new(&args);
+        let worker = PairedWorker::new(&args, &context);
+        let mut state = worker.create_state();
+        
+        let r1 = SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("read1", None, b"0123456789FGHIJ", b"IIIIIIIIIIIIIII");
+        let record = PairedRecordDto::new(r1, r2);
+        
+        let result = worker.process_record(&record, &mut state);
+        let processed = result.record.expect("Should keep read");
+        
+        assert_eq!(processed.records[0].seq().len(), 10);
+        assert_eq!(processed.records[1].seq().len(), 10);
+        assert_eq!(processed.records[0].seq(), b"0123456789");
+        assert_eq!(processed.records[1].seq(), b"0123456789");
+        assert_eq!(result.stats.bases_post_trim, 10); // 5 from each read
     }
 }

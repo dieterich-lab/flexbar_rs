@@ -81,6 +81,7 @@ impl Statistics {
         info!("- removed by quality trim:      {}", self.worker.bases_quality_trim);
         info!("- removed by barcode removal:   {}", self.worker.bases_barcode_removal);
         info!("- removed by adapter removal:   {}", self.worker.bases_adapter_removal);
+        info!("- removed by post trim:         {}", self.worker.bases_post_trim);
 
         let remaining_bases = self.writer.total_bases_written;
         let bases_written_pct = if self.worker.total_bases_read > 0 {

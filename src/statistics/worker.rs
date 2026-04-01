@@ -14,6 +14,7 @@ pub struct WorkerStatistics {
     pub bases_discarded: usize,
     pub bases_adapter_removal: usize,
     pub bases_barcode_removal: usize,
+    pub bases_post_trim: usize,
 }
 
 impl WorkerStatistics {
@@ -37,6 +38,7 @@ impl Add for WorkerStatistics {
         self.bases_discarded += other.bases_discarded;
         self.bases_adapter_removal += other.bases_adapter_removal;
         self.bases_barcode_removal += other.bases_barcode_removal;
+        self.bases_post_trim += other.bases_post_trim;
         self
     }
 }
@@ -55,5 +57,6 @@ impl AddAssign for WorkerStatistics {
         self.bases_discarded += other.bases_discarded;
         self.bases_adapter_removal += other.bases_adapter_removal;
         self.bases_barcode_removal += other.bases_barcode_removal;
+        self.bases_post_trim += other.bases_post_trim;
     }
 }

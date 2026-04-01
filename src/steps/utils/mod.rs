@@ -6,6 +6,7 @@ pub mod paired;
 pub mod barcode;
 pub mod quality_trim;
 pub mod adapter_remover;
+pub mod post_trim;
 
 pub fn assign_barcode_tag<RecordType, AlignmentResults, T: BarcodeAlignmentResults>(
     rec: &mut RecordInTransformation<RecordType, AlignmentResults>,

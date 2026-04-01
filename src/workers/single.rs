@@ -7,6 +7,7 @@ use crate::steps::single_uncalled_sequence_filter::{SingleUncalledSequenceFilter
 use crate::steps::single_barcode_splitter::{SingleBarcodeSplitter, SingleBarcodeSplitterState};
 use crate::steps::single_quality_trim::{SingleQualityTrim, SingleQualityTrimState};
 use crate::steps::single_filter_length::{SingleFilterLength, SingleFilterLengthState};
+use crate::steps::single_post_trim::{SinglePostTrim, SinglePostTrimState};
 use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
 use crate::steps::utils::single::SingleAlignmentResults;
 use crate::workers::util::finalize_read_stats;
@@ -16,6 +17,7 @@ pub struct SingleWorker {
     pub barcode_splitter: Option<SingleBarcodeSplitter>,
     pub quality_trim: Option<SingleQualityTrim>,
     pub filter_length: SingleFilterLength,
+    pub post_trim: SinglePostTrim,
     pub uncalled_sequence_filter: Option<SingleUncalledSequenceFilter>,
     pub qtrim_post_removal: bool,
 }
@@ -25,6 +27,7 @@ pub struct SingleWorkerState {
     pub barcode_splitter: Option<SingleBarcodeSplitterState>,
     pub quality_trim: Option<SingleQualityTrimState>,
     pub filter_length: SingleFilterLengthState,
+    pub post_trim: SinglePostTrimState,
     pub uncalled_sequence_filter: Option<SingleUncalledSequenceFilterState>,
 }
 
@@ -47,6 +50,7 @@ impl SingleWorker {
             _ => Some(SingleAdapterRemover::new(args, context))
         };
         let filter_length = SingleFilterLength::new(args, context);
+        let post_trim = SinglePostTrim::new(args, context);
         
         let qtrim_post_removal = args.qtrim_post_removal;
         if args.trace {
@@ -77,6 +81,9 @@ impl SingleWorker {
             debug!("- Step SingleFilterLength (min length: {})",
                 filter_length.min_read_length
             );
+            if post_trim.post_trim_length > 0 {
+                debug!("- Step PostTrim (length: {})", post_trim.post_trim_length);
+            }
         }
 
         Self {
@@ -84,6 +91,7 @@ impl SingleWorker {
             barcode_splitter,
             adapter_remover,
             filter_length,
+            post_trim,
             uncalled_sequence_filter,
             qtrim_post_removal,
         }
@@ -95,6 +103,7 @@ impl SingleWorker {
             barcode_splitter: self.barcode_splitter.as_ref().map(|s| s.create_state()),
             quality_trim: self.quality_trim.as_ref().map(|s| s.create_state()),
             filter_length: self.filter_length.create_state(),
+            post_trim: self.post_trim.create_state(),
             uncalled_sequence_filter: self.uncalled_sequence_filter.as_ref().map(|s| s.create_state()),
         }
     }
@@ -124,6 +133,9 @@ impl SingleWorker {
         }
         rec_in = self.filter_length.apply(rec_in, &mut state.filter_length);
         
+        if self.post_trim.post_trim_length > 0 {
+            rec_in = self.post_trim.apply(rec_in, &mut state.post_trim);
+        }
         finalize(rec_in)
     }
 }
@@ -454,5 +466,29 @@ mod tests {
         assert_eq!(result3.stats.bases_barcode_removal, 0);
         assert_eq!(result3.stats.bases_adapter_removal, 0);
         assert_eq!(result3.stats.bases_quality_trim, 0);
+        assert_eq!(result3.stats.bases_post_trim, 0);
+    }
+
+    #[test]
+    fn test_post_trim() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--post-trim-length", "10", "--min-read-length", "0"]);
+        
+        // Read of length 15 should be trimmed to 10
+        let record = SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let result = process_record(&args, &record);
+        let processed = result.record.expect("Should keep read");
+        
+        assert_eq!(processed.seq().len(), 10);
+        assert_eq!(processed.seq(), b"0123456789");
+        assert_eq!(result.stats.bases_post_trim, 5);
+        assert_eq!(result.stats.total_bases_read, 15);
+        
+        // Read of length 8 should not be trimmed
+        let record2 = SingeRecordDto::with_attrs("read2", None, b"01234567", b"IIIIIIII");
+        let result2 = process_record(&args, &record2);
+        let processed2 = result2.record.expect("Should keep read");
+        
+        assert_eq!(processed2.seq().len(), 8);
+        assert_eq!(result2.stats.bases_post_trim, 0);
     }
 }

@@ -8,5 +8,6 @@ pub fn finalize_read_stats(stats: &mut WorkerStatistics, per_read: &PerReadAlign
         stats.bases_quality_trim += per_read.bases_quality_trim;
         stats.bases_adapter_removal += per_read.bases_adapter_removal;
         stats.bases_barcode_removal += per_read.bases_barcode_removal;
+        stats.bases_post_trim += per_read.bases_post_trim;
     }
 }
