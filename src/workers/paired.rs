@@ -477,4 +477,36 @@ mod tests {
 
         assert!(res.record.is_none(), "Record should be discarded");
     }
+
+    #[test]
+    fn test_zero_length_after_adapter_removal() {
+        // This one is an actual change in behaviour to the old flexbar.
+        // First read: ATTGCGCAATGACAGGACCTGTCTCTTATACACATCTCCGAGCCCAC ...
+        // Barcode:    ATTGCGCAATGNNNNNNNN    - found and removed by both programs
+        // Adapter:                      CTGTCTCTTATACACATCTCCGAGCCCACGAGAC
+        //
+        // Please note:
+        // - The adapter overlaps with the barcode in the first base.
+        // - flexbar_rs will detect the adapter due to the default --adapter-error-rate of 0.1.
+        // - flexbar fails to detect/remove the adapter (why?).
+        // - If detected, the default for --adapter-trim-end "RIGHT" will be used, truncating the
+        //   read to 0 (!) bases, leading to a discard.
+        let r1 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1101:16468:4993",
+            Some("1:N:0:TGCCGGTCAG+TTGTATCAGG"),
+            b"ATTGCGCAATGACAGGACCTGTCTCTTATACACATCTCCGAGCCCACGAGACTGCCGGTCAGATCTCGTATGCCGTCTTCTGCTTGAAAAGGGGGGGGGGG",
+            b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:F,::,,F:,,,F,,:,,F,,F::,,,::F:FF:F",
+        );
+        let r2 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1101:16468:4993",
+            Some("2:N:0:TGCCGGTCAG+TTGTATCAGG"),
+            b"GTCCTGTCATTGCGCAATCTGTCTCTTATACACATCTGACGCTGCCGACGATTGTATCAGGGTGTAGATCTCGGTGGTCGCCGTATCATTAAAAAGGGGGG",
+            b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:,FFFFFFFF,:,,,FF:",
+        );
+
+        let rec = PairedRecordDto::new(r1, r2);
+        let res = process_with_reference_setup(&rec);
+
+        assert!(res.record.is_none(), "Record should be discarded");
+    }
 }

@@ -25,6 +25,7 @@ impl GenericRawResult for Alignment {
 
     fn get_umi_tags(&self, x: &[u8], y: &[u8], x_offset: usize, y_range: Range<usize>) -> Vec<String> {
         let mut umi_tags = Vec::new();
+        if y_range.start == y_range.end { return umi_tags; }
         let mut umi = String::new();
         let mut x_pos = self.xstart + x_offset;
         let mut y_pos = 0;
