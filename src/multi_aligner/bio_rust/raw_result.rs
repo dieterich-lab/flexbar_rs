@@ -62,10 +62,11 @@ impl GenericRawResult for Alignment {
                     y_pos += 1;
                 }
                 AlignmentOperation::Del => {
-                    x_pos += 1;
+                    y_pos += 1;
+
                 }
                 AlignmentOperation::Ins => {
-                    y_pos += 1;
+                    x_pos += 1;
                 }
                 _ => {}
             }

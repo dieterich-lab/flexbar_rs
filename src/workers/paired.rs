@@ -176,6 +176,11 @@ fn finalize(mut rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResu
     }
 
     let mut records = rec.record.records;
+    let umi_tags = if rec.alignment_results.per_read[0].umi_tags.is_empty() {
+        rec.alignment_results.per_read[1].umi_tags.clone()
+    } else {
+        rec.alignment_results.per_read[0].umi_tags.clone()
+    };
     let mut good_reads: u32 = 0;
     for i in 0..2 {
         let results = &rec.alignment_results.per_read[i];
@@ -201,7 +206,7 @@ fn finalize(mut rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResu
         for tag in &results.removal_tags {
             desc_parts.push(tag);
         }
-        for tag in &results.umi_tags {
+        for tag in umi_tags.iter() {
             desc_parts.push(tag);
         }
         
@@ -449,9 +454,10 @@ mod tests {
     fn process_with_reference_setup(record: &PairedRecordDto) -> FinalRecord<PairedRecordDto> {
         let args = Args::parse_from(&[
             "flexbar_rs",
+            "--removal-tags",
+            "--umi-tags",
             "--min-read-length", "18",
             "--max-uncalled", "1",
-            "--qtrim", "TAIL",
             "--qtrim-threshold", "10",
             "--barcode-unassigned",
             "--post-trim-length", "248",
@@ -560,6 +566,38 @@ mod tests {
         let res = process_with_reference_setup(&rec);
 
         assert!(res.record.is_none(), "Record should be discarded");
+    }
+
+    #[test]
+    fn test_adapter_with_errors() {
+        // In this example first a barcode is removed in the first read on the left side,
+        // and next an adapter with 2 errors is removed on the right side.
+        // ATTGCGCAATGAAGTATGGGGGACAAAAAAGGGGGAAGGGGGGGCACCTGTCTCTTATACACATATCCGAGCCC CGAGACTGCCGGTCAGATC
+        // ATTGCGCAATGNNNNNNNN                                             \         ,
+        //                                                CTGTCTCTTATACACATCTCCGAGCCCACGAGAC
+        let r1 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1324:21133:32957",
+            Some("1:N:0:TGCCGGTCAG+TTGTATCAGG"),
+            b"ATTGCGCAATGAAGTATGGGGGACAAAAAAGGGGGAAGGGGGGGCACCTGTCTCTTATACACATATCCGAGCCCCGAGACTGCCGGTCAGATCGCGTATGC",
+            b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFF:FF,:,F,F,FF:FFFFF,,,FFFF:FFFF:F,F,,:FF:F:,F:,:,,,F,,:,:",
+        );
+        let r2 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1324:21133:32957",
+            Some("2:N:0:TGCCGGTCAG+TTGTATCAGG"),
+            b"GTGCCCCCCCTTCCCCCGTTTTTGTACACCAGACATCAATGAGCAAAGAGTAAAATATAAAAAACAGAAGCAGCCGAAGTAAGGATCATGGTAAATATATA",
+            b"F:F:FF,FFF,,,F:FF,,,,,F::,:,,,F,:,,::::,F,,,F,:,,,,,,,,,F,:,F,:F:F:F,,,,,,F,:,,,,:,,F::F,,:,,,F,,F,,,",
+        );
+
+        let rec = PairedRecordDto::new(r1, r2);
+        let res = process_with_reference_setup(&rec);
+
+        assert!(res.record.is_some(), "Record passes");
+        assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
+        let r = res.record.unwrap().records;
+        assert_eq!(r[0].seq(), b"GGGACAAAAAAGGGGGAAGGGGGGGCAC");
+        assert_eq!(r[0].desc().unwrap(), "1:N:0:TGCCGGTCAG+TTGTATCAGG_Flexbar_removal_Flexbar_removal_Trans2_rc_AAGTATGG");
+        assert_eq!(r[1].seq(), b"GTGCCCCCCCTTCCCCCGTTTTTGTACACCAGACATCAATGAGCAAAGAGTAAAATATAAAAAACAGAAGCAGCCGAAGTAAGGATCATGGTAAATATATA");
+        assert_eq!(r[1].desc().unwrap(), "2:N:0:TGCCGGTCAG+TTGTATCAGG_AAGTATGG");
     }
 
     #[test]
