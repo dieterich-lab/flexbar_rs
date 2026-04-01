@@ -67,12 +67,14 @@ impl Transformable for PairedRecordDto {
                         removal_tags: Vec::new(),
                         read_range: 0..self.records[0].seq().len(),
                         dropped: false,
+                        ..Default::default()
                     },
                     PerReadAlignmentResults {
                         umi_tags: Vec::new(),
                         removal_tags: Vec::new(),
                         read_range: 0..self.records[1].seq().len(),
                         dropped: false,
+                        ..Default::default()
                     },
                 ],
             },

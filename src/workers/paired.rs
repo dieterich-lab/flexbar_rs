@@ -8,6 +8,7 @@ use crate::steps::paired_quality_trim::{PairedQualityTrim, PairedQualityTrimStat
 use crate::steps::paired_filter_length::{PairedFilterLength, PairedFilterLengthState};
 use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
 use crate::steps::utils::paired::PairedAlignmentResults;
+use crate::workers::util::finalize_read_stats;
 
 pub struct PairedWorker {
     pub barcode_splitter: Option<PairedBarcodeSplitter>,
@@ -114,7 +115,12 @@ impl PairedWorker {
     }
 }
 
-fn finalize(rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResults>) -> FinalRecord<PairedRecordDto> {
+fn finalize(mut rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResults>) -> FinalRecord<PairedRecordDto> {
+    for i in 0..2 {
+        let original_len = rec.record.records[i].seq().len();
+        finalize_read_stats(&mut rec.stats, &rec.alignment_results.per_read[i], original_len);
+    }
+
     if rec.alignment_results.per_read[0].dropped && rec.alignment_results.per_read[1].dropped {
         return FinalRecord {
             record: None,

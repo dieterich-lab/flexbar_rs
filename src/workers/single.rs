@@ -9,6 +9,7 @@ use crate::steps::single_quality_trim::{SingleQualityTrim, SingleQualityTrimStat
 use crate::steps::single_filter_length::{SingleFilterLength, SingleFilterLengthState};
 use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
 use crate::steps::utils::single::SingleAlignmentResults;
+use crate::workers::util::finalize_read_stats;
 
 pub struct SingleWorker {
     pub adapter_remover: Option<SingleAdapterRemover>,
@@ -128,12 +129,10 @@ impl SingleWorker {
 }
 
 fn finalize(mut rec: RecordInTransformation<SingeRecordDto, SingleAlignmentResults>) -> FinalRecord<SingeRecordDto> {
-    if rec.alignment_results.read.dropped {
-        rec.stats.bases_discarded = rec.stats.total_bases_read;
-        rec.stats.bases_quality_trim = 0;
-        rec.stats.bases_barcode_removal = 0;
-        rec.stats.bases_adapter_removal = 0;
+    let original_len = rec.record.seq().len();
+    finalize_read_stats(&mut rec.stats, &rec.alignment_results.read, original_len);
 
+    if rec.alignment_results.read.dropped {
         return FinalRecord {
             record: None,
             output_tag: None,

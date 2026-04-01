@@ -73,6 +73,7 @@ impl Transformable for SingeRecordDto {
                     removal_tags: Vec::new(),
                     read_range: 0..self.seq().len(),
                     dropped: false,
+                    ..Default::default()
                 },
             },
             stats: WorkerStatistics::default(),

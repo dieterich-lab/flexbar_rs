@@ -10,6 +10,9 @@ pub struct PerReadAlignmentResults {
     pub removal_tags: Vec<String>,
     pub read_range: Range<usize>,
     pub dropped: bool,
+    pub bases_quality_trim: usize,
+    pub bases_adapter_removal: usize,
+    pub bases_barcode_removal: usize,
 }
 
 pub struct RecordInTransformation<RecordType, AR> {

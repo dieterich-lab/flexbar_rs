@@ -121,7 +121,7 @@ impl SingleBarcodeSplitter {
         let old_len = rec.alignment_results.read.read_range.end - rec.alignment_results.read.read_range.start;
         rec.trim(self.trim_end, best.get_start_index(), best.get_end_index());
         let new_len = rec.alignment_results.read.read_range.end - rec.alignment_results.read.read_range.start;
-        rec.stats.bases_barcode_removal += old_len - new_len;
+        rec.alignment_results.read.bases_barcode_removal += old_len - new_len;
         if self.removal_tags {
             rec.alignment_results.read.removal_tags.push("Flexbar_removal".to_string());
         }

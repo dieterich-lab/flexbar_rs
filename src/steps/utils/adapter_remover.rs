@@ -118,7 +118,7 @@ impl AdapterRemover {
         _read: &SingeRecordDto,
         _read_index: Option<usize>,
         per_read: &mut PerReadAlignmentResults,
-        stats: &mut WorkerStatistics,
+        _stats: &mut WorkerStatistics,
         alignment: &MultiAlignerResult,
     ) {
         let old_len = per_read.read_range.end - per_read.read_range.start;
@@ -145,7 +145,7 @@ impl AdapterRemover {
         }
 
         let new_len = per_read.read_range.end - per_read.read_range.start;
-        stats.bases_adapter_removal += old_len - new_len;
+        per_read.bases_adapter_removal += old_len - new_len;
         if self.removal_tags {
             let id = &self.adapters[alignment.reference_index].id;
             per_read.removal_tags.push(

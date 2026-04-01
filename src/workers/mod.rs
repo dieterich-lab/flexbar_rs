@@ -7,6 +7,7 @@ use crate::context::Context;
 
 pub mod single;
 pub mod paired;
+pub mod util;
 
 pub enum Worker {
     Single(SingleWorker),

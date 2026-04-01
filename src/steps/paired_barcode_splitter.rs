@@ -168,7 +168,7 @@ impl PairedBarcodeSplitter {
         rec.trim(read_idx, self.trim_end, best.get_start_index(), best.get_end_index());
         
         let new_len = rec.alignment_results.per_read[read_idx].read_range.end - rec.alignment_results.per_read[read_idx].read_range.start;
-        rec.stats.bases_barcode_removal += old_len - new_len;
+        rec.alignment_results.per_read[read_idx].bases_barcode_removal += old_len - new_len;
 
         if self.removal_tags {
             rec.alignment_results.per_read[read_idx].removal_tags.push("Flexbar_removal".to_string());

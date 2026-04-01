@@ -39,12 +39,12 @@ impl QualityTrim {
         read: &SingeRecordDto,
         read_index: Option<usize>,
         per_read: &mut PerReadAlignmentResults,
-        stats: &mut WorkerStatistics
+        _stats: &mut WorkerStatistics
     ) {
         let current_qual = &read.qual()[per_read.read_range.clone()];
         let trim_pos = self.get_trim_pos(current_qual);
         if trim_pos < current_qual.len() {
-            stats.bases_quality_trim += current_qual.len() - trim_pos;
+            per_read.bases_quality_trim += current_qual.len() - trim_pos;
             per_read.read_range.end = per_read.read_range.start + trim_pos;
             if self.trace {
                 let read_index_str = match read_index {
