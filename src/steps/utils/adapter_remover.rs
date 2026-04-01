@@ -12,6 +12,7 @@ pub struct AdapterRemover {
     pub multi_aligner: MultiAligner,
     pub multi_aligner_setup: MultiAlignerSetup,
     pub trim_end: TrimEnd,
+    pub adapter_cycles: usize,
     pub removal_tags: bool,
     pub umi_tags: bool,
     pub trace: bool,
@@ -41,6 +42,7 @@ impl AdapterRemover {
             multi_aligner,
             multi_aligner_setup,
             trim_end: args.adapter_trim_end,
+            adapter_cycles: args.adapter_cycles,
             removal_tags: args.removal_tags,
             umi_tags: args.umi_tags,
             trace: args.trace,
@@ -59,15 +61,24 @@ impl AdapterRemover {
         per_read: &mut PerReadAlignmentResults,
         stats: &mut WorkerStatistics,
     ) {
-        let current_seq = &read.seq()[per_read.read_range.clone()];
-        let best_alignment = self.multi_aligner.align(state, &self.multi_aligner_setup, current_seq);
-        if let Some(alignment) = best_alignment {
-            let read_seq = &read.seq()[per_read.read_range.clone()];
-            self.trace_alignment(read.id(), read_index, read_seq, &alignment);
-            let adapter = &self.adapters[alignment.reference_index].sequence;
-            self.handle_umi_tags(read, read_index, per_read, &alignment, adapter);
-            self.trim_record(read, read_index, per_read, stats, &alignment);
-            stats.total_adapters_removed += 1;
+        let mut cycle_count = 0;
+        loop {
+            let current_seq = &read.seq()[per_read.read_range.clone()];
+            let best_alignment = self.multi_aligner.align(state, &self.multi_aligner_setup, current_seq);
+            if let Some(alignment) = best_alignment {
+                let read_seq = &read.seq()[per_read.read_range.clone()];
+                self.trace_alignment(read.id(), read_index, read_seq, &alignment);
+                let adapter = &self.adapters[alignment.reference_index].sequence;
+                self.handle_umi_tags(read, read_index, per_read, &alignment, adapter);
+                self.trim_record(read, read_index, per_read, stats, &alignment);
+                stats.total_adapters_removed += 1;
+                cycle_count += 1;
+                if self.adapter_cycles > 0 && cycle_count >= self.adapter_cycles {
+                    break;
+                }
+            } else {
+                break;
+            }
         }
     }
 
