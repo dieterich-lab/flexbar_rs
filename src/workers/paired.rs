@@ -601,6 +601,43 @@ mod tests {
     }
 
     #[test]
+    fn test_adapter_with_errors_two_adapters_both() {
+        // First read:
+        // ATTGCGCAATGACGGGCACGGGGGGTTCATGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGAGGATGGCTAGAGGCTGACTCTTATACACAACTCC
+        // ATTGCGCAATGNNNNNNNN (perfect match)                                             |||\||||||||||||\||||
+        //                                                     (removed adapter, 2 errors) CTGTCTCTTATACACATCTCCGAGCCCACGAGAC
+        // Special problem here: The first error in the adapter is in the prefix used by the MinRight
+        // aligner run.
+        //
+        // Second read:
+        // ACTCAAGCCATCCACCTGCTTCGGCCTCCTAAAGTGCTGGGATTACAGGCATGAACCCCCCGTGCCCGTCATTGCGCAATCTGTCTCTTATACACATCTGA
+        //                                                               (removed adapter) CTGTCTCTTATACACATCTGACGCTGCCGACGA
+        let r1 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1148:11912:9846",
+            Some("1:N:0:TGCCGGTCAG+TTGTATCAGG"),
+            b"ATTGCGCAATGACGGGCACGGGGGGTTCATGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGAGGATGGCTAGAGGCTGACTCTTATACACAACTCC",
+            b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,FFFFFFFFF,FF,FF,FFFF,,FF,F,,,,,F,,,,,:FFFF,F:,FFF:",
+        );
+        let r2 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1148:11912:9846",
+            Some("2:N:0:TGCCGGTCAG+TTGTATCAGG"),
+            b"ACTCAAGCCATCCACCTGCTTCGGCCTCCTAAAGTGCTGGGATTACAGGCATGAACCCCCCGTGCCCGTCATTGCGCAATCTGTCTCTTATACACATCTGA",
+            b"FFFFFFFFFFFFFFFF:FF:FFFFFFFFF,FFF:FFFFFFFFFFFFFFFFFF:FFFFFFFFF:FF:FF,:,:,FFFFFF,FFFF:FFFFFFF,FFFFF::F",
+        );
+
+        let rec = PairedRecordDto::new(r1, r2);
+        let res = process_with_reference_setup(&rec);
+
+        assert!(res.record.is_some(), "Record passes");
+        assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
+        let r = res.record.unwrap().records;
+        assert_eq!(r[0].seq(), b"GGGGGGTTCATGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGAGGATGGCTAGAGG");
+        assert_eq!(r[0].desc().unwrap(), "1:N:0:TGCCGGTCAG+TTGTATCAGG_Flexbar_removal_Flexbar_removal_Trans2_rc_ACGGGCAC");
+        assert_eq!(r[1].seq(), b"ACTCAAGCCATCCACCTGCTTCGGCCTCCTAAAGTGCTGGGATTACAGGCATGAACCCCCCGTGCCCGTCATTGCGCAAT");
+        assert_eq!(r[1].desc().unwrap(), "2:N:0:TGCCGGTCAG+TTGTATCAGG_Flexbar_removal_Trans1_rc_ACGGGCAC");
+    }
+
+    #[test]
     fn test_paired_pre_trim() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test_1.fq", "--reads2", "test_2.fq", "--pre-trim-left", "5", "--pre-trim-right", "3", "--min-read-length", "0"]);
         let context = Context::empty();
