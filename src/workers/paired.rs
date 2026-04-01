@@ -3,6 +3,7 @@ use crate::context::Context;
 use crate::args::Args;
 use crate::types::{PairedRecordDto, SingeRecordDto, QualTrimType};
 use crate::steps::paired::pre_trim::{PairedPreTrim, PairedPreTrimState};
+use crate::steps::paired::uncalled_filter::{PairedUncalledFilter, PairedUncalledFilterState};
 use crate::steps::paired::adapter_remover::{PairedAdapterRemover, PairedAdapterRemoverState};
 use crate::steps::paired::barcode_splitter::{PairedBarcodeSplitter, PairedBarcodeSplitterState};
 use crate::steps::paired::quality_trim::{PairedQualityTrim, PairedQualityTrimState};
@@ -19,6 +20,7 @@ pub struct PairedWorker {
     pub quality_trim: Option<PairedQualityTrim>,
     pub filter_length: PairedFilterLength,
     pub post_trim: PairedPostTrim,
+    pub uncalled_filter: Option<PairedUncalledFilter>,
     pub qtrim_post_removal: bool,
 }
 
@@ -29,12 +31,18 @@ pub struct PairedWorkerState {
     pub quality_trim: Option<PairedQualityTrimState>,
     pub filter_length: PairedFilterLengthState,
     pub post_trim: PairedPostTrimState,
+    pub uncalled_filter: Option<PairedUncalledFilterState>,
 }
 
 impl PairedWorker {
     pub fn new(args: &Args, context: &Context) -> Self {
         let pre_trim = if args.pre_trim_left > 0 || args.pre_trim_right > 0 {
             Some(PairedPreTrim::new(args, context))
+        } else {
+            None
+        };
+        let uncalled_filter = if args.max_uncalled > 0 {
+            Some(PairedUncalledFilter::new(args, context))
         } else {
             None
         };
@@ -58,6 +66,11 @@ impl PairedWorker {
             debug!("Paired worker pipeline:");
             if let Some(s) = &pre_trim {
                 debug!("- Step PairedPreTrim (left: {}, right: {})", s.pre_trim_left, s.pre_trim_right);
+            }
+            if let Some(s) = &uncalled_filter {
+                debug!("- Step PairedUncalledFilter (max_uncalled: {})",
+                    s.max_uncalled
+                );
             }
             if !qtrim_post_removal && let Some(s) = &quality_trim {
                 debug!("- Step PairedQualityTrim (threshold: {}, window size: {})",
@@ -92,6 +105,7 @@ impl PairedWorker {
             quality_trim,
             filter_length,
             post_trim,
+            uncalled_filter,
             qtrim_post_removal,
         }
     }
@@ -104,6 +118,7 @@ impl PairedWorker {
             quality_trim: self.quality_trim.as_ref().map(|s| s.create_state()),
             filter_length: self.filter_length.create_state(),
             post_trim: self.post_trim.create_state(),
+            uncalled_filter: self.uncalled_filter.as_ref().map(|s| s.create_state()),
         }
     }
     
@@ -117,6 +132,9 @@ impl PairedWorker {
 
         if let Some(step) = &self.pre_trim {
             rec_in = step.apply(rec_in, state.pre_trim.as_mut().unwrap());
+        }
+        if let Some(step) = &self.uncalled_filter {
+            rec_in = step.apply(rec_in, state.uncalled_filter.as_mut().unwrap());
         }
         if !self.qtrim_post_removal && let Some(step) = &self.quality_trim {
             rec_in = step.apply(rec_in, state.quality_trim.as_mut().unwrap());

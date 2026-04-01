@@ -3,8 +3,8 @@ use crate::context::Context;
 use crate::args::Args;
 use crate::types::{SingeRecordDto, QualTrimType};
 use crate::steps::single::pre_trim::{SinglePreTrim, SinglePreTrimState};
+use crate::steps::single::uncalled_filter::{SingleUncalledFilter, SingleUncalledFilterState};
 use crate::steps::single::adapter_remover::{SingleAdapterRemover, SingleAdapterRemoverState};
-use crate::steps::single::uncalled_sequence_filter::{SingleUncalledSequenceFilter, SingleUncalledSequenceFilterState};
 use crate::steps::single::barcode_splitter::{SingleBarcodeSplitter, SingleBarcodeSplitterState};
 use crate::steps::single::quality_trim::{SingleQualityTrim, SingleQualityTrimState};
 use crate::steps::single::filter_length::{SingleFilterLength, SingleFilterLengthState};
@@ -20,7 +20,7 @@ pub struct SingleWorker {
     pub quality_trim: Option<SingleQualityTrim>,
     pub filter_length: SingleFilterLength,
     pub post_trim: SinglePostTrim,
-    pub uncalled_sequence_filter: Option<SingleUncalledSequenceFilter>,
+    pub uncalled_filter: Option<SingleUncalledFilter>,
     pub qtrim_post_removal: bool,
 }
 
@@ -31,7 +31,7 @@ pub struct SingleWorkerState {
     pub quality_trim: Option<SingleQualityTrimState>,
     pub filter_length: SingleFilterLengthState,
     pub post_trim: SinglePostTrimState,
-    pub uncalled_sequence_filter: Option<SingleUncalledSequenceFilterState>,
+    pub uncalled_filter: Option<SingleUncalledFilterState>,
 }
 
 impl SingleWorker {
@@ -41,9 +41,10 @@ impl SingleWorker {
         } else {
             None
         };
-        let uncalled_sequence_filter = match args.max_uncalled {
-            0 => None,
-            _ => Some(SingleUncalledSequenceFilter::new(args, context))
+        let uncalled_filter = if args.max_uncalled > 0 {
+            Some(SingleUncalledFilter::new(args, context))
+        } else {
+            None
         };
         let quality_trim = match args.qtrim {
             QualTrimType::Off => None,
@@ -66,8 +67,8 @@ impl SingleWorker {
             if let Some(s) = &pre_trim {
                 debug!("- Step SinglePreTrim (left: {}, right: {})", s.pre_trim_left, s.pre_trim_right);
             }
-            if let Some(s) = &uncalled_sequence_filter {
-                debug!("- Step SingleUncalledSequenceFilter (max_uncalled: {})",
+            if let Some(s) = &uncalled_filter {
+                debug!("- Step SingleUncalledFilter (max_uncalled: {})",
                     s.max_uncalled
                 );
             }
@@ -104,7 +105,7 @@ impl SingleWorker {
             adapter_remover,
             filter_length,
             post_trim,
-            uncalled_sequence_filter,
+            uncalled_filter,
             qtrim_post_removal,
         }
     }
@@ -117,7 +118,7 @@ impl SingleWorker {
             quality_trim: self.quality_trim.as_ref().map(|s| s.create_state()),
             filter_length: self.filter_length.create_state(),
             post_trim: self.post_trim.create_state(),
-            uncalled_sequence_filter: self.uncalled_sequence_filter.as_ref().map(|s| s.create_state()),
+            uncalled_filter: self.uncalled_filter.as_ref().map(|s| s.create_state()),
         }
     }
     
@@ -132,8 +133,8 @@ impl SingleWorker {
         if let Some(step) = &self.pre_trim {
             rec_in = step.apply(rec_in, state.pre_trim.as_mut().unwrap());
         }
-        if let Some(step) = &self.uncalled_sequence_filter {
-            rec_in = step.apply(rec_in, state.uncalled_sequence_filter.as_mut().unwrap());
+        if let Some(step) = &self.uncalled_filter {
+            rec_in = step.apply(rec_in, state.uncalled_filter.as_mut().unwrap());
         }
         if !self.qtrim_post_removal && let Some(step) = &self.quality_trim {
             rec_in = step.apply(rec_in, state.quality_trim.as_mut().unwrap());
