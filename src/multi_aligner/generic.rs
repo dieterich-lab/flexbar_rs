@@ -33,7 +33,7 @@ impl ReferenceWithRange {
 
 pub trait GenericRawResult {
     fn validate(
-        &self, x: &[u8], y: &[u8], allowed_errors: usize, check_length: usize, x_offset: usize, y_range: Range<usize>
+        &self, y: &[u8], allowed_errors: usize, check_length: usize
     ) -> bool;
     fn get_umi_tags(&self, x: &[u8], y: &[u8], x_offset: usize, y_range: Range<usize>) -> Vec<String>;
     fn format(&self, x: &[u8], y: &[u8], x_offset: usize, y_range: Range<usize>) -> String;

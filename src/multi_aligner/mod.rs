@@ -357,7 +357,8 @@ impl MultiAligner {
                 );
 
                 if result.validate(
-                    allowed_errors, check_length, sequence, reference, setup.config.min_overlap, result.sequence_offset
+                    allowed_errors, check_length, reference, setup.config.min_overlap,
+                    result.sequence_offset
                 ) {
                     if !is_precheck {
                         result.may_need_shrink = may_need_shrink;
@@ -435,7 +436,10 @@ impl MultiAligner {
                 setup, ref_index, setup.config.error_rate, check_length, AlignerMode::Local
             );
 
-            if result.validate(allowed_errors, check_length, sequence, reference, setup.config.min_overlap, result.sequence_offset) {
+            if result.validate(
+                allowed_errors, check_length, reference, setup.config.min_overlap,
+                result.sequence_offset
+            ) {
                 best = result;
                 cycle += 1;
                 if cycle > max_cycle { break; }

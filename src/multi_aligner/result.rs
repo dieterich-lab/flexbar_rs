@@ -27,23 +27,18 @@ impl<'r> MultiAlignerResult {
     }
 
     pub fn validate(
-        &self, allowed_errors: usize, check_length: usize, x: &[u8], y: &[u8], min_overlap: Option<usize>, x_offset: usize
+        &self, allowed_errors: usize, check_length: usize, y: &[u8], min_overlap: Option<usize>, _x_offset: usize
     ) -> bool {
-        let corrected_min_overlap: Option<usize> = match min_overlap {
-            Some(min_overlap) => {
-                let stripped_n_count = self.stripped_leading_n_count + self.stripped_trailing_n_count;
-                Some(min_overlap.saturating_sub(stripped_n_count))
-            },
-            None => None,
-        };
-        match corrected_min_overlap {
-            Some(min_overlap_val) => if min_overlap_val > check_length { return false },
-            None => ()
+        if let Some(requested_min_overlap) = min_overlap {
+            let corrected_min_overlap = requested_min_overlap.saturating_sub(
+                self.stripped_leading_n_count + self.stripped_trailing_n_count
+            );
+            if corrected_min_overlap > check_length { return false }
         }
         match &self.raw {
             RawAlignment::BioRust(raw) =>
                 raw.validate(
-                    x, y, allowed_errors, check_length, x_offset, self.reference_range.clone()
+                    &y[self.reference_range.clone()], allowed_errors, check_length
                 ),
         }
     }

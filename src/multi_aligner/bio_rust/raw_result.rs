@@ -4,11 +4,44 @@ use crate::multi_aligner::generic::GenericRawResult;
 
 impl GenericRawResult for Alignment {
     fn validate(
-        &self, _x: &[u8], y: &[u8], allowed_errors: usize, check_length: usize, _x_offset: usize,
-        y_range: Range<usize>
+        &self, y: &[u8], allowed_errors: usize, check_length: usize,
     ) -> bool {
-        let y_part = &y[y_range.start..y_range.end];
-        check_match(self, y_part, check_length, allowed_errors)
+        let mut y_pos = self.ystart;
+        let mut bases_to_check = check_length;
+        let mut free_errors: i32 = allowed_errors as i32;
+
+        for op in &self.operations {
+            match op {
+                AlignmentOperation::Match => {
+                    y_pos += 1;
+                    bases_to_check -= 1;
+                }
+                AlignmentOperation::Subst => {
+                    if y[y_pos] != b'N' {
+                        free_errors -= 1;
+                    }
+                    y_pos += 1;
+                    bases_to_check -= 1;
+                }
+                AlignmentOperation::Ins => {
+                    bases_to_check -= 1;
+                    free_errors -= 1;
+                }
+                AlignmentOperation::Del => {
+                    bases_to_check -= 1;
+                    y_pos += 1;
+                    free_errors -= 1;
+                }
+                _ => {}
+            }
+            if free_errors < 0 {
+                return false
+            }
+            if bases_to_check <= 0 {
+                return true
+            }
+        }
+        bases_to_check <= free_errors as usize
     }
 
     fn get_umi_tags(&self, x: &[u8], y: &[u8], x_offset: usize, y_range: Range<usize>) -> Vec<String> {
@@ -169,46 +202,3 @@ impl GenericRawResult for Alignment {
     }
 }
 
-fn check_match(
-    alignment: &Alignment,
-    y: &[u8],
-    check_length: usize,
-    allowed_errors: usize
-) -> bool {
-    let mut y_pos = alignment.ystart;
-    let mut bases_to_check = check_length;
-    let mut free_errors: i32 = allowed_errors as i32;
-
-    for op in &alignment.operations {
-        match op {
-            AlignmentOperation::Match => {
-                y_pos += 1;
-                bases_to_check -= 1;
-            }
-            AlignmentOperation::Subst => {
-                if y[y_pos] != b'N' {
-                    free_errors -= 1;
-                }
-                y_pos += 1;
-                bases_to_check -= 1;
-            }
-            AlignmentOperation::Ins => {
-                bases_to_check -= 1;
-                free_errors -= 1;
-            }
-            AlignmentOperation::Del => {
-                bases_to_check -= 1;
-                y_pos += 1;
-                free_errors -= 1;
-            }
-            _ => {}
-        }
-        if free_errors < 0 {
-            return false
-        }
-        if bases_to_check <= 0 {
-            return true
-        }
-    }
-    bases_to_check <= free_errors as usize
-}
