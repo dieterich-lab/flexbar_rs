@@ -2,6 +2,7 @@ use log::debug;
 use crate::context::Context;
 use crate::args::Args;
 use crate::types::{SingeRecordDto, QualTrimType};
+use crate::steps::single::pre_trim::{SinglePreTrim, SinglePreTrimState};
 use crate::steps::single::adapter_remover::{SingleAdapterRemover, SingleAdapterRemoverState};
 use crate::steps::single::uncalled_sequence_filter::{SingleUncalledSequenceFilter, SingleUncalledSequenceFilterState};
 use crate::steps::single::barcode_splitter::{SingleBarcodeSplitter, SingleBarcodeSplitterState};
@@ -13,6 +14,7 @@ use crate::steps::utils::single::SingleAlignmentResults;
 use crate::workers::util::finalize_read_stats;
 
 pub struct SingleWorker {
+    pub pre_trim: Option<SinglePreTrim>,
     pub adapter_remover: Option<SingleAdapterRemover>,
     pub barcode_splitter: Option<SingleBarcodeSplitter>,
     pub quality_trim: Option<SingleQualityTrim>,
@@ -23,6 +25,7 @@ pub struct SingleWorker {
 }
 
 pub struct SingleWorkerState {
+    pub pre_trim: Option<SinglePreTrimState>,
     pub adapter_remover: Option<SingleAdapterRemoverState>,
     pub barcode_splitter: Option<SingleBarcodeSplitterState>,
     pub quality_trim: Option<SingleQualityTrimState>,
@@ -33,6 +36,11 @@ pub struct SingleWorkerState {
 
 impl SingleWorker {
     pub fn new(args: &Args, context: &Context) -> Self {
+        let pre_trim = if args.pre_trim_left > 0 || args.pre_trim_right > 0 {
+            Some(SinglePreTrim::new(args, context))
+        } else {
+            None
+        };
         let uncalled_sequence_filter = match args.max_uncalled {
             0 => None,
             _ => Some(SingleUncalledSequenceFilter::new(args, context))
@@ -55,6 +63,9 @@ impl SingleWorker {
         let qtrim_post_removal = args.qtrim_post_removal;
         if args.trace {
             debug!("Single worker pipeline:");
+            if let Some(s) = &pre_trim {
+                debug!("- Step SinglePreTrim (left: {}, right: {})", s.pre_trim_left, s.pre_trim_right);
+            }
             if let Some(s) = &uncalled_sequence_filter {
                 debug!("- Step SingleUncalledSequenceFilter (max_uncalled: {})",
                     s.max_uncalled
@@ -87,6 +98,7 @@ impl SingleWorker {
         }
 
         Self {
+            pre_trim,
             quality_trim,
             barcode_splitter,
             adapter_remover,
@@ -99,6 +111,7 @@ impl SingleWorker {
 
     pub fn create_state(&self) -> SingleWorkerState {
         SingleWorkerState {
+            pre_trim: self.pre_trim.as_ref().map(|s| s.create_state()),
             adapter_remover: self.adapter_remover.as_ref().map(|s| s.create_state()),
             barcode_splitter: self.barcode_splitter.as_ref().map(|s| s.create_state()),
             quality_trim: self.quality_trim.as_ref().map(|s| s.create_state()),
@@ -116,6 +129,9 @@ impl SingleWorker {
         let mut rec_in: RecordInTransformation<SingeRecordDto, SingleAlignmentResults> = record.get_record_in_transformation();
         rec_in.stats.total_bases_read = record.seq().len();
 
+        if let Some(step) = &self.pre_trim {
+            rec_in = step.apply(rec_in, state.pre_trim.as_mut().unwrap());
+        }
         if let Some(step) = &self.uncalled_sequence_filter {
             rec_in = step.apply(rec_in, state.uncalled_sequence_filter.as_mut().unwrap());
         }
@@ -412,6 +428,24 @@ mod tests {
         let result = process_record(&args, &record);
         assert!(result.record.is_none(), "Should discard read of length 9 when min is 10");
         assert_eq!(result.stats.total_discarded_length, 1);
+    }
+
+    #[test]
+    fn test_pre_trim() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--pre-trim-left", "5", "--pre-trim-right", "3", "--min-read-length", "0"]);
+        let context = Context::empty();
+        let worker = SingleWorker::new(&args, &context);
+        let mut state = worker.create_state();
+
+        let record = SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let res = worker.process_record(&record, &mut state);
+        
+        // FinalRecord structure has record: Option<SingeRecordDto>
+        assert!(res.record.is_some(), "Record should not be discarded");
+        let _rec = res.record.unwrap();
+        
+        assert_eq!(res.stats.bases_pre_trim, 8);
+        assert_eq!(res.stats.total_bases_read, 15);
     }
 
     #[test]

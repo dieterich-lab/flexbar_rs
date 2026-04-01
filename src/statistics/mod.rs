@@ -78,6 +78,7 @@ impl Statistics {
         info!("");
         info!("Total bases read:               {}", self.worker.total_bases_read);
         info!("- bases in discarded reads:     {}", self.worker.bases_discarded);
+        info!("- removed by pre trim:          {}", self.worker.bases_pre_trim);
         info!("- removed by quality trim:      {}", self.worker.bases_quality_trim);
         info!("- removed by barcode removal:   {}", self.worker.bases_barcode_removal);
         info!("- removed by adapter removal:   {}", self.worker.bases_adapter_removal);

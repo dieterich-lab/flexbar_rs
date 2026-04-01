@@ -14,6 +14,7 @@ pub struct PerReadAlignmentResults {
     pub bases_adapter_removal: usize,
     pub bases_barcode_removal: usize,
     pub bases_post_trim: usize,
+    pub bases_pre_trim: usize,
 }
 
 pub struct RecordInTransformation<RecordType, AR> {

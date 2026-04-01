@@ -2,6 +2,7 @@ use log::debug;
 use crate::context::Context;
 use crate::args::Args;
 use crate::types::{PairedRecordDto, SingeRecordDto, QualTrimType};
+use crate::steps::paired::pre_trim::{PairedPreTrim, PairedPreTrimState};
 use crate::steps::paired::adapter_remover::{PairedAdapterRemover, PairedAdapterRemoverState};
 use crate::steps::paired::barcode_splitter::{PairedBarcodeSplitter, PairedBarcodeSplitterState};
 use crate::steps::paired::quality_trim::{PairedQualityTrim, PairedQualityTrimState};
@@ -12,6 +13,7 @@ use crate::steps::utils::paired::PairedAlignmentResults;
 use crate::workers::util::finalize_read_stats;
 
 pub struct PairedWorker {
+    pub pre_trim: Option<PairedPreTrim>,
     pub barcode_splitter: Option<PairedBarcodeSplitter>,
     pub adapter_remover: Option<PairedAdapterRemover>,
     pub quality_trim: Option<PairedQualityTrim>,
@@ -21,6 +23,7 @@ pub struct PairedWorker {
 }
 
 pub struct PairedWorkerState {
+    pub pre_trim: Option<PairedPreTrimState>,
     pub barcode_splitter: Option<PairedBarcodeSplitterState>,
     pub adapter_remover: Option<PairedAdapterRemoverState>,
     pub quality_trim: Option<PairedQualityTrimState>,
@@ -30,6 +33,11 @@ pub struct PairedWorkerState {
 
 impl PairedWorker {
     pub fn new(args: &Args, context: &Context) -> Self {
+        let pre_trim = if args.pre_trim_left > 0 || args.pre_trim_right > 0 {
+            Some(PairedPreTrim::new(args, context))
+        } else {
+            None
+        };
         let quality_trim = match args.qtrim {
             QualTrimType::Off => None,
             _ => Some(PairedQualityTrim::new(args, context))
@@ -48,6 +56,9 @@ impl PairedWorker {
         let qtrim_post_removal = args.qtrim_post_removal;
         if args.trace {
             debug!("Paired worker pipeline:");
+            if let Some(s) = &pre_trim {
+                debug!("- Step PairedPreTrim (left: {}, right: {})", s.pre_trim_left, s.pre_trim_right);
+            }
             if !qtrim_post_removal && let Some(s) = &quality_trim {
                 debug!("- Step PairedQualityTrim (threshold: {}, window size: {})",
                     s.inner.threshold, s.inner.win_size
@@ -75,6 +86,7 @@ impl PairedWorker {
         }
 
         Self {
+            pre_trim,
             barcode_splitter,
             adapter_remover,
             quality_trim,
@@ -86,6 +98,7 @@ impl PairedWorker {
 
     pub fn create_state(&self) -> PairedWorkerState {
         PairedWorkerState {
+            pre_trim: self.pre_trim.as_ref().map(|s| s.create_state()),
             barcode_splitter: self.barcode_splitter.as_ref().map(|s| s.create_state()),
             adapter_remover: self.adapter_remover.as_ref().map(|s| s.create_state()),
             quality_trim: self.quality_trim.as_ref().map(|s| s.create_state()),
@@ -102,6 +115,9 @@ impl PairedWorker {
         let mut rec_in: RecordInTransformation<PairedRecordDto, PairedAlignmentResults> = record.get_record_in_transformation();
         rec_in.stats.total_bases_read = record.records[0].seq().len() + record.records[1].seq().len();
 
+        if let Some(step) = &self.pre_trim {
+            rec_in = step.apply(rec_in, state.pre_trim.as_mut().unwrap());
+        }
         if !self.qtrim_post_removal && let Some(step) = &self.quality_trim {
             rec_in = step.apply(rec_in, state.quality_trim.as_mut().unwrap());
         }
@@ -526,6 +542,26 @@ mod tests {
         let res = process_with_reference_setup(&rec);
 
         assert!(res.record.is_none(), "Record should be discarded");
+    }
+
+    #[test]
+    fn test_paired_pre_trim() {
+        let args = Args::parse_from(&["flexbar_rs", "--reads", "test_1.fq", "--reads2", "test_2.fq", "--pre-trim-left", "5", "--pre-trim-right", "3", "--min-read-length", "0"]);
+        let context = Context::empty();
+        let worker = PairedWorker::new(&args, &context);
+        let mut state = worker.create_state();
+        
+        // Sanity check worker initialization
+        assert!(worker.pre_trim.is_some(), "PairedWorker should have pre_trim step");
+
+        let r1 = SingeRecordDto::with_attrs("read1/1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("read1/2", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let record = PairedRecordDto { records: [r1, r2] };
+        
+        let res = worker.process_record(&record, &mut state);
+        
+        assert_eq!(res.stats.bases_pre_trim, 16);
+        assert_eq!(res.stats.total_bases_read, 30);
     }
 
     #[test]

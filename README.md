@@ -33,7 +33,6 @@ Dropped features we will not implement at all:
 
 * Support for interleaved FASTQ files
 * Trimming of homopolymers
-* pre-trim-left/right
 
 ## Tuning
 
