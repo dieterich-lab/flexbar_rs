@@ -3,7 +3,7 @@ mod generic;
 mod bio_rust;
 pub mod result;
 
-use std::cmp::min;
+use std::cmp::{max, min};
 use std::ops::Range;
 use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
@@ -320,13 +320,15 @@ impl MultiAligner {
         match &result.raw {
             RawAlignment::BioRust(raw) => {
                 let y_range = result.reference_range.clone();
+                let x_align_len = raw.xend - raw.xstart;
+                let y_align_len = raw.yend - raw.ystart;
                 let y_relevant_len = y_range.end - y_range.start;
                 let y_start_real = y_range.start + raw.ystart;
                 if raw.xstart + result.sequence_offset > y_start_real {
                     let x_suffix_len = sequence_len - raw.xstart - result.sequence_offset;
-                    min(y_relevant_len, x_suffix_len)
+                    max(max(min(y_relevant_len, x_suffix_len), x_align_len), y_align_len)
                 } else {
-                    min(y_relevant_len, raw.xend)
+                    max(max(min(y_relevant_len, raw.xend), x_align_len), y_align_len)
                 }
             }
         }

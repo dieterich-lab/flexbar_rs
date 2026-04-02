@@ -211,7 +211,7 @@ mod tests {
     use crate::args::Args;
     use crate::types::SingeRecordDto;
     use clap::Parser;
-    
+
     fn process_record(args: &Args, record: &SingeRecordDto) -> FinalRecord<SingeRecordDto> {
         let context = Context::new(args);
         let worker = SingleWorker::new(args, &context);
@@ -525,5 +525,56 @@ mod tests {
         
         assert_eq!(processed2.seq().len(), 8);
         assert_eq!(result2.stats.bases_post_trim, 0);
+    }
+
+    fn process_with_reference_setup(record: &SingeRecordDto) -> FinalRecord<SingeRecordDto> {
+        let args = Args::parse_from(&[
+            "flexbar_rs",
+            "--removal-tags",
+            "--umi-tags",
+            "--min-read-length", "18",
+            "--max-uncalled", "1",
+            "--qtrim-threshold", "10",
+            "--barcode-unassigned",
+            "--post-trim-length", "248",
+            "--adapter-min-overlap", "6",
+            "--qtrim-format", "sanger",
+        ]);
+
+        let barcodes = vec![
+            SequenceWithId { id: "SmartSeqUMI".to_string(), sequence: "ATTGCGCAATGNNNNNNNN".to_string() },
+        ];
+
+        let adapters = vec![
+            SequenceWithId { id: "Trans1".to_string(), sequence: "TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG".to_string() },
+            SequenceWithId { id: "Trans1_rc".to_string(), sequence: "CTGTCTCTTATACACATCTGACGCTGCCGACGA".to_string() },
+            SequenceWithId { id: "Trans2".to_string(), sequence: "GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG".to_string() },
+            SequenceWithId { id: "Trans2_rc".to_string(), sequence: "CTGTCTCTTATACACATCTCCGAGCCCACGAGAC".to_string() },
+        ];
+
+        let mut context = Context::empty();
+        context.barcodes = barcodes;
+        context.adapters = adapters;
+
+        let worker = SingleWorker::new(&args, &context);
+        let mut state = worker.create_state();
+        worker.process_record(record, &mut state)
+    }
+
+    #[test]
+    fn test_adapter_with_errors() {
+        // Read:
+        // ATTGCGCAATGCTTGGAAAAAAAAAAAAAAAAAAAAAAAAAAAAATCGCTGTCTCTTATACACAAC CCGAGCCCACGAGAATGCCGGTCAGATCTCGTATG
+        // ATTGCGCAATGNNNNNNNN (Barcode: LTAIL - perfect match)            \ ,              \
+        // (Adapter: RIGHT - poor match but OK)            CTGTCTCTTATACACATCTCCGAGCCCACGAGAC
+        let r = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:1221:21866:34444",
+            Some("N:0:TGCCGGTCAG+TTGTATCAGG"),
+            b"ATTGCGCAATGCTTGGAAAAAAAAAAAAAAAAAAAAAAAAAAAAATCGCTGTCTCTTATACACAACCCGAGCCCACGAGAATGCCGGTCAGATCTCGTATG",
+            b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,,,,,,,,,,FFF:F,F,F,::F,F,FF:FF,F,F,F,FF:F:,:,FF,,,:,,F:",
+        );
+        let res = process_with_reference_setup(&r);
+        assert!(res.record.is_some(), "Should keep read");
+        assert_eq!(res.record.unwrap().seq(), b"AAAAAAAAAAAAAAAAAAAAAAAAAATCG");
     }
 }
