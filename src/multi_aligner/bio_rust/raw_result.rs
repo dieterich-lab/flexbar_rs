@@ -28,7 +28,6 @@ impl GenericRawResult for Alignment {
                     free_errors -= 1;
                 }
                 AlignmentOperation::Del => {
-                    bases_to_check -= 1;
                     y_pos += 1;
                     free_errors -= 1;
                 }

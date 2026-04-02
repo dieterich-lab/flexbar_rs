@@ -638,6 +638,36 @@ mod tests {
     }
 
     #[test]
+    fn test_adapter_with_too_many_errors() {
+        // First read:
+        // ATTGCGCAATGGCATGATGGGGAACAATGCCTCCCTGGCCTAACTGAAGGAGAACAGAGTCCTTCCTTGCCTGGGTCTAGGGGCTGTGCTGTCT GTGGGCA
+        // ATTGCGCAATGNNNNNNNN (perfect match of adapter)                                                ,      \
+        //                                                    (too poor match of adapter, 2 errors)  GTCTCGTGGGCTCG ...
+        // So the adapter should not be removed with an error of 10% -> allowed_errors = 1
+        //
+        let r1 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:2258:30933:6997",
+            Some("1:N:0:TGCCGGTCAG+TTGTATCAGG"),
+            b"ATTGCGCAATGGCATGATGGGGAACAATGCCTCCCTGGCCTAACTGAAGGAGAACAGAGTCCTTCCTTGCCTGGGTCTAGGGGCTGTGCTGTCTGTGGGCA",
+            b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
+        );
+        let r2 = SingeRecordDto::with_attrs(
+            "A00620:147:H225CDMXY:2:2258:30933:6997",
+            Some("2:N:0:TGCCGGTCAG+TTGTATCAGG"),
+            b"ATCTAGGTGTGTGTGGAGAGGTGGGGTGTTCAGAGGGAACAGGAACAAAGCTTGAAGGAGAGGCTGAACCAACAAGAGGACTTCAGGCAAAATACTTTACT",
+            b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFF:FFFFFFFFFFFF:F,FFFFFFFFFFFFFFFFFFFFFFFFFF:F:F::FFFFFFFFF",
+        );
+
+        let rec = PairedRecordDto::new(r1, r2);
+        let res = process_with_reference_setup(&rec);
+
+        assert!(res.record.is_some(), "Record passes");
+        assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
+        let r = res.record.unwrap().records;
+        assert_eq!(r[0].seq(), b"GGGAACAATGCCTCCCTGGCCTAACTGAAGGAGAACAGAGTCCTTCCTTGCCTGGGTCTAGGGGCTGTGCTGTCTGTGGGCA");
+    }
+
+    #[test]
     fn test_paired_pre_trim() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test_1.fq", "--reads2", "test_2.fq", "--pre-trim-left", "5", "--pre-trim-right", "3", "--min-read-length", "0"]);
         let context = Context::empty();

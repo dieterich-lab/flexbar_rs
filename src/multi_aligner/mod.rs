@@ -305,7 +305,8 @@ impl MultiAligner {
         best
     }
 
-    fn calculate_allowed_errors(setup: &MultiAlignerSetup, index: usize, error_rate: f32, check_length: usize, mode: AlignerMode) -> usize {
+    fn calculate_allowed_errors(setup: &MultiAlignerSetup, index: usize, check_length: usize, mode: AlignerMode) -> usize {
+        let error_rate = setup.config.error_rate;
         match mode {
             AlignerMode::LeftMin | AlignerMode::RightMin => {
                 let ref_len = setup.references[index].sequence.len();
@@ -315,15 +316,17 @@ impl MultiAligner {
         }
     }
 
-    fn calculate_check_length(result: &MultiAlignerResult, sequence_len: usize, reference_len: usize) -> usize {
+    fn calculate_check_length(result: &MultiAlignerResult, sequence_len: usize) -> usize {
         match &result.raw {
             RawAlignment::BioRust(raw) => {
                 let y_range = result.reference_range.clone();
+                let y_relevant_len = y_range.end - y_range.start;
                 let y_start_real = y_range.start + raw.ystart;
                 if raw.xstart + result.sequence_offset > y_start_real {
-                    min(y_range.end - y_range.start, sequence_len - raw.xstart - result.sequence_offset)
+                    let x_suffix_len = sequence_len - raw.xstart - result.sequence_offset;
+                    min(y_relevant_len, x_suffix_len)
                 } else {
-                    min(y_range.end - y_range.start, reference_len - (y_start_real - raw.xstart - result.sequence_offset))
+                    min(y_relevant_len, raw.xend)
                 }
             }
         }
@@ -350,10 +353,9 @@ impl MultiAligner {
                 };
                 let reference = &setup.references[index].sequence.as_bytes();
                 
-                let check_length = Self::calculate_check_length(&result, sequence.len(), reference.len());
-
+                let check_length = Self::calculate_check_length(&result, sequence.len());
                 let allowed_errors = Self::calculate_allowed_errors(
-                    setup, index, setup.config.error_rate, check_length, mode
+                    setup, index, check_length, mode
                 );
 
                 if result.validate(
@@ -431,9 +433,9 @@ impl MultiAligner {
             let mut result = Self::align_local(aligner, s_state, next_seq, ref_index);
             result.sequence_offset += window.start;
 
-            let check_length = Self::calculate_check_length(&result, sequence.len(), reference.len());
+            let check_length = Self::calculate_check_length(&result, sequence.len());
             let allowed_errors = Self::calculate_allowed_errors(
-                setup, ref_index, setup.config.error_rate, check_length, AlignerMode::Local
+                setup, ref_index, check_length, AlignerMode::Local
             );
 
             if result.validate(
