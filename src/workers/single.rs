@@ -577,4 +577,34 @@ mod tests {
         assert!(res.record.is_some(), "Should keep read");
         assert_eq!(res.record.unwrap().seq(), b"AAAAAAAAAAAAAAAAAAAAAAAAAATCG");
     }
+
+    // #[test]
+    // fn test_adapter_with_errors_in_overlap() {
+    //     // Read:
+    //     // GATAAACAGAGAGCAAGGCCTCTCCCAGGAGGTCACCAAAACTGCCCACCTACCTCCTCCCTAACCCACTGGCTTCTGCTTTCCTCTCTCCCTGT TCTTAT
+    //     // (Adapter: RIGHT - poor match but OK)                                                       CTGTCTCTTATACACATCTGACGCTGCCGACGA
+    //     let r = SingeRecordDto::with_attrs(
+    //         "A00620:147:H225CDMXY:2:1101:17183:24831",
+    //         Some("N:0:TGCCGGTCAG+TTGTATCAGG"),
+    //         b"GATAAACAGAGAGCAAGGCCTCTCCCAGGAGGTCACCAAAACTGCCCACCTACCTCCTCCCTAACCCACTGGCTTCTGCTTTCCTCTCTCCCTGTTCTTAT",
+    //         b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFF:F",
+    //     );
+    //     // It seems that we found here BioRust bug:
+    //     // If just extract the relevant parts from the sequences, BioRust finds this alignment
+    //     // with score 3, and we discard it as invalid:
+    //     //
+    //     // CTCCCTGTTCTTAT
+    //     //    |\\\\||||||
+    //     //    CTGTCTCTTATCTG
+    //     //
+    //     // The legacy seqan library used by the old flexbar found this alignment:
+    //     // CTCCCTGT TCTTAT
+    //     //     |||| ||||||
+    //     //     CTGTCTCTTATCTG
+    //     //
+    //     // This alignment has 10 matches, minus 6 for the opening gab, results in score 4.
+    //     let res = process_with_reference_setup(&r);
+    //     assert!(res.record.is_some(), "Should keep read");
+    //     assert_eq!(res.record.unwrap().seq(), b"GATAAACAGAGAGCAAGGCCTCTCCCAGGAGGTCACCAAAACTGCCCACCTACCTCCTCCCTAACCCACTGGCTTCTGCTTTCCTCTCTCC");
+    // }
 }
