@@ -75,7 +75,7 @@ impl Context {
     }
 
     fn determine_run_type(args: &Args) -> RunType {
-        match args.barcodes {
+        match args.barcode_reads {
             Some(_) => {
                 if args.reads2.is_some() {
                     RunType::PairedBarcoded
