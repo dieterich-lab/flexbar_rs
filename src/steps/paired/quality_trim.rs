@@ -28,7 +28,7 @@ impl GenericStep<PairedRecordDto> for PairedQualityTrim {
     fn apply(&self, mut rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResults>, _state: &mut Self::State) -> RecordInTransformation<PairedRecordDto, PairedAlignmentResults> {
         for i in 0..2 {
             self.inner.trim_read(
-                &rec.record.records[i], Some(i),
+                &rec.record.reads[i], Some(i),
                 &mut rec.alignment_results.per_read[i],
                 &mut rec.stats
             );

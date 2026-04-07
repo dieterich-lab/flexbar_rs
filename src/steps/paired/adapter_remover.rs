@@ -57,7 +57,7 @@ impl GenericStep<PairedRecordDto> for PairedAdapterRemover {
                 }
                 remover.remove_adapters(
                     state.states[i].as_mut().unwrap(),
-                    &rec.record.records[i],
+                    &rec.record.reads[i],
                     Some(i),
                     &mut rec.alignment_results.per_read[i],
                     &mut rec.stats

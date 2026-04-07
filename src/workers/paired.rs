@@ -128,7 +128,7 @@ impl PairedWorker {
         state: &mut PairedWorkerState
     ) -> FinalRecord<PairedRecordDto> {
         let mut rec_in: RecordInTransformation<PairedRecordDto, PairedAlignmentResults> = record.get_record_in_transformation();
-        rec_in.stats.total_bases_read = record.records[0].seq().len() + record.records[1].seq().len();
+        rec_in.stats.total_bases_read = record.reads[0].seq().len() + record.reads[1].seq().len();
 
         if let Some(step) = &self.pre_trim {
             rec_in = step.apply(rec_in, state.pre_trim.as_mut().unwrap());
@@ -163,7 +163,7 @@ impl PairedWorker {
 
 fn finalize(mut rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResults>) -> FinalRecord<PairedRecordDto> {
     for i in 0..2 {
-        let original_len = rec.record.records[i].seq().len();
+        let original_len = rec.record.reads[i].seq().len();
         finalize_read_stats(&mut rec.stats, &rec.alignment_results.per_read[i], original_len);
     }
 
@@ -175,7 +175,7 @@ fn finalize(mut rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResu
         }
     }
 
-    let mut records = rec.record.records;
+    let mut records = rec.record.reads;
     let umi_tags = if rec.alignment_results.per_read[0].umi_tags.is_empty() {
         rec.alignment_results.per_read[1].umi_tags.clone()
     } else {
@@ -229,7 +229,7 @@ fn finalize(mut rec: RecordInTransformation<PairedRecordDto, PairedAlignmentResu
     }
     
     let record = if good_reads > 0 {
-        Some(PairedRecordDto { records })
+        Some(PairedRecordDto { reads: records })
     } else {
         None
     };
@@ -276,7 +276,7 @@ mod tests {
         let res = process_record(args, &rec, barcodes, barcodes2);
         
         assert_eq!(res.output_tag, Some("barcode_B1".to_string()));
-        let records = res.record.unwrap().records;
+        let records = res.record.unwrap().reads;
         // B1 (AAAAA) should be removed from R1
         assert_eq!(records[0].seq(), b"GGGGG");
         // R2 should be unchanged
@@ -302,7 +302,7 @@ mod tests {
         let res = process_record(args, &rec, barcodes, barcodes2);
         
         assert_eq!(res.output_tag, Some("barcode_B2".to_string()));
-        let records = res.record.unwrap().records;
+        let records = res.record.unwrap().reads;
         assert_eq!(records[0].seq(), b"TTTTTGGGGG");
         assert_eq!(records[1].seq(), b"GGGGG");
     }
@@ -393,7 +393,7 @@ mod tests {
         let res = process_record(args, &rec, barcodes, vec![]);
         
         assert!(res.record.is_some());
-        let records = res.record.unwrap().records;
+        let records = res.record.unwrap().reads;
         assert_eq!(records[0].seq(), b""); // R1 dropped
         assert_eq!(records[1].seq(), b"0123456789"); // R2 kept
         assert_eq!(res.stats.total_single_reads_written, 1);
@@ -418,7 +418,7 @@ mod tests {
         let res = process_record(args, &rec, barcodes, vec![]);
         
         assert!(res.record.is_some());
-        let records = res.record.unwrap().records;
+        let records = res.record.unwrap().reads;
         assert_eq!(records[0].seq(), b"N");
         assert_eq!(records[1].seq(), b"0123456789");
         assert_eq!(res.stats.total_single_reads_replaced, 1);
@@ -445,7 +445,7 @@ mod tests {
         let res = worker.process_record(&rec, &mut state);
         
         assert!(res.record.is_some());
-        let records = res.record.unwrap().records;
+        let records = res.record.unwrap().reads;
         assert_eq!(records[0].seq(), b"5555544444");
         assert_eq!(records[1].seq(), b"55555");
         assert_eq!(res.stats.bases_quality_trim, 5);
@@ -507,7 +507,7 @@ mod tests {
 
         assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
         
-        assert_eq!(res.record.as_ref().unwrap().records[0].seq(),
+        assert_eq!(res.record.as_ref().unwrap().reads[0].seq(),
                    b"GGGCTAGACTAGGCTGTCTTTGAATAACACTTAAAAATACATTAAAAGGAAAACCCAACTAATAACCTTGTTATTCTCTTCC"
         );
         
@@ -593,7 +593,7 @@ mod tests {
 
         assert!(res.record.is_some(), "Record passes");
         assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
-        let r = res.record.unwrap().records;
+        let r = res.record.unwrap().reads;
         assert_eq!(r[0].seq(), b"GGGACAAAAAAGGGGGAAGGGGGGGCAC");
         assert_eq!(r[0].desc().unwrap(), "1:N:0:TGCCGGTCAG+TTGTATCAGG_Flexbar_removal_Flexbar_removal_Trans2_rc_AAGTATGG");
         assert_eq!(r[1].seq(), b"GTGCCCCCCCTTCCCCCGTTTTTGTACACCAGACATCAATGAGCAAAGAGTAAAATATAAAAAACAGAAGCAGCCGAAGTAAGGATCATGGTAAATATATA");
@@ -630,7 +630,7 @@ mod tests {
 
         assert!(res.record.is_some(), "Record passes");
         assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
-        let r = res.record.unwrap().records;
+        let r = res.record.unwrap().reads;
         assert_eq!(r[0].seq(), b"GGGGGGTTCATGCCTGTAATCCCAGCACTTTGGGAGGCCGAGGCGGGAGGATGGCTAGAGG");
         assert_eq!(r[0].desc().unwrap(), "1:N:0:TGCCGGTCAG+TTGTATCAGG_Flexbar_removal_Flexbar_removal_Trans2_rc_ACGGGCAC");
         assert_eq!(r[1].seq(), b"ACTCAAGCCATCCACCTGCTTCGGCCTCCTAAAGTGCTGGGATTACAGGCATGAACCCCCCGTGCCCGTCATTGCGCAAT");
@@ -663,7 +663,7 @@ mod tests {
 
         assert!(res.record.is_some(), "Record passes");
         assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
-        let r = res.record.unwrap().records;
+        let r = res.record.unwrap().reads;
         assert_eq!(r[0].seq(), b"GGGAACAATGCCTCCCTGGCCTAACTGAAGGAGAACAGAGTCCTTCCTTGCCTGGGTCTAGGGGCTGTGCTGTCTGTGGGCA");
     }
 
@@ -679,7 +679,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("read1/1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("read1/2", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
-        let record = PairedRecordDto { records: [r1, r2] };
+        let record = PairedRecordDto { reads: [r1, r2] };
         
         let res = worker.process_record(&record, &mut state);
         
@@ -701,10 +701,10 @@ mod tests {
         let result = worker.process_record(&record, &mut state);
         let processed = result.record.expect("Should keep read");
         
-        assert_eq!(processed.records[0].seq().len(), 10);
-        assert_eq!(processed.records[1].seq().len(), 10);
-        assert_eq!(processed.records[0].seq(), b"0123456789");
-        assert_eq!(processed.records[1].seq(), b"0123456789");
+        assert_eq!(processed.reads[0].seq().len(), 10);
+        assert_eq!(processed.reads[1].seq().len(), 10);
+        assert_eq!(processed.reads[0].seq(), b"0123456789");
+        assert_eq!(processed.reads[1].seq(), b"0123456789");
         assert_eq!(result.stats.bases_post_trim, 10); // 5 from each read
     }
 }

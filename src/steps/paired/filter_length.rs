@@ -61,7 +61,7 @@ impl GenericStep<PairedRecordDto> for PairedFilterLength {
                 if short[i] {
                     let start = rec.alignment_results.per_read[i].read_range.start;
                     rec.alignment_results.per_read[i].read_range.end = start + 1;
-                    rec.record.records[i] = get_place_holder_record(&rec.record.records[i], start);
+                    rec.record.reads[i] = get_place_holder_record(&rec.record.reads[i], start);
                     rec.stats.total_single_reads_replaced += 1;
                     trace!("Length filter replaced R{} with 'N': {}", i + 1, rec.record.id());
                 }

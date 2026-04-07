@@ -53,7 +53,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("read1/1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("read1/2", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
-        let record = PairedRecordDto { records: [r1, r2] };
+        let record = PairedRecordDto { reads: [r1, r2] };
         
         let rec_in = RecordInTransformation {
             record: record.clone(),

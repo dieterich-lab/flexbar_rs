@@ -260,21 +260,21 @@ pub type SingeRecordDto = bio::io::fastq::Record;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PairedRecordDto {
-    pub records: [SingeRecordDto; 2],
+    pub reads: [SingeRecordDto; 2],
 }
 
 impl PairedRecordDto {
     pub fn new(r1: SingeRecordDto, r2: SingeRecordDto) -> Self {
-        Self { records: [r1, r2] }
+        Self { reads: [r1, r2] }
     }
 
     pub fn id(&self) -> &str {
-        self.records[0].id()
+        self.reads[0].id()
     }
 
     pub fn validate(&self) -> bool {
-        let id1 = self.records[0].id();
-        let id2 = self.records[1].id();
+        let id1 = self.reads[0].id();
+        let id2 = self.reads[1].id();
         if id1 == id2 {
             return true;
         }
@@ -296,8 +296,8 @@ macro_rules! implement_by_record_index {
         pub fn $name(&self, read_index: Option<usize>) -> $ReturnType {
             match (self, read_index) {
                 (RecordDto::Single(record), None) => record.$name(),
-                (RecordDto::Paired(paired), Some(0)) => paired.records[0].$name(),
-                (RecordDto::Paired(paired), Some(1)) => paired.records[1].$name(),
+                (RecordDto::Paired(paired), Some(0)) => paired.reads[0].$name(),
+                (RecordDto::Paired(paired), Some(1)) => paired.reads[1].$name(),
                 _ => panic!("Invalid read index {:?}", read_index),
             }
         }
@@ -308,11 +308,11 @@ impl RecordDto {
     pub fn id(&self, read_index: Option<usize>) -> &str {
         match (self, read_index) {
             (RecordDto::Single(record), None) => record.id(),
-            (RecordDto::Paired(paired), Some(0)) => paired.records[0].id(),
-            (RecordDto::Paired(paired), Some(1)) => paired.records[1].id(),
+            (RecordDto::Paired(paired), Some(0)) => paired.reads[0].id(),
+            (RecordDto::Paired(paired), Some(1)) => paired.reads[1].id(),
             // We sometimes need an ID for error messages without knowing if it's a single or
             // paired record. So we allow None here too and just return the first ID.
-            (RecordDto::Paired(paired), None) => paired.records[0].id(),
+            (RecordDto::Paired(paired), None) => paired.reads[0].id(),
             _ => panic!("Invalid read index {:?}", read_index),
         }
     }

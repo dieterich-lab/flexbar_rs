@@ -41,7 +41,7 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> GenericReaderBackend<R> for 
             (Some(RecordDto::Single(r1)), Some(RecordDto::Single(r2))) => {
                 let paired = PairedRecordDto::new(r1, r2);
                 if !paired.validate() {
-                    log_fatal(&format!("Validation failed for paired records: {} and {}", paired.records[0].id(), paired.records[1].id()));
+                    log_fatal(&format!("Validation failed for paired records: {} and {}", paired.reads[0].id(), paired.reads[1].id()));
                 }
                 Ok(Some(RecordDto::Paired(paired)))
             },
@@ -186,7 +186,7 @@ impl<R: BufRead + Send, B: GenericReaderBackend<R>> Iterator for GenericReader<R
                         }
                         RecordDto::Paired(p) => {
                             for i in 0..2 {
-                                self.count_record(&p.records[i], Some(i));
+                                self.count_record(&p.reads[i], Some(i));
                             }
                         }
                     }

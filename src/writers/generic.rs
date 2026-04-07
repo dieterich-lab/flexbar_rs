@@ -108,11 +108,11 @@ impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
             }
             RecordDto::Paired(paired) => {
                 for i in 0..2 {
-                    if paired.records[i].seq().is_empty() { continue; }
+                    if paired.reads[i].seq().is_empty() { continue; }
                     let backend = self.get_backend(tag, Some(i))?;
-                    backend.write_record(&paired.records[i])?;
+                    backend.write_record(&paired.reads[i])?;
                     self.statistics.total_records_written += 1;
-                    self.statistics.total_bases_written += paired.records[i].seq().len();
+                    self.statistics.total_bases_written += paired.reads[i].seq().len();
                 }
             }
         }

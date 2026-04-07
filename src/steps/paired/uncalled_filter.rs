@@ -32,7 +32,7 @@ impl GenericStep<PairedRecordDto> for PairedUncalledFilter {
         let mut drop = false;
         for i in 0..2 {
             if !rec.alignment_results.per_read[i].dropped {
-                let n_count = count_uncalled_bases(&rec.record.records[i], &rec.alignment_results.per_read[i]);
+                let n_count = count_uncalled_bases(&rec.record.reads[i], &rec.alignment_results.per_read[i]);
                 if n_count > self.max_uncalled {
                     drop = true;
                     break;

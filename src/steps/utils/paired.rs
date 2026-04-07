@@ -29,7 +29,7 @@ impl RecordId for PairedRecordDto {
 
 impl RecordInTransformation<PairedRecordDto, PairedAlignmentResults> {
     pub fn get_sequence(&self, read_index: usize) -> &[u8] {
-        &self.record.records[read_index].seq()[self.alignment_results.per_read[read_index].read_range.clone()]
+        &self.record.reads[read_index].seq()[self.alignment_results.per_read[read_index].read_range.clone()]
     }
 
     pub fn trim(&mut self, read_index: usize, trim_end: TrimEnd, start: usize, end: usize) {
@@ -65,14 +65,14 @@ impl Transformable for PairedRecordDto {
                     PerReadAlignmentResults {
                         umi_tags: Vec::new(),
                         removal_tags: Vec::new(),
-                        read_range: 0..self.records[0].seq().len(),
+                        read_range: 0..self.reads[0].seq().len(),
                         dropped: false,
                         ..Default::default()
                     },
                     PerReadAlignmentResults {
                         umi_tags: Vec::new(),
                         removal_tags: Vec::new(),
-                        read_range: 0..self.records[1].seq().len(),
+                        read_range: 0..self.reads[1].seq().len(),
                         dropped: false,
                         ..Default::default()
                     },
