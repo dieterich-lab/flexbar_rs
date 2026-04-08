@@ -595,14 +595,15 @@ mod tests {
     //     //
     //     // CTCCCTGTTCTTAT
     //     //    |\\\\||||||
-    //     //    CTGTCTCTTATCTG
+    //     //    CTGTCTCTTAT...
     //     //
     //     // The legacy seqan library used by the old flexbar found this alignment:
     //     // CTCCCTGT TCTTAT
     //     //     |||| ||||||
-    //     //     CTGTCTCTTATCTG
+    //     //     CTGTCTCTTAT...
     //     //
     //     // This alignment has 10 matches, minus 6 for the opening gab, results in score 4.
+    //     // See also: https://github.com/rust-bio/rust-bio/issues/656
     //     let res = process_with_reference_setup(&r);
     //     assert!(res.record.is_some(), "Should keep read");
     //     assert_eq!(res.record.unwrap().seq(), b"GATAAACAGAGAGCAAGGCCTCTCCCAGGAGGTCACCAAAACTGCCCACCTACCTCCTCCCTAACCCACTGGCTTCTGCTTTCCTCTCTCC");
