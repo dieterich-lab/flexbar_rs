@@ -38,6 +38,44 @@ pub struct RecordInTransformation {
 }
 
 impl RecordInTransformation {
+    pub fn from_dto(record: RecordDto) -> Self {
+        let per_read = match &record {
+            RecordDto::Single(s) => {
+                let len = s.seq().len();
+                [
+                    Some(PerReadAlignmentResults {
+                        read_range: 0..len,
+                        ..Default::default()
+                    }),
+                    None,
+                ]
+            }
+            RecordDto::Paired(p) => {
+                let len0 = p.reads[0].seq().len();
+                let len1 = p.reads[1].seq().len();
+                [
+                    Some(PerReadAlignmentResults {
+                        read_range: 0..len0,
+                        ..Default::default()
+                    }),
+                    Some(PerReadAlignmentResults {
+                        read_range: 0..len1,
+                        ..Default::default()
+                    }),
+                ]
+            }
+        };
+
+        RecordInTransformation {
+            record,
+            alignment_results: AlignmentResults {
+                barcode_tag: None,
+                per_read,
+            },
+            stats: WorkerStatistics::default(),
+        }
+    }
+
     pub fn record_id(&self) -> &str {
         // Prefer unified helper on RecordDto
         self.record.id(None)

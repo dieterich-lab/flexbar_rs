@@ -102,7 +102,7 @@ impl Worker {
     }
 
     pub fn process_record(&self, record: &RecordDto, state: &mut WorkerState) -> FinalRecord {
-        let mut rec_in = record.get_record_in_transformation();
+        let mut rec_in = RecordInTransformation::from_dto(record.clone());
         match record {
             RecordDto::Single(r) => { rec_in.stats.total_bases_read = r.seq().len(); },
             RecordDto::Paired(p) => { rec_in.stats.total_bases_read = p.reads[0].seq().len() + p.reads[1].seq().len(); },

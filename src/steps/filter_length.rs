@@ -130,7 +130,7 @@ mod tests {
         let mut state = filter.create_state();
         
         let record = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII"));
-        let res = filter.apply(record.get_record_in_transformation(), &mut state);
+        let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_length, 0);
     }
@@ -144,7 +144,7 @@ mod tests {
         let mut state = filter.create_state();
         
         let record = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII"));
-        let res = filter.apply(record.get_record_in_transformation(), &mut state);
+        let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_length, 1);
     }
@@ -158,7 +158,7 @@ mod tests {
         let mut state = filter.create_state();
         
         let record = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"A", b"I"));
-        let res = filter.apply(record.get_record_in_transformation(), &mut state);
+        let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
     }
 
@@ -175,7 +175,7 @@ mod tests {
         let r2 = SingeRecordDto::with_attrs("id", None, b"0123456789", b"IIIIIIIIII");
         let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
 
-        let res = step.apply(rec.get_record_in_transformation(), &mut state);
+        let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert!(!res.alignment_results.per_read[1].as_ref().unwrap().dropped);
     }
@@ -193,7 +193,7 @@ mod tests {
         let r2 = SingeRecordDto::with_attrs("id", None, b"012345678", b"IIIIIIIII");
         let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
 
-        let res = step.apply(rec.get_record_in_transformation(), &mut state);
+        let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert!(res.alignment_results.per_read[1].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_length, 2);

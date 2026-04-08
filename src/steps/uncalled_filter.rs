@@ -98,12 +98,12 @@ mod tests {
         let mut state = step.create_state();
 
         let record = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"ACNNNGT", b"IIIIIII"));
-        let res = step.apply(record.get_record_in_transformation(), &mut state);
+        let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_uncalled, 1);
         
         let record2 = RecordDto::Single(SingeRecordDto::with_attrs("read2", None, b"ACNNGT", b"IIIIII"));
-        let res2 = step.apply(record2.get_record_in_transformation(), &mut state);
+        let res2 = step.apply(RecordInTransformation::from_dto(record2), &mut state);
         assert!(!res2.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res2.stats.total_discarded_uncalled, 0);
     }
@@ -119,7 +119,7 @@ mod tests {
         let r1 = SingeRecordDto::with_attrs("read1/1", None, b"ACNNNGT", b"IIIIIII");
         let r2 = SingeRecordDto::with_attrs("read1/2", None, b"ACGT", b"IIII");
         let record = RecordDto::Paired(PairedRecordDto::new(r1, r2));
-        let res = step.apply(record.get_record_in_transformation(), &mut state);
+        let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert!(res.alignment_results.per_read[1].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_uncalled, 2);
@@ -127,7 +127,7 @@ mod tests {
         let r1_2 = SingeRecordDto::with_attrs("read2/1", None, b"ACNNGT", b"IIIIII");
         let r2_2 = SingeRecordDto::with_attrs("read2/2", None, b"ACNNGT", b"IIIIII");
         let record2 = RecordDto::Paired(PairedRecordDto::new(r1_2, r2_2));
-        let res2 = step.apply(record2.get_record_in_transformation(), &mut state);
+        let res2 = step.apply(RecordInTransformation::from_dto(record2), &mut state);
         assert!(!res2.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert!(!res2.alignment_results.per_read[1].as_ref().unwrap().dropped);
         assert_eq!(res2.stats.total_discarded_uncalled, 0);

@@ -77,7 +77,7 @@ mod tests {
         let mut state = step.create_state();
 
         let record = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII"));
-        let res = step.apply(record.get_record_in_transformation(), &mut state);
+        let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range, 5..12);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().bases_pre_trim, 8);
     }
@@ -94,7 +94,7 @@ mod tests {
         let r2 = SingeRecordDto::with_attrs("read1/2", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
         let record = RecordDto::Paired(PairedRecordDto::new(r1, r2));
         
-        let res = step.apply(record.get_record_in_transformation(), &mut state);
+        let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range, 5..12);
         assert_eq!(res.alignment_results.per_read[1].as_ref().unwrap().read_range, 5..12);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().bases_pre_trim, 8);

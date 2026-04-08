@@ -277,7 +277,7 @@ mod tests {
         let step = BarcodeSplitter::new(&args, &context);
         let mut state = step.create_state();
         step.apply(
-            record.get_record_in_transformation(),
+            RecordInTransformation::from_dto(record),
             &mut state
         )
     }
@@ -565,7 +565,7 @@ mod tests {
         let mut state = step.create_state();
         
         let rec = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"AAAAATTTTTAAATTT", b"IIIIIIIIIIIIIIII"));
-        let res = step.apply(rec.get_record_in_transformation(), &mut state);
+        let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
@@ -591,7 +591,7 @@ mod tests {
         let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
         let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
 
-        let rec_in = rec.get_record_in_transformation();
+        let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);
 
         assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));

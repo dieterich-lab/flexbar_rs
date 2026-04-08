@@ -289,7 +289,7 @@ mod tests {
         let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGCCCC", b"IIIIIIIIIIII");
         let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
 
-        let rec_in = rec.get_record_in_transformation();
+        let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);
 
         assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..8);
@@ -315,7 +315,7 @@ mod tests {
         let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGAAAA", b"IIIIIIIIIIII");
         let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
 
-        let rec_in = rec.get_record_in_transformation();
+        let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);
 
         assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..8);
@@ -340,7 +340,7 @@ mod tests {
         let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
         let rec = RecordDto::Single(r1);
 
-        let rec_in = rec.get_record_in_transformation();
+        let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);
 
         assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..8);
