@@ -9,7 +9,6 @@ use crate::steps::post_trim::PostTrimState;
 use crate::steps::barcode_splitter::BarcodeSplitterState;
 use crate::steps::adapter_remover::AdapterRemoverStepState;
 use crate::types::{RecordDto, SingeRecordDto, PairedRecordDto, QualTrimType};
-use crate::workers::util::finalize_read_stats;
 
 pub struct Worker {
     pub pre_trim: Option<PreTrim>,
@@ -130,6 +129,18 @@ impl Worker {
         rec_in = self.filter_length.apply(rec_in, &mut state.filter_length);
         if self.post_trim.post_trim_length > 0 { rec_in = self.post_trim.apply(rec_in, &mut state.post_trim); }
         finalize(rec_in)
+    }
+}
+
+fn finalize_read_stats(stats: &mut crate::statistics::WorkerStatistics, per_read: &crate::steps::generic::PerReadAlignmentResults, original_len: usize) {
+    if per_read.dropped {
+        stats.bases_discarded += original_len;
+    } else {
+        stats.bases_quality_trim += per_read.bases_quality_trim;
+        stats.bases_adapter_removal += per_read.bases_adapter_removal;
+        stats.bases_barcode_removal += per_read.bases_barcode_removal;
+        stats.bases_post_trim += per_read.bases_post_trim;
+        stats.bases_pre_trim += per_read.bases_pre_trim;
     }
 }
 

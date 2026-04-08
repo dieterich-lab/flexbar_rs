@@ -6,7 +6,6 @@ pub mod statistics;
 pub mod logging;
 mod readers;
 mod writers;
-mod workers;
 mod workflow;
 mod steps;
 mod multi_aligner;

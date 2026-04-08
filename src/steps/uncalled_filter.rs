@@ -2,7 +2,20 @@ use crate::args::Args;
 use crate::types::{RecordDto, RunType};
 use crate::steps::generic::{GenericStep, RecordInTransformation, CombinedAligmentResults};
 use crate::context::Context;
-use crate::steps::utils::uncalled_filter::count_uncalled_bases;
+use crate::steps::generic::PerReadAlignmentResults;
+use crate::types::SingeRecordDto;
+
+fn count_uncalled_bases(read: &SingeRecordDto, results: &PerReadAlignmentResults) -> usize {
+    if results.dropped {
+        return 0;
+    }
+    let seq = read.seq();
+    let range = results.read_range.clone();
+    seq[range]
+        .iter()
+        .filter(|&&b| b == b'N' || b == b'n')
+        .count()
+}
 
 pub struct UncalledFilter {
     pub max_uncalled: usize,

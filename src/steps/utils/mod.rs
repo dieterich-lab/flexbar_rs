@@ -1,15 +1,7 @@
 use log::trace;
 use crate::steps::generic::{RecordInTransformation, RecordId};
 
-pub mod single;
-pub mod paired;
 pub mod combined;
-pub mod barcode;
-pub mod quality_trim;
-pub mod adapter_remover;
-pub mod post_trim;
-pub mod pre_trim;
-pub mod uncalled_filter;
 
 pub fn assign_barcode_tag<RecordType, AlignmentResults, T: BarcodeAlignmentResults>(
     rec: &mut RecordInTransformation<RecordType, AlignmentResults>,

@@ -14,7 +14,7 @@ use crate::logging::log_fatal;
 use log::{debug};
 use crate::context;
 use crate::steps::generic::FinalRecord;
-use crate::workers::{Worker, WorkerState};
+use crate::worker::{Worker, WorkerState};
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::thread;
 use std::thread::JoinHandle;
