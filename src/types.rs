@@ -285,6 +285,7 @@ impl PairedRecordDto {
     }
 }
 
+#[derive(Clone)]
 pub enum RecordDto {
     Single(SingeRecordDto),
     Paired(PairedRecordDto),

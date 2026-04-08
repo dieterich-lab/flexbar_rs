@@ -17,6 +17,12 @@ pub struct PerReadAlignmentResults {
     pub bases_pre_trim: usize,
 }
 
+#[derive(Default, Clone)]
+pub struct CombinedAligmentResults {
+    pub barcode_tag: Option<String>,
+    pub per_read: [Option<PerReadAlignmentResults>; 2],
+}
+
 pub struct RecordInTransformation<RecordType, AR> {
     pub record: RecordType,
     pub alignment_results: AR,

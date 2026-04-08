@@ -3,6 +3,7 @@ use crate::steps::generic::{RecordInTransformation, RecordId};
 
 pub mod single;
 pub mod paired;
+pub mod combined;
 pub mod barcode;
 pub mod quality_trim;
 pub mod adapter_remover;
