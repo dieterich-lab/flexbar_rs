@@ -1,6 +1,6 @@
 use crate::args::Args;
 use crate::types::{RecordDto, RunType};
-use crate::steps::generic::{GenericStep, RecordInTransformation, CombinedAligmentResults};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 use crate::steps::generic::PerReadAlignmentResults;
 use crate::types::SingeRecordDto;
@@ -23,7 +23,6 @@ pub struct UncalledFilter {
 
 impl GenericStep<RecordDto> for UncalledFilter {
     type State = ();
-    type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
         match context.run_type {
@@ -44,7 +43,7 @@ impl GenericStep<RecordDto> for UncalledFilter {
         ()
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto, CombinedAligmentResults>, _state: &mut Self::State) -> RecordInTransformation<RecordDto, CombinedAligmentResults> {
+    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, _state: &mut Self::State) -> RecordInTransformation<RecordDto> {
         match &rec.record {
             RecordDto::Single(s) => {
                 let per_read = rec.alignment_results.per_read[0].as_ref().unwrap();

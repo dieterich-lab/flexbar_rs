@@ -1,7 +1,7 @@
 use log::debug;
 use crate::args::Args;
 use crate::context::Context;
-use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable, CombinedAligmentResults};
+use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation, Transformable};
 use crate::steps::{pre_trim::PreTrim, uncalled_filter::UncalledFilter, adapter_remover::AdapterRemoverStep, barcode_splitter::BarcodeSplitter, quality_trim::QualityTrimStep, filter_length::FilterLength, post_trim::PostTrim};
 use crate::steps::pre_trim::PreTrimState;
 use crate::steps::filter_length::FilterLengthState;
@@ -102,7 +102,7 @@ impl Worker {
     }
 
     pub fn process_record(&self, record: &RecordDto, state: &mut WorkerState) -> FinalRecord<RecordDto> {
-        let mut rec_in: RecordInTransformation<RecordDto, CombinedAligmentResults> = record.get_record_in_transformation();
+        let mut rec_in = record.get_record_in_transformation();
         match record {
             RecordDto::Single(r) => { rec_in.stats.total_bases_read = r.seq().len(); },
             RecordDto::Paired(p) => { rec_in.stats.total_bases_read = p.reads[0].seq().len() + p.reads[1].seq().len(); },
@@ -144,7 +144,7 @@ fn finalize_read_stats(stats: &mut crate::statistics::WorkerStatistics, per_read
     }
 }
 
-fn finalize(mut rec: RecordInTransformation<RecordDto, CombinedAligmentResults>) -> FinalRecord<RecordDto> {
+fn finalize(mut rec: RecordInTransformation<RecordDto>) -> FinalRecord<RecordDto> {
     match &rec.record {
         RecordDto::Single(r) => {
             let original_len = r.seq().len();

@@ -1,8 +1,8 @@
 use bio::io::fastq::Record;
 use crate::args::Args;
-use crate::types::{RecordDto, RunType, SingeRecordDto};
+use crate::types::RecordDto;
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation, CombinedAligmentResults};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 
 pub struct FilterLength {
@@ -15,7 +15,6 @@ pub struct FilterLengthState {}
 
 impl GenericStep<RecordDto> for FilterLength {
     type State = FilterLengthState;
-    type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, _context: &Context) -> Self {
         Self {
@@ -29,7 +28,7 @@ impl GenericStep<RecordDto> for FilterLength {
         FilterLengthState {}
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto, CombinedAligmentResults>, _state: &mut Self::State) -> RecordInTransformation<RecordDto, CombinedAligmentResults> {
+    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, _state: &mut Self::State) -> RecordInTransformation<RecordDto> {
         if self.min_read_length == 0 {
             return rec;
         }
@@ -120,7 +119,7 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
-    use crate::types::PairedRecordDto;
+    use crate::types::{PairedRecordDto, RunType, SingeRecordDto};
     use crate::steps::generic::Transformable;
 
     #[test]

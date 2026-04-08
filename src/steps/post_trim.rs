@@ -1,6 +1,6 @@
 use crate::args::Args;
-use crate::types::{RecordDto, RunType};
-use crate::steps::generic::{GenericStep, RecordInTransformation, CombinedAligmentResults};
+use crate::types::RecordDto;
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 use crate::steps::generic::PerReadAlignmentResults;
 
@@ -23,7 +23,6 @@ pub struct PostTrimState {}
 
 impl GenericStep<RecordDto> for PostTrim {
     type State = PostTrimState;
-    type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, _context: &Context) -> Self {
         Self {
@@ -35,7 +34,7 @@ impl GenericStep<RecordDto> for PostTrim {
         PostTrimState {}
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto, CombinedAligmentResults>, _state: &mut Self::State) -> RecordInTransformation<RecordDto, CombinedAligmentResults> {
+    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, _state: &mut Self::State) -> RecordInTransformation<RecordDto> {
         match rec.record {
             RecordDto::Single(_) => {
                 apply_post_trim(rec.alignment_results.per_read[0].as_mut().unwrap(), self.post_trim_length);
@@ -55,8 +54,7 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
-    use crate::types::SingeRecordDto;
-    use crate::types::PairedRecordDto;
+    use crate::types::{RunType, SingeRecordDto, PairedRecordDto};
     use crate::steps::generic::Transformable;
 
     #[test]

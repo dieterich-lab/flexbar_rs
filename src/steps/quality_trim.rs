@@ -1,6 +1,6 @@
 use crate::args::Args;
 use crate::types::{RecordDto, RunType};
-use crate::steps::generic::{GenericStep, RecordInTransformation, CombinedAligmentResults};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 use log::trace;
 use crate::types::{FileFormat, QualTrimType, QualityType, SingeRecordDto};
@@ -127,7 +127,6 @@ pub struct QualityTrimStep {
 
 impl GenericStep<RecordDto> for QualityTrimStep {
     type State = ();
-    type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
         match context.run_type {
@@ -143,7 +142,7 @@ impl GenericStep<RecordDto> for QualityTrimStep {
 
     fn create_state(&self) -> Self::State { () }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto, CombinedAligmentResults>, _state: &mut Self::State) -> RecordInTransformation<RecordDto, CombinedAligmentResults> {
+    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, _state: &mut Self::State) -> RecordInTransformation<RecordDto> {
         match &rec.record {
             RecordDto::Single(s) => {
                 self.inner.trim_read(s, None, rec.alignment_results.per_read[0].as_mut().unwrap(), &mut rec.stats);

@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::types::{RecordDto, AdapterReadset, RunType};
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation, CombinedAligmentResults};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 use crate::multi_aligner::MultiAlignerState;
 use crate::types::{SingeRecordDto, TrimEnd};
@@ -180,7 +180,6 @@ pub struct AdapterRemoverStepState {
 
 impl GenericStep<RecordDto> for AdapterRemoverStep {
     type State = AdapterRemoverStepState;
-    type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
         let inner  = match context.run_type {
@@ -220,7 +219,7 @@ impl GenericStep<RecordDto> for AdapterRemoverStep {
         }
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto, CombinedAligmentResults>, state: &mut Self::State) -> RecordInTransformation<RecordDto, CombinedAligmentResults> {
+    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, state: &mut Self::State) -> RecordInTransformation<RecordDto> {
         match &rec.record {
             RecordDto::Single(s) => {
                 if rec.alignment_results.per_read[0].as_ref().unwrap().dropped { return rec; }

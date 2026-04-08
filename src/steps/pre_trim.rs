@@ -1,6 +1,6 @@
 use crate::args::Args;
-use crate::types::{RecordDto, RunType};
-use crate::steps::generic::{GenericStep, RecordInTransformation, CombinedAligmentResults};
+use crate::types::RecordDto;
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 use crate::steps::generic::PerReadAlignmentResults;
 
@@ -34,7 +34,6 @@ pub struct PreTrimState {}
 
 impl GenericStep<RecordDto> for PreTrim {
     type State = PreTrimState;
-    type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, _context: &Context) -> Self {
         Self {
@@ -47,7 +46,7 @@ impl GenericStep<RecordDto> for PreTrim {
         PreTrimState {}
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto, CombinedAligmentResults>, _state: &mut Self::State) -> RecordInTransformation<RecordDto, CombinedAligmentResults> {
+    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, _state: &mut Self::State) -> RecordInTransformation<RecordDto> {
         match rec.record {
             RecordDto::Single(_) => {
                 apply_pre_trim(rec.alignment_results.per_read[0].as_mut().unwrap(), self.pre_trim_left, self.pre_trim_right);
@@ -66,8 +65,7 @@ impl GenericStep<RecordDto> for PreTrim {
 mod tests {
     use super::*;
     use crate::args::Args;
-    use crate::types::SingeRecordDto;
-    use crate::types::PairedRecordDto;
+    use crate::types::{RunType, SingeRecordDto, PairedRecordDto};
     use crate::steps::generic::Transformable;
     use clap::Parser;
 

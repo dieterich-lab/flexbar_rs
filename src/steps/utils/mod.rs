@@ -3,15 +3,15 @@ use crate::steps::generic::{RecordInTransformation, RecordId};
 
 pub mod combined;
 
-pub fn assign_barcode_tag<RecordType, AlignmentResults, T: BarcodeAlignmentResults>(
-    rec: &mut RecordInTransformation<RecordType, AlignmentResults>,
+pub fn assign_barcode_tag<RecordType>(
+    rec: &mut RecordInTransformation<RecordType>,
     tag: String,
     trace: bool
-) where AlignmentResults: AsMut<T>, RecordType: RecordId {
+) where RecordType: RecordId {
     if trace {
         trace!("Barcode splitter on {}: Assigned tag {}", rec.record_id(), tag);
     }
-    rec.alignment_results.as_mut().set_barcode_tag(Some(tag));
+    rec.alignment_results.set_barcode_tag(Some(tag));
 }
 
 pub trait BarcodeAlignmentResults {

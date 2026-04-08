@@ -1,16 +1,16 @@
 use crate::types::{RecordDto, TrimEnd};
-use crate::steps::generic::{RecordInTransformation, PerReadAlignmentResults, Transformable, RecordId, CombinedAligmentResults};
+use crate::steps::generic::{RecordInTransformation, PerReadAlignmentResults, Transformable, RecordId, AlignmentResults};
 use crate::statistics::WorkerStatistics;
 use crate::steps::utils::BarcodeAlignmentResults;
 
-impl BarcodeAlignmentResults for CombinedAligmentResults {
+impl BarcodeAlignmentResults for AlignmentResults {
     fn set_barcode_tag(&mut self, tag: Option<String>) {
         self.barcode_tag = tag;
     }
 }
 
-impl AsMut<CombinedAligmentResults> for CombinedAligmentResults {
-    fn as_mut(&mut self) -> &mut CombinedAligmentResults {
+impl AsMut<AlignmentResults> for AlignmentResults {
+    fn as_mut(&mut self) -> &mut AlignmentResults {
         self
     }
 }
@@ -24,7 +24,7 @@ impl RecordId for RecordDto {
     }
 }
 
-impl RecordInTransformation<RecordDto, CombinedAligmentResults> {
+impl RecordInTransformation<RecordDto> {
     pub fn get_sequence(&self, read_index: usize) -> &[u8] {
         match &self.record {
             RecordDto::Single(s) => {
@@ -72,13 +72,12 @@ impl RecordInTransformation<RecordDto, CombinedAligmentResults> {
 }
 
 impl Transformable for RecordDto {
-    type AlignmentResults = CombinedAligmentResults;
-    fn get_record_in_transformation(&self) -> RecordInTransformation<RecordDto, CombinedAligmentResults> {
+    fn get_record_in_transformation(&self) -> RecordInTransformation<RecordDto> {
         match self {
             RecordDto::Single(s) => {
                 RecordInTransformation {
                     record: self.clone(),
-                    alignment_results: CombinedAligmentResults {
+                    alignment_results: AlignmentResults {
                         barcode_tag: None,
                         per_read: [
                             Some(PerReadAlignmentResults {
@@ -94,7 +93,7 @@ impl Transformable for RecordDto {
             RecordDto::Paired(p) => {
                 RecordInTransformation {
                     record: self.clone(),
-                    alignment_results: CombinedAligmentResults {
+                    alignment_results: AlignmentResults {
                         barcode_tag: None,
                         per_read: [
                             Some(PerReadAlignmentResults {

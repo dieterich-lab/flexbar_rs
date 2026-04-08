@@ -1,7 +1,7 @@
 use crate::args::Args;
 use crate::types::{RecordDto, TrimEnd, RunType};
 use log::trace;
-use crate::steps::generic::{GenericStep, RecordInTransformation, CombinedAligmentResults};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::utils::assign_barcode_tag;
 use crate::context::{Context, SequenceWithId};
 use crate::multi_aligner::{AlignerConfig, MultiAligner, MultiAlignerSetup, MultiAlignerState};
@@ -57,7 +57,6 @@ fn get_barcode_aligner_config(args: &Args) -> AlignerConfig {
 
 impl GenericStep<RecordDto> for BarcodeSplitter {
     type State = BarcodeSplitterState;
-    type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
         let mut barcodes: [Vec<SequenceWithId>; 2] = [Vec::new(), Vec::new()];
@@ -116,7 +115,7 @@ impl GenericStep<RecordDto> for BarcodeSplitter {
         }
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto, CombinedAligmentResults>, state: &mut Self::State) -> RecordInTransformation<RecordDto, CombinedAligmentResults> {
+    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, state: &mut Self::State) -> RecordInTransformation<RecordDto> {
         let mut best_overall: Option<(usize, MultiAlignerResult)> = None;
 
         let num_reads = match rec.record {
@@ -173,7 +172,7 @@ impl GenericStep<RecordDto> for BarcodeSplitter {
 impl BarcodeSplitter {
     fn handle_umi_tags(
         &self,
-        rec: &mut RecordInTransformation<RecordDto, CombinedAligmentResults>,
+        rec: &mut RecordInTransformation<RecordDto>,
         best: &MultiAlignerResult,
         barcode: &SequenceWithId,
         read_idx: usize,
@@ -195,7 +194,7 @@ impl BarcodeSplitter {
 
     fn remove_barcode(
         &self,
-        rec: &mut RecordInTransformation<RecordDto, CombinedAligmentResults>,
+        rec: &mut RecordInTransformation<RecordDto>,
         best: &MultiAlignerResult,
         read_idx: usize,
     ) {
@@ -220,7 +219,7 @@ impl BarcodeSplitter {
         }
     }
 
-    fn handle_unassigned(&self, rec: &mut RecordInTransformation<RecordDto, CombinedAligmentResults>) {
+    fn handle_unassigned(&self, rec: &mut RecordInTransformation<RecordDto>) {
         if self.barcode_unassigned {
             assign_barcode_tag(rec, "barcode_unassigned".to_string(), self.trace);
         } else {
@@ -250,7 +249,7 @@ mod tests {
     use crate::types::SingeRecordDto;
     use crate::types::PairedRecordDto;
 
-    fn process_record(record: RecordDto, args: Args) -> RecordInTransformation<RecordDto, CombinedAligmentResults>
+    fn process_record(record: RecordDto, args: Args) -> RecordInTransformation<RecordDto>
     {
         let barcodes = vec![
             SequenceWithId {
