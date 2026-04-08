@@ -93,7 +93,7 @@ fn process_batch_orchestrator(
         batch_num += 1;
         debug!("Processing batch {}", batch_num);
 
-        let batch_out: Vec<FinalRecord<RecordDto>> = batch_in
+        let batch_out: Vec<FinalRecord> = batch_in
             .into_par_iter()
             .map(|rec| process_record(&rec, worker))
             .collect();
@@ -167,7 +167,7 @@ thread_local! {
 
 fn process_record(
     record: &RecordDto, worker: &Worker
-) -> FinalRecord<RecordDto> {
+) -> FinalRecord {
     WORKER_STATE.with(|state| {
         let mut state = state.borrow_mut();
         if state.is_none() {

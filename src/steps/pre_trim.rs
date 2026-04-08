@@ -32,7 +32,7 @@ pub struct PreTrim {
 
 pub struct PreTrimState {}
 
-impl GenericStep<RecordDto> for PreTrim {
+impl GenericStep for PreTrim {
     type State = PreTrimState;
 
     fn new(args: &Args, _context: &Context) -> Self {
@@ -46,7 +46,7 @@ impl GenericStep<RecordDto> for PreTrim {
         PreTrimState {}
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, _state: &mut Self::State) -> RecordInTransformation<RecordDto> {
+    fn apply(&self, mut rec: RecordInTransformation, _state: &mut Self::State) -> RecordInTransformation {
         match rec.record {
             RecordDto::Single(_) => {
                 apply_pre_trim(rec.alignment_results.per_read[0].as_mut().unwrap(), self.pre_trim_left, self.pre_trim_right);
@@ -66,7 +66,6 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use crate::types::{RunType, SingeRecordDto, PairedRecordDto};
-    use crate::steps::generic::Transformable;
     use clap::Parser;
 
     #[test]

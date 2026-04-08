@@ -21,7 +21,7 @@ pub struct PostTrim {
 
 pub struct PostTrimState {}
 
-impl GenericStep<RecordDto> for PostTrim {
+impl GenericStep for PostTrim {
     type State = PostTrimState;
 
     fn new(args: &Args, _context: &Context) -> Self {
@@ -34,7 +34,7 @@ impl GenericStep<RecordDto> for PostTrim {
         PostTrimState {}
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, _state: &mut Self::State) -> RecordInTransformation<RecordDto> {
+    fn apply(&self, mut rec: RecordInTransformation, _state: &mut Self::State) -> RecordInTransformation {
         match rec.record {
             RecordDto::Single(_) => {
                 apply_post_trim(rec.alignment_results.per_read[0].as_mut().unwrap(), self.post_trim_length);
@@ -55,7 +55,6 @@ mod tests {
     use crate::args::Args;
     use clap::Parser;
     use crate::types::{RunType, SingeRecordDto, PairedRecordDto};
-    use crate::steps::generic::Transformable;
 
     #[test]
     fn test_post_trim_apply_single() {

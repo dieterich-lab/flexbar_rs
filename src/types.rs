@@ -317,6 +317,13 @@ impl RecordDto {
             _ => panic!("Invalid read index {:?}", read_index),
         }
     }
+    #[inline(always)]
+    pub fn record_id(&self) -> &str {
+        match self {
+            RecordDto::Single(record) => record.id(),
+            RecordDto::Paired(paired) => paired.id(),
+        }
+    }
     implement_by_record_index!(desc, Option<&str>);
     implement_by_record_index!(seq, &[u8]);
     implement_by_record_index!(qual, &[u8]);

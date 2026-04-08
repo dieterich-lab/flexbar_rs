@@ -21,7 +21,7 @@ pub struct UncalledFilter {
     pub max_uncalled: usize,
 }
 
-impl GenericStep<RecordDto> for UncalledFilter {
+impl GenericStep for UncalledFilter {
     type State = ();
 
     fn new(args: &Args, context: &Context) -> Self {
@@ -43,7 +43,7 @@ impl GenericStep<RecordDto> for UncalledFilter {
         ()
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, _state: &mut Self::State) -> RecordInTransformation<RecordDto> {
+    fn apply(&self, mut rec: RecordInTransformation, _state: &mut Self::State) -> RecordInTransformation {
         match &rec.record {
             RecordDto::Single(s) => {
                 let per_read = rec.alignment_results.per_read[0].as_ref().unwrap();
@@ -87,7 +87,6 @@ mod tests {
     use crate::args::Args;
     use crate::types::SingeRecordDto;
     use clap::Parser;
-    use crate::steps::generic::Transformable;
     use crate::types::PairedRecordDto;
 
     #[test]

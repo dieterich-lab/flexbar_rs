@@ -178,7 +178,7 @@ pub struct AdapterRemoverStepState {
     pub states: [Option<MultiAlignerState>; 2],
 }
 
-impl GenericStep<RecordDto> for AdapterRemoverStep {
+impl GenericStep for AdapterRemoverStep {
     type State = AdapterRemoverStepState;
 
     fn new(args: &Args, context: &Context) -> Self {
@@ -219,7 +219,7 @@ impl GenericStep<RecordDto> for AdapterRemoverStep {
         }
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, state: &mut Self::State) -> RecordInTransformation<RecordDto> {
+    fn apply(&self, mut rec: RecordInTransformation, state: &mut Self::State) -> RecordInTransformation {
         match &rec.record {
             RecordDto::Single(s) => {
                 if rec.alignment_results.per_read[0].as_ref().unwrap().dropped { return rec; }
@@ -265,7 +265,7 @@ mod tests {
     use crate::args::Args;
     use crate::context::{Context, SequenceWithId};
     use crate::types::{RecordDto, SingeRecordDto, PairedRecordDto};
-    use crate::steps::generic::{GenericStep, Transformable};
+    use crate::steps::generic::GenericStep;
     use clap::Parser;
 
     #[test]

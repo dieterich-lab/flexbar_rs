@@ -13,7 +13,7 @@ pub struct FilterLength {
 
 pub struct FilterLengthState {}
 
-impl GenericStep<RecordDto> for FilterLength {
+impl GenericStep for FilterLength {
     type State = FilterLengthState;
 
     fn new(args: &Args, _context: &Context) -> Self {
@@ -28,7 +28,7 @@ impl GenericStep<RecordDto> for FilterLength {
         FilterLengthState {}
     }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, _state: &mut Self::State) -> RecordInTransformation<RecordDto> {
+    fn apply(&self, mut rec: RecordInTransformation, _state: &mut Self::State) -> RecordInTransformation {
         if self.min_read_length == 0 {
             return rec;
         }
@@ -120,7 +120,6 @@ mod tests {
     use crate::args::Args;
     use clap::Parser;
     use crate::types::{PairedRecordDto, RunType, SingeRecordDto};
-    use crate::steps::generic::Transformable;
 
     #[test]
     fn test_length_filter_keep_single() {

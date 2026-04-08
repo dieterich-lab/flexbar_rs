@@ -23,37 +23,83 @@ pub struct AlignmentResults {
     pub per_read: [Option<PerReadAlignmentResults>; 2],
 }
 
-pub struct RecordInTransformation<RecordType> {
-    pub record: RecordType,
+impl AlignmentResults {
+    pub fn set_barcode_tag(&mut self, tag: Option<String>) {
+        self.barcode_tag = tag;
+    }
+}
+
+use crate::types::{RecordDto, TrimEnd};
+
+pub struct RecordInTransformation {
+    pub record: RecordDto,
     pub alignment_results: AlignmentResults,
     pub stats: WorkerStatistics,
 }
 
-pub trait RecordId {
-    fn record_id(&self) -> &str;
-}
-
-impl<RecordType> RecordInTransformation<RecordType> where RecordType: RecordId {
+impl RecordInTransformation {
     pub fn record_id(&self) -> &str {
-        self.record.record_id()
+        // Prefer unified helper on RecordDto
+        self.record.id(None)
+    }
+
+    pub fn get_sequence(&self, read_index: usize) -> &[u8] {
+        match &self.record {
+            RecordDto::Single(s) => {
+                if read_index != 0 { panic!("Single read only has index 0"); }
+                &s.seq()[self.alignment_results.per_read[0].as_ref().unwrap().read_range.clone()]
+            }
+            RecordDto::Paired(p) => {
+                &p.reads[read_index].seq()[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]
+            }
+        }
+    }
+
+    pub fn get_qual(&self, read_index: usize) -> &[u8] {
+        match &self.record {
+            RecordDto::Single(s) => {
+                if read_index != 0 { panic!("Single read only has index 0"); }
+                &s.qual()[self.alignment_results.per_read[0].as_ref().unwrap().read_range.clone()]
+            }
+            RecordDto::Paired(p) => {
+                &p.reads[read_index].qual()[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]
+            }
+        }
+    }
+
+    pub fn trim(&mut self, read_index: usize, trim_end: TrimEnd, start: usize, end: usize) {
+        let range = &mut self.alignment_results.per_read[read_index].as_mut().unwrap().read_range;
+        match trim_end {
+            TrimEnd::Right | TrimEnd::RTail => {
+                range.end = range.start + start;
+            }
+            TrimEnd::Left | TrimEnd::LTail => {
+                range.start += end;
+            }
+            TrimEnd::Any => {
+                let current_len = range.end - range.start;
+                let right_length = current_len - end;
+                if start > right_length {
+                    range.end = range.start + start;
+                } else {
+                    range.start += end;
+                }
+            }
+        }
     }
 }
 
-pub trait Transformable {
-    fn get_record_in_transformation(&self) -> RecordInTransformation<Self> where Self: Sized;
-}
-
-pub trait GenericStep<RecordType>: Send + Sync {
+pub trait GenericStep: Send + Sync {
     type State: Send;
     fn new(args: &Args, context: &Context) -> Self;
     fn create_state(&self) -> Self::State;
     fn apply(
-        &self, rec: RecordInTransformation<RecordType>, state: &mut Self::State
-    ) -> RecordInTransformation<RecordType>;
+        &self, rec: RecordInTransformation, state: &mut Self::State
+    ) -> RecordInTransformation;
 }
 
-pub struct FinalRecord<RecordType> {
-    pub record: Option<RecordType>,
+pub struct FinalRecord {
+    pub record: Option<RecordDto>,
     pub output_tag: Option<String>,
     pub stats: WorkerStatistics,
 }

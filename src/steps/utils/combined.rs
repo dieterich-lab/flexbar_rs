@@ -1,78 +1,11 @@
-use crate::types::{RecordDto, TrimEnd};
-use crate::steps::generic::{RecordInTransformation, PerReadAlignmentResults, Transformable, RecordId, AlignmentResults};
+use crate::types::RecordDto;
+use crate::steps::generic::{RecordInTransformation, PerReadAlignmentResults, AlignmentResults};
 use crate::statistics::WorkerStatistics;
-use crate::steps::utils::BarcodeAlignmentResults;
 
-impl BarcodeAlignmentResults for AlignmentResults {
-    fn set_barcode_tag(&mut self, tag: Option<String>) {
-        self.barcode_tag = tag;
-    }
-}
 
-impl AsMut<AlignmentResults> for AlignmentResults {
-    fn as_mut(&mut self) -> &mut AlignmentResults {
-        self
-    }
-}
 
-impl RecordId for RecordDto {
-    fn record_id(&self) -> &str {
-        match self {
-            RecordDto::Single(s) => s.id(),
-            RecordDto::Paired(p) => p.id(),
-        }
-    }
-}
-
-impl RecordInTransformation<RecordDto> {
-    pub fn get_sequence(&self, read_index: usize) -> &[u8] {
-        match &self.record {
-            RecordDto::Single(s) => {
-                if read_index != 0 { panic!("Single read only has index 0"); }
-                &s.seq()[self.alignment_results.per_read[0].as_ref().unwrap().read_range.clone()]
-            }
-            RecordDto::Paired(p) => {
-                &p.reads[read_index].seq()[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]
-            }
-        }
-    }
-
-    pub fn get_qual(&self, read_index: usize) -> &[u8] {
-        match &self.record {
-            RecordDto::Single(s) => {
-                if read_index != 0 { panic!("Single read only has index 0"); }
-                &s.qual()[self.alignment_results.per_read[0].as_ref().unwrap().read_range.clone()]
-            }
-            RecordDto::Paired(p) => {
-                &p.reads[read_index].qual()[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]
-            }
-        }
-    }
-
-    pub fn trim(&mut self, read_index: usize, trim_end: TrimEnd, start: usize, end: usize) {
-        let range = &mut self.alignment_results.per_read[read_index].as_mut().unwrap().read_range;
-        match trim_end {
-            TrimEnd::Right | TrimEnd::RTail => {
-                range.end = range.start + start;
-            }
-            TrimEnd::Left | TrimEnd::LTail => {
-                range.start += end;
-            }
-            TrimEnd::Any => {
-                let current_len = range.end - range.start;
-                let right_length = current_len - end;
-                if start > right_length {
-                    range.end = range.start + start;
-                } else {
-                    range.start += end;
-                }
-            }
-        }
-    }
-}
-
-impl Transformable for RecordDto {
-    fn get_record_in_transformation(&self) -> RecordInTransformation<RecordDto> {
+impl RecordDto {
+    pub fn get_record_in_transformation(&self) -> RecordInTransformation {
         match self {
             RecordDto::Single(s) => {
                 RecordInTransformation {

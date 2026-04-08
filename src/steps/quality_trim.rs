@@ -125,7 +125,7 @@ pub struct QualityTrimStep {
     pub inner: QualityTrim,
 }
 
-impl GenericStep<RecordDto> for QualityTrimStep {
+impl GenericStep for QualityTrimStep {
     type State = ();
 
     fn new(args: &Args, context: &Context) -> Self {
@@ -142,7 +142,7 @@ impl GenericStep<RecordDto> for QualityTrimStep {
 
     fn create_state(&self) -> Self::State { () }
 
-    fn apply(&self, mut rec: RecordInTransformation<RecordDto>, _state: &mut Self::State) -> RecordInTransformation<RecordDto> {
+    fn apply(&self, mut rec: RecordInTransformation, _state: &mut Self::State) -> RecordInTransformation {
         match &rec.record {
             RecordDto::Single(s) => {
                 self.inner.trim_read(s, None, rec.alignment_results.per_read[0].as_mut().unwrap(), &mut rec.stats);
