@@ -8,10 +8,8 @@ pub struct QualityTrimStep {
     pub inner: QualityTrim,
 }
 
-pub struct QualityTrimState {}
-
 impl GenericStep<RecordDto> for QualityTrimStep {
-    type State = QualityTrimState;
+    type State = ();
     type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
@@ -26,9 +24,7 @@ impl GenericStep<RecordDto> for QualityTrimStep {
         }
     }
 
-    fn create_state(&self) -> Self::State {
-        QualityTrimState {}
-    }
+    fn create_state(&self) -> Self::State { () }
 
     fn apply(&self, mut rec: RecordInTransformation<RecordDto, CombinedAligmentResults>, _state: &mut Self::State) -> RecordInTransformation<RecordDto, CombinedAligmentResults> {
         match &rec.record {

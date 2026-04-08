@@ -8,10 +8,8 @@ pub struct UncalledFilter {
     pub max_uncalled: usize,
 }
 
-pub struct UncalledFilterState {}
-
 impl GenericStep<RecordDto> for UncalledFilter {
-    type State = UncalledFilterState;
+    type State = ();
     type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
@@ -30,7 +28,7 @@ impl GenericStep<RecordDto> for UncalledFilter {
     }
 
     fn create_state(&self) -> Self::State {
-        UncalledFilterState {}
+        ()
     }
 
     fn apply(&self, mut rec: RecordInTransformation<RecordDto, CombinedAligmentResults>, _state: &mut Self::State) -> RecordInTransformation<RecordDto, CombinedAligmentResults> {

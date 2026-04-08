@@ -17,13 +17,7 @@ impl GenericStep<RecordDto> for FilterLength {
     type State = FilterLengthState;
     type AlignmentResult = CombinedAligmentResults;
 
-    fn new(args: &Args, context: &Context) -> Self {
-        match context.run_type {
-            RunType::SingleBarcoded | RunType::PairedBarcoded => {
-                panic!("Barcoded run types not implemented yet");
-            }
-            _ => {}
-        }
+    fn new(args: &Args, _context: &Context) -> Self {
         Self {
             min_read_length: args.min_read_length,
             single_reads: args.single_reads,

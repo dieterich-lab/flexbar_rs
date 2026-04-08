@@ -14,13 +14,7 @@ impl GenericStep<RecordDto> for PostTrim {
     type State = PostTrimState;
     type AlignmentResult = CombinedAligmentResults;
 
-    fn new(args: &Args, context: &Context) -> Self {
-        match context.run_type {
-            RunType::SingleBarcoded | RunType::PairedBarcoded => {
-                panic!("Barcoded run types not implemented yet");
-            }
-            _ => {}
-        }
+    fn new(args: &Args, _context: &Context) -> Self {
         Self {
             post_trim_length: args.post_trim_length,
         }

@@ -4,8 +4,7 @@ use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation, CombinedAligmentResults};
 use crate::steps::utils::assign_barcode_tag;
 use crate::context::{Context, SequenceWithId};
-use crate::multi_aligner::{MultiAligner, MultiAlignerSetup, MultiAlignerState};
-use crate::steps::utils::barcode::get_barcode_aligner_config;
+use crate::multi_aligner::{AlignerConfig, MultiAligner, MultiAlignerSetup, MultiAlignerState};
 use crate::multi_aligner::result::MultiAlignerResult;
 
 pub struct BarcodeSplitter {
@@ -34,49 +33,65 @@ impl BarcodeSplitter {
     }
 }
 
+fn get_aligner_setup(name: &str, args: &Args, barcodes: &[SequenceWithId]) -> MultiAlignerSetup {
+    MultiAlignerSetup::new(
+        name.to_string(),
+        args.barcode_trim_end,
+        barcodes,
+        get_barcode_aligner_config(args),
+        args.barcode_kmer
+    )
+}
+
+fn get_barcode_aligner_config(args: &Args) -> AlignerConfig {
+    AlignerConfig {
+        match_score: args.barcode_match,
+        mismatch_score: args.barcode_mismatch,
+        gap_open: args.barcode_gap_open,
+        gap_extend: args.barcode_gap_extend,
+        error_rate: args.barcode_error_rate,
+        min_overlap: args.barcode_min_overlap,
+        cycles: if args.barcode_keep { 1 } else { args.barcode_cycles },
+    }
+}
+
 impl GenericStep<RecordDto> for BarcodeSplitter {
     type State = BarcodeSplitterState;
     type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
+        let mut barcodes: [Vec<SequenceWithId>; 2] = [Vec::new(), Vec::new()];
+        let mut multi_aligner_setups: [Option<MultiAlignerSetup>; 2] = [None, None];
         match context.run_type {
-            RunType::SingleBarcoded | RunType::PairedBarcoded => {
+            RunType::Single => {
+                barcodes[0] = context.barcodes.clone();
+                if !barcodes[0].is_empty() {
+                    multi_aligner_setups[0] = Some(
+                        get_aligner_setup("Barcode Splitter", args, &barcodes[0])
+                    )
+                }
+            },
+            RunType::Paired => {
+                barcodes[0] = context.barcodes.clone();
+                barcodes[1] = context.barcodes.clone();
+                for i in 0..2 {
+                    if !barcodes[i].is_empty() {
+                        multi_aligner_setups[i] = Some(
+                            get_aligner_setup(&format!("Barcode Splitter R{}", i + 1), args, &barcodes[i])
+                        )
+                    }
+                }
+            },
+            _ => {
                 panic!("Barcoded run types not implemented yet");
             }
-            _ => {}
         }
 
-        let barcodes = [
-            context.barcodes.clone(),
-            context.barcodes2.clone(),
-        ];
         let mut multi_aligners: [Option<MultiAligner>; 2] = [None, None];
-        let mut multi_aligner_setups: [Option<MultiAlignerSetup>; 2] = [None, None];
-        
-        // Setup for first read (always present if barcodes are provided for it)
-        if !barcodes[0].is_empty() {
-            let setup = MultiAlignerSetup::new(
-                "Barcode Splitter R1".to_string(),
-                args.barcode_trim_end,
-                &barcodes[0],
-                get_barcode_aligner_config(args),
-                args.barcode_kmer
-            );
-            multi_aligners[0] = Some(setup.create_aligner());
-            multi_aligner_setups[0] = Some(setup);
-        }
-
-        // Setup for second read (only for paired runs)
-        if context.run_type == RunType::Paired && !barcodes[1].is_empty() {
-            let setup = MultiAlignerSetup::new(
-                "Barcode Splitter R2".to_string(),
-                args.barcode_trim_end,
-                &barcodes[1],
-                get_barcode_aligner_config(args),
-                args.barcode_kmer
-            );
-            multi_aligners[1] = Some(setup.create_aligner());
-            multi_aligner_setups[1] = Some(setup);
+        for i in 0..2 {
+            if let Some(setup) = &multi_aligner_setups[i] {
+                multi_aligners[i] = Some(setup.create_aligner());
+            }
         }
 
         Self {

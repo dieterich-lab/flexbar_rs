@@ -19,27 +19,30 @@ impl GenericStep<RecordDto> for AdapterRemoverStep {
     type AlignmentResult = CombinedAligmentResults;
 
     fn new(args: &Args, context: &Context) -> Self {
-        match context.run_type {
-            RunType::SingleBarcoded | RunType::PairedBarcoded => {
+        let inner  = match context.run_type {
+            RunType::Single => {
+                [Some(AdapterRemover::new(args, &context.adapters)), None]
+            },
+            RunType::Paired => {
+                match args.adapter_read_set {
+                    AdapterReadset::One => [
+                        Some(AdapterRemover::new(args, &context.adapters)),
+                        None,
+                    ],
+                    AdapterReadset::Two => [
+                        None,
+                        Some(AdapterRemover::new(args, &context.adapters2)),
+                    ],
+                    AdapterReadset::None => [
+                        Some(AdapterRemover::new(args, &context.adapters)),
+                        Some(AdapterRemover::new(args, &context.adapters2)),
+                    ],
+                }
+            }
+            _ => {
                 panic!("Barcoded run types not implemented yet");
             }
-            _ => {}
-        }
-
-        let (apply1, apply2) = match args.adapter_read_set {
-            AdapterReadset::One => (true, false),
-            AdapterReadset::Two => (false, true),
-            AdapterReadset::None => (true, true),
         };
-
-        let inner = [
-            if apply1 && !context.adapters.is_empty() {
-                Some(AdapterRemover::new(args, &context.adapters))
-            } else { None },
-            if apply2 && !context.adapters2.is_empty() {
-                Some(AdapterRemover::new(args, &context.adapters2))
-            } else { None },
-        ];
 
         Self { inner }
     }
@@ -98,20 +101,13 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use crate::context::{Context, SequenceWithId};
-    use crate::types::{RecordDto, SingeRecordDto, PairedRecordDto, AdapterReadset, TrimEnd};
+    use crate::types::{RecordDto, SingeRecordDto, PairedRecordDto};
     use crate::steps::generic::{GenericStep, Transformable};
     use clap::Parser;
 
     #[test]
     fn test_adapter_removal_paired() {
-        let mut args = Args::parse_from(["flexbar", "--adapter-trim-end", "Right"]);
-        args.adapter_trim_end = TrimEnd::Right;
-        args.adapter_match = 1;
-        args.adapter_mismatch = -1;
-        args.adapter_gap_open = -6;
-        args.adapter_gap_extend = -1;
-        args.adapter_min_overlap = 1;
-
+        let args = Args::parse_from(["flexbar", "--adapter-trim-end", "Right"]);
         let mut context = Context::empty();
         context.run_type = RunType::Paired;
         context.adapters.push(SequenceWithId {
@@ -140,10 +136,7 @@ mod tests {
 
     #[test]
     fn test_adapter_removal_paired_read_set_one() {
-        let mut args = Args::parse_from(["flexbar", "--adapter-trim-end", "Right", "--adapter-read-set", "1"]);
-        args.adapter_trim_end = TrimEnd::Right;
-        args.adapter_read_set = AdapterReadset::One;
-        args.adapter_min_overlap = 1;
+        let args = Args::parse_from(["flexbar", "--adapter-trim-end", "Right", "--adapter-read-set", "1"]);
 
         let mut context = Context::empty();
         context.run_type = RunType::Paired;
@@ -169,13 +162,7 @@ mod tests {
 
     #[test]
     fn test_adapter_removal_single() {
-        let mut args = Args::parse_from(["flexbar", "--adapter-trim-end", "Right"]);
-        args.adapter_trim_end = TrimEnd::Right;
-        args.adapter_match = 1;
-        args.adapter_mismatch = -1;
-        args.adapter_gap_open = -6;
-        args.adapter_gap_extend = -1;
-        args.adapter_min_overlap = 1;
+        let args = Args::parse_from(["flexbar", "--adapter-trim-end", "Right"]);
 
         let mut context = Context::empty();
         context.run_type = RunType::Single;

@@ -15,13 +15,7 @@ impl GenericStep<RecordDto> for PreTrim {
     type State = PreTrimState;
     type AlignmentResult = CombinedAligmentResults;
 
-    fn new(args: &Args, context: &Context) -> Self {
-        match context.run_type {
-            RunType::SingleBarcoded | RunType::PairedBarcoded => {
-                panic!("Barcoded run types not implemented yet");
-            }
-            _ => {}
-        }
+    fn new(args: &Args, _context: &Context) -> Self {
         Self {
             pre_trim_left: args.pre_trim_left,
             pre_trim_right: args.pre_trim_right,
