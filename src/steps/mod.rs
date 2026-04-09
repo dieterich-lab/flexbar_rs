@@ -1,5 +1,4 @@
 pub mod generic;
-pub mod utils;
 
 // Unified steps operating on RecordDto
 pub mod adapter_remover;

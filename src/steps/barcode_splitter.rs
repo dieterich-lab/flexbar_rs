@@ -1,5 +1,5 @@
 use crate::args::Args;
-use crate::types::{RecordDto, TrimEnd, RunType};
+use crate::types::{TrimEnd, RunType};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::{Context, SequenceWithId};
@@ -128,10 +128,7 @@ impl GenericStep for BarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation, state: &mut Self::State) -> RecordInTransformation {
         let mut best_overall: Option<(usize, MultiAlignerResult)> = None;
 
-        let num_reads = match rec.record {
-            RecordDto::Single(_) => 1,
-            RecordDto::Paired(_) => 2,
-        };
+        let num_reads = if rec.record.reads[1].is_some() { 2 } else { 1 };
 
         for read_idx in 0..num_reads {
             if self.multi_aligner_setups[read_idx].is_none() { continue; }
@@ -210,11 +207,9 @@ impl BarcodeSplitter {
     ) {
         if self.barcode_keep { return; }
         
-        let old_len = rec.alignment_results.per_read[read_idx].as_ref().unwrap().read_range.end - rec.alignment_results.per_read[read_idx].as_ref().unwrap().read_range.start;
-        
+        let old_len = rec.get_read_length(read_idx);
         rec.trim(read_idx, self.trim_end, best.get_start_index(), best.get_end_index());
-        
-        let new_len = rec.alignment_results.per_read[read_idx].as_ref().unwrap().read_range.end - rec.alignment_results.per_read[read_idx].as_ref().unwrap().read_range.start;
+        let new_len = rec.get_read_length(read_idx);
         rec.alignment_results.per_read[read_idx].as_mut().unwrap().bases_barcode_removal += old_len - new_len;
 
         if self.removal_tags {
@@ -233,10 +228,7 @@ impl BarcodeSplitter {
         if self.barcode_unassigned {
             assign_barcode_tag(rec, "barcode_unassigned".to_string(), self.trace);
         } else {
-            let num_reads = match rec.record {
-                RecordDto::Single(_) => 1,
-                RecordDto::Paired(_) => 2,
-            };
+            let num_reads = if rec.record.reads[1].is_some() { 2 } else { 1 };
             for read_idx in 0..num_reads {
                 if !rec.alignment_results.per_read[read_idx].as_ref().unwrap().dropped {
                     rec.alignment_results.per_read[read_idx].as_mut().unwrap().dropped = true;
@@ -255,8 +247,7 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
-    use crate::types::SingeRecordDto;
-    use crate::types::PairedRecordDto;
+    use crate::types::{RecordDto, SingeRecordDto};
 
     fn process_record(record: RecordDto, args: Args) -> RecordInTransformation
     {
@@ -268,10 +259,7 @@ mod tests {
         ];
         let context = Context {
             barcodes: barcodes.clone(),
-            run_type: match record {
-                RecordDto::Single(_) => RunType::Single,
-                RecordDto::Paired(_) => RunType::Paired,
-            },
+            run_type: if record.reads[1].is_none() { RunType::Single } else { RunType::Paired },
             ..Context::empty()
         };
         let step = BarcodeSplitter::new(&args, &context);
@@ -283,7 +271,7 @@ mod tests {
     }
 
     fn get_record_not_matching_barcode_single() -> RecordDto {
-        RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII"))
+        RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII"))
     }
 
     #[test]
@@ -310,7 +298,7 @@ mod tests {
     }
 
     fn get_record_with_barcode_at_end_single() -> RecordDto {
-        RecordDto::Single(SingeRecordDto::with_attrs(
+        RecordDto::single(SingeRecordDto::with_attrs(
             "read1",
             None,
             b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAAT",
@@ -337,7 +325,7 @@ mod tests {
     }
 
     fn get_record_with_barcode_at_start_single() -> RecordDto {
-        RecordDto::Single(SingeRecordDto::with_attrs(
+        RecordDto::single(SingeRecordDto::with_attrs(
             "read1",
             None,
             b"AAAAAATAGCTCTGTAGGCACCATCAATCATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG",
@@ -440,7 +428,7 @@ mod tests {
             b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIIIIII9IIIII9IIII"
         );
         let res = process_record(
-            RecordDto::Single(r),
+            RecordDto::single(r),
             Args::parse_from(&[
                 "flexbar_rs",
                 "--reads", "test.fq",
@@ -463,7 +451,7 @@ mod tests {
             b"IIIIIIIIIIIII-II9IIIIIIIIII9I9III9IIIII9IIIII9IIII99IIIII"
         );
         let res = process_record(
-            RecordDto::Single(r),
+            RecordDto::single(r),
             Args::parse_from(&[
                 "flexbar_rs",
                 "--reads", "test.fq",
@@ -486,7 +474,7 @@ mod tests {
             b"99I999-99-9III--I9IIIIIIIIIIIIIII9IIIIIIIIIIII9IIIIIIIII9III-IIIII9II9I"
         );
         let res = process_record(
-            RecordDto::Single(r),
+            RecordDto::single(r),
             Args::parse_from(&[
                 "flexbar_rs",
                 "--reads", "test.fq",
@@ -507,7 +495,7 @@ mod tests {
             b"99I999-99-9III--I9IIIIIIIIIIIIIII9IIIIIIIIIIII9IIIIIIIII9III-IIIII9II9I"
         );
         let res = process_record(
-            RecordDto::Single(r),
+            RecordDto::single(r),
             Args::parse_from(&[
                 "flexbar_rs",
                 "--reads", "test.fq",
@@ -531,7 +519,7 @@ mod tests {
             b"I9I9III9IIIIIIIIIIII9IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII"
         );
         let res = process_record(
-            RecordDto::Single(r),
+            RecordDto::single(r),
             Args::parse_from(&[
                 "flexbar_rs",
                 "--reads", "test.fq",
@@ -564,7 +552,7 @@ mod tests {
         let step = BarcodeSplitter::new(&args, &context);
         let mut state = step.create_state();
         
-        let rec = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"AAAAATTTTTAAATTT", b"IIIIIIIIIIIIIIII"));
+        let rec = RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"AAAAATTTTTAAATTT", b"IIIIIIIIIIIIIIII"));
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
@@ -589,7 +577,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
-        let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
+        let rec = RecordDto::paired(r1, r2);
 
         let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);

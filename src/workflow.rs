@@ -1,16 +1,12 @@
 use std::cell::{RefCell};
+use std::io::BufRead;
 use rayon::prelude::*;
 use crate::args::Args;
-use crate::readers::fasta::{SingleReaderFasta, PairedReaderFasta};
-use crate::readers::fastq::{SingleReaderFastq, PairedReaderFastq};
-use crate::readers::{SequenceReader, get_batch_iter};
 use crate::writers::fasta::{SingleWriterFasta};
 use crate::writers::fastq::{SingleWriterFastq};
-use crate::types::{FileFormat, CompressionType, RecordDto};
-use std::path::Path;
+use crate::types::{CompressionType, RecordDto};
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
-use crate::logging::log_fatal;
 use log::{debug};
 use crate::context;
 use crate::steps::generic::FinalRecord;
@@ -18,16 +14,15 @@ use crate::worker::{Worker, WorkerState};
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::thread;
 use std::thread::JoinHandle;
+use crate::readers::sequence::{SequenceReader, SequenceReaderBatchIterator};
 
 pub fn do_it(args: Args) {
     let context = context::Context::new(&args);
-    let reads_path = args.reads.as_ref().unwrap_or_else(|| {
-        log_fatal("No input reads provided");
-    });
+
     let output_prefix = args.output_reads.as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| args.target.clone());
-    let reader = get_reader(reads_path, args.reads2.as_ref(), context.format, &args);
+    let reader = SequenceReader::create_form_args(&args, &context);
     let compression = get_compression(&reader, &args);
     let worker = Worker::new(&args, &context);
     let writer = get_writer(&args, &output_prefix, compression);
@@ -51,13 +46,13 @@ pub fn do_it(args: Args) {
     stats.print();
 }
 
-fn spawn_reader_thread(
-    mut reader: Box<dyn SequenceReader + Send>,
+fn spawn_reader_thread<Reader: BufRead + Send + 'static>(
+    mut reader: SequenceReader<Reader>,
     batch_in_tx: Sender<Vec<RecordDto>>,
     batch_size: usize,
-) -> JoinHandle<Box<dyn SequenceReader + Send>> {
+) -> JoinHandle<SequenceReader<Reader>> {
     thread::spawn(move || {
-        for batch in get_batch_iter(reader.as_mut(), batch_size) {
+        for batch in SequenceReaderBatchIterator::new(&mut reader, batch_size) {
             if batch_in_tx.send(batch).is_err() {
                 break;
             }
@@ -119,26 +114,9 @@ struct ProcessedBatch {
     stats: WorkerStatistics,
 }
 
-fn get_reader(
-    reads_path: &Path, reads_path2: Option<&std::path::PathBuf>, format: FileFormat, args: &Args
-) -> Box<dyn SequenceReader + Send> {
-    let mut paths = vec![reads_path];
-    if let Some(p) = reads_path2 {
-        paths.push(p);
-    }
-    match (format, reads_path2.is_some()) {
-        (FileFormat::Fasta, false) => Box::new(SingleReaderFasta::create_form_args(paths, args)
-            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA reader: {}", e)))),
-        (FileFormat::Fasta, true) => Box::new(PairedReaderFasta::create_form_args(paths, args)
-            .unwrap_or_else(|e| log_fatal(&format!("Failed to create paired FASTA reader: {}", e)))),
-        (FileFormat::Fastq, false) => Box::new(SingleReaderFastq::create_form_args(paths, args)
-            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ reader: {}", e)))),
-        (FileFormat::Fastq, true) => Box::new(PairedReaderFastq::create_form_args(paths, args)
-            .unwrap_or_else(|e| log_fatal(&format!("Failed to create paired FASTQ reader: {}", e)))),
-    }
-}
-
-fn get_compression(reader: &Box<dyn SequenceReader + Send>, args: &Args) -> CompressionType {
+fn get_compression<Reader: BufRead + Send>(reader: &SequenceReader<Reader>, args: &Args)
+    -> CompressionType
+{
     match args.output_compression {
         Some(CompressionType::Keep) => reader.compression(),
         Some(c) => c,

@@ -1,6 +1,5 @@
 use bio::io::fastq::Record;
 use crate::args::Args;
-use crate::types::RecordDto;
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
@@ -32,71 +31,44 @@ impl GenericStep for FilterLength {
         if self.min_read_length == 0 {
             return rec;
         }
+        let mut good_count = 0;
+        let mut bad_count = 0;
+        let mut is_short = [false; 2];
+    
+        for i in 0..2 {
+            if rec.record.reads[i].is_none() || rec.is_dropped_read(i) { continue }
+            if rec.get_read_length(i) < self.min_read_length {
+                bad_count += 1;
+                is_short[i] = true;
+            } else {
+                good_count += 1;
+            }
+        }
 
-        match &mut rec.record {
-            RecordDto::Single(s) => {
-                let per_read = rec.alignment_results.per_read[0].as_mut().unwrap();
-                if !per_read.dropped {
-                    let current_len = per_read.read_range.end - per_read.read_range.start;
-                    if current_len < self.min_read_length {
-                        trace!("Length filter dropped record: {} (length: {})", s.id(), current_len);
-                        per_read.dropped = true;
+        for i in 0..2 {
+            if is_short[i] {
+                if good_count > 0 && self.single_reads_paired {  // Replace read with N
+                    trace!("Length filter replaced {} with 'N'", rec.read_id(i));
+                    let start = rec.alignment_results.per_read[i].as_ref().unwrap().read_range.start;
+                    rec.alignment_results.per_read[i].as_mut().unwrap().read_range.end = start + 1;
+                    if let Some(old) = &rec.record.reads[i] {
+                        rec.record.reads[i] = Some(get_place_holder_record(old, start));
+                    }
+                    rec.stats.total_single_reads_replaced += 1;
+
+                } else {
+                    rec.drop_read(i);
+                    trace!("Length filter dropped {}: ", rec.read_id(i));
+                    rec.stats.total_discarded_length += 1;
+                    
+                }
+            } else {
+                if rec.record.reads[i].is_some() && !rec.is_dropped_read(i) && bad_count > 0 {
+                    if !self.single_reads_paired && !self.single_reads {
+                        trace!("Length filter dropped {} (other read too short): ", rec.read_id(i));
+                        rec.drop_read(i);
                         rec.stats.total_discarded_length += 1;
                     }
-                }
-            }
-            RecordDto::Paired(p) => {
-                let mut short = [false; 2];
-                let mut good_reads: u32 = 0;
-                for i in 0..2 {
-                    let per_read = rec.alignment_results.per_read[i].as_ref().unwrap();
-                    if !per_read.dropped {
-                        if per_read.read_range.end - per_read.read_range.start < self.min_read_length {
-                            short[i] = true;
-                        } else {
-                            good_reads += 1;
-                        }
-                    }
-                }
-                if good_reads == 2 {
-                    // All fine ...
-                } else if good_reads == 0 {
-                    for i in 0..2 {
-                        if short[i] {
-                            rec.stats.total_discarded_length += 1;
-                            rec.alignment_results.per_read[i].as_mut().unwrap().dropped = true;
-                        }
-                    }
-                    trace!("Length filter dropped paired record: {}", p.id());
-                } else if self.single_reads_paired {
-                    for i in 0..2 {
-                        if short[i] {
-                            let start = rec.alignment_results.per_read[i].as_ref().unwrap().read_range.start;
-                            rec.alignment_results.per_read[i].as_mut().unwrap().read_range.end = start + 1;
-                            p.reads[i] = get_place_holder_record(&p.reads[i], start);
-                            rec.stats.total_single_reads_replaced += 1;
-                            trace!("Length filter replaced R{} with 'N': {}", i + 1, p.id());
-                        }
-                    }
-                } else if self.single_reads {
-                    for i in 0..2 {
-                        if short[i] {
-                            rec.alignment_results.per_read[i].as_mut().unwrap().dropped = true;
-                            rec.stats.total_single_reads_written += 1;
-                            trace!("Length filter dropped R{}, keeping R{}: {}",
-                                i + 1, 2 - i, p.id()
-                            );
-                        }
-                    }
-                } else {
-                    for i in 0..2 {
-                        if !rec.alignment_results.per_read[i].as_ref().unwrap().dropped {
-                            rec.alignment_results.per_read[i].as_mut().unwrap().dropped = true;
-                            rec.stats.total_single_reads_dropped += 1;
-                            rec.stats.total_discarded_length += 1;
-                        }
-                    }
-                    trace!("Length filter dropped paired record: {}", p.id());
                 }
             }
         }
@@ -119,7 +91,7 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
-    use crate::types::{PairedRecordDto, RunType, SingeRecordDto};
+    use crate::types::{RecordDto, RunType, SingeRecordDto};
 
     #[test]
     fn test_length_filter_keep_single() {
@@ -129,7 +101,7 @@ mod tests {
         let filter = FilterLength::new(&args, &context);
         let mut state = filter.create_state();
         
-        let record = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII"));
+        let record = RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII"));
         let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_length, 0);
@@ -143,7 +115,7 @@ mod tests {
         let filter = FilterLength::new(&args, &context);
         let mut state = filter.create_state();
         
-        let record = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII"));
+        let record = RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII"));
         let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_length, 1);
@@ -157,7 +129,7 @@ mod tests {
         let filter = FilterLength::new(&args, &context);
         let mut state = filter.create_state();
         
-        let record = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"A", b"I"));
+        let record = RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"A", b"I"));
         let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
     }
@@ -173,7 +145,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"0123456789", b"IIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("id", None, b"0123456789", b"IIIIIIIIII");
-        let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
+        let rec = RecordDto::paired(r1, r2);
 
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
@@ -191,7 +163,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"012345678", b"IIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("id", None, b"012345678", b"IIIIIIIII");
-        let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
+        let rec = RecordDto::paired(r1, r2);
 
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);

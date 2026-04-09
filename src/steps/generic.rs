@@ -10,6 +10,7 @@ pub struct PerReadAlignmentResults {
     pub removal_tags: Vec<String>,
     pub read_range: Range<usize>,
     pub dropped: bool,
+    // per-read stats - deleted bases
     pub bases_quality_trim: usize,
     pub bases_adapter_removal: usize,
     pub bases_barcode_removal: usize,
@@ -39,32 +40,19 @@ pub struct RecordInTransformation {
 
 impl RecordInTransformation {
     pub fn from_dto(record: RecordDto) -> Self {
-        let per_read = match &record {
-            RecordDto::Single(s) => {
-                let len = s.seq().len();
-                [
-                    Some(PerReadAlignmentResults {
-                        read_range: 0..len,
-                        ..Default::default()
-                    }),
-                    None,
-                ]
-            }
-            RecordDto::Paired(p) => {
-                let len0 = p.reads[0].seq().len();
-                let len1 = p.reads[1].seq().len();
-                [
-                    Some(PerReadAlignmentResults {
-                        read_range: 0..len0,
-                        ..Default::default()
-                    }),
-                    Some(PerReadAlignmentResults {
-                        read_range: 0..len1,
-                        ..Default::default()
-                    }),
-                ]
-            }
-        };
+        let mut per_read: [Option<PerReadAlignmentResults>; 2] = [None, None];
+        if let Some(read) = &record.reads[0] {
+            per_read[0] = Some(PerReadAlignmentResults {
+                read_range: 0..read.seq().len(),
+                ..Default::default()
+            });
+        }
+        if let Some(read) = &record.reads[1] {
+            per_read[1] = Some(PerReadAlignmentResults {
+                read_range: 0..read.seq().len(),
+                ..Default::default()
+            });
+        }
 
         RecordInTransformation {
             record,
@@ -78,30 +66,31 @@ impl RecordInTransformation {
 
     pub fn record_id(&self) -> &str {
         // Prefer unified helper on RecordDto
-        self.record.id(None)
+        self.record.id(0)
+    }
+
+    pub fn read_id(&self, read_index: usize) -> String {
+        if self.record.reads[1].is_some() {
+            let id_str = self.record.reads[read_index].as_ref().unwrap().id();
+            format!("{} (R{})", id_str, read_index + 1).to_string()
+        } else {
+            self.record.reads[read_index].as_ref().unwrap().id().to_string()
+        }
     }
 
     pub fn get_sequence(&self, read_index: usize) -> &[u8] {
-        match &self.record {
-            RecordDto::Single(s) => {
-                if read_index != 0 { panic!("Single read only has index 0"); }
-                &s.seq()[self.alignment_results.per_read[0].as_ref().unwrap().read_range.clone()]
-            }
-            RecordDto::Paired(p) => {
-                &p.reads[read_index].seq()[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]
-            }
+        if let Some(read) = &self.record.reads[read_index] {
+            &read.seq()[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]
+        } else {
+            panic!("Invalid read index {}", read_index);
         }
     }
 
     pub fn get_qual(&self, read_index: usize) -> &[u8] {
-        match &self.record {
-            RecordDto::Single(s) => {
-                if read_index != 0 { panic!("Single read only has index 0"); }
-                &s.qual()[self.alignment_results.per_read[0].as_ref().unwrap().read_range.clone()]
-            }
-            RecordDto::Paired(p) => {
-                &p.reads[read_index].qual()[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]
-            }
+        if let Some(read) = &self.record.reads[read_index] {
+            &read.qual()[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]
+        } else {
+            panic!("Invalid read index {}", read_index);
         }
     }
 
@@ -124,6 +113,24 @@ impl RecordInTransformation {
                 }
             }
         }
+    }
+
+    #[inline]
+    pub fn get_read_length(&self, read_index: usize) -> usize {
+        match self.alignment_results.per_read.get(read_index) {
+            Some(Some(x)) => x.read_range.end - x.read_range.start,
+            _ => panic!("Invalid read index {}", read_index),
+        }
+    }
+
+    #[inline]
+    pub fn drop_read(&mut self, read_index: usize) {
+        self.alignment_results.per_read[read_index].as_mut().unwrap().dropped = true;
+    }
+
+    #[inline]
+    pub fn is_dropped_read(&self, read_index: usize) -> bool {
+        self.alignment_results.per_read[read_index].as_ref().unwrap().dropped
     }
 }
 

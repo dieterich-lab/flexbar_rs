@@ -258,47 +258,31 @@ impl FromStr for AdapterTrimmed {
 
 pub type SingeRecordDto = bio::io::fastq::Record;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct PairedRecordDto {
-    pub reads: [SingeRecordDto; 2],
-}
 
-impl PairedRecordDto {
-    pub fn new(r1: SingeRecordDto, r2: SingeRecordDto) -> Self {
-        Self { reads: [r1, r2] }
-    }
-
-    pub fn id(&self) -> &str {
-        self.reads[0].id()
-    }
-
-    pub fn validate(&self) -> bool {
-        let id1 = self.reads[0].id();
-        let id2 = self.reads[1].id();
-        if id1 == id2 {
-            return true;
-        }
-        if id1.ends_with("/1") && id2.ends_with("/2") {
-            return id1[..id1.len() - 2] == id2[..id2.len() - 2]
-        }
-        false
-    }
-}
-
-#[derive(Clone)]
-pub enum RecordDto {
-    Single(SingeRecordDto),
-    Paired(PairedRecordDto),
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RecordDto {
+    pub reads: [Option<SingeRecordDto>; 2],
 }
 
 macro_rules! implement_by_record_index {
     ($name: ident, $ReturnType: ty) => {
         #[inline(always)]
-        pub fn $name(&self, read_index: Option<usize>) -> $ReturnType {
-            match (self, read_index) {
-                (RecordDto::Single(record), None) => record.$name(),
-                (RecordDto::Paired(paired), Some(0)) => paired.reads[0].$name(),
-                (RecordDto::Paired(paired), Some(1)) => paired.reads[1].$name(),
+        pub fn $name(&self, read_index: usize) -> $ReturnType {
+            match read_index {
+                0 => {
+                    if let Some(read) = &self.reads[0] {
+                        read.$name()
+                    } else {
+                        panic!("Invalid read index {:?}", read_index)
+                    }
+                }
+                1 => {
+                    if let Some(read) = &self.reads[1] {
+                        read.$name()
+                    } else {
+                        panic!("Invalid read index {:?}", read_index)
+                    }
+                }
                 _ => panic!("Invalid read index {:?}", read_index),
             }
         }
@@ -306,25 +290,29 @@ macro_rules! implement_by_record_index {
 }
 
 impl RecordDto {
-    pub fn id(&self, read_index: Option<usize>) -> &str {
-        match (self, read_index) {
-            (RecordDto::Single(record), None) => record.id(),
-            (RecordDto::Paired(paired), Some(0)) => paired.reads[0].id(),
-            (RecordDto::Paired(paired), Some(1)) => paired.reads[1].id(),
-            // We sometimes need an ID for error messages without knowing if it's a single or
-            // paired record. So we allow None here too and just return the first ID.
-            (RecordDto::Paired(paired), None) => paired.reads[0].id(),
-            _ => panic!("Invalid read index {:?}", read_index),
-        }
+    pub fn single(read: SingeRecordDto) -> Self {
+        Self { reads: [Some(read), None] }
     }
-    #[inline(always)]
-    pub fn record_id(&self) -> &str {
-        match self {
-            RecordDto::Single(record) => record.id(),
-            RecordDto::Paired(paired) => paired.id(),
-        }
+
+    pub fn paired(r1: SingeRecordDto, r2: SingeRecordDto) -> Self {
+        Self { reads: [Some(r1), Some(r2)] }
     }
+
+    pub fn is_paired(&self) -> bool {
+        self.reads[1].is_some()
+    }
+
+    implement_by_record_index!(id, &str);
     implement_by_record_index!(desc, Option<&str>);
     implement_by_record_index!(seq, &[u8]);
     implement_by_record_index!(qual, &[u8]);
+
+    #[inline(always)]
+    pub fn record_id(&self) -> &str {
+        if let Some(read) = &self.reads[0] {
+            read.id()
+        } else {
+            panic!("RecordDto has no reads")
+        }
+    }
 }

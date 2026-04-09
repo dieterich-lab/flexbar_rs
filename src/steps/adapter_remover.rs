@@ -1,5 +1,5 @@
 use crate::args::Args;
-use crate::types::{RecordDto, AdapterReadset, RunType};
+use crate::types::{AdapterReadset, RunType};
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
@@ -220,39 +220,20 @@ impl GenericStep for AdapterRemoverStep {
     }
 
     fn apply(&self, mut rec: RecordInTransformation, state: &mut Self::State) -> RecordInTransformation {
-        match &rec.record {
-            RecordDto::Single(s) => {
-                if rec.alignment_results.per_read[0].as_ref().unwrap().dropped { return rec; }
-                if let Some(remover) = &self.inner[0] {
-                    if remover.trace {
-                        trace!("Adapter remover processing record: {}", s.id());
-                    }
-                    remover.remove_adapters(
-                        state.states[0].as_mut().unwrap(),
-                        s,
-                        None,
-                        rec.alignment_results.per_read[0].as_mut().unwrap(),
-                        &mut rec.stats
-                    );
+        for i in 0..2 {
+            if let Some(remover) = &self.inner[i] {
+                if rec.alignment_results.per_read[i].as_ref().unwrap().dropped { continue; }
+                if remover.trace {
+                    let read_id = rec.read_id(i);
+                    trace!("Adapter remover processing read {}", read_id);
                 }
-            }
-            RecordDto::Paired(p) => {
-                for i in 0..2 {
-                    if rec.alignment_results.per_read[i].as_ref().unwrap().dropped { continue; }
-                    
-                    if let Some(remover) = &self.inner[i] {
-                        if remover.trace {
-                            trace!("Adapter remover processing record: {} (R{})", p.id(), i + 1);
-                        }
-                        remover.remove_adapters(
-                            state.states[i].as_mut().unwrap(),
-                            &p.reads[i],
-                            Some(i),
-                            rec.alignment_results.per_read[i].as_mut().unwrap(),
-                            &mut rec.stats
-                        );
-                    }
-                }
+                remover.remove_adapters(
+                    state.states[i].as_mut().unwrap(),
+                    &rec.record.reads[i].as_ref().unwrap(),
+                    Some(i),
+                    rec.alignment_results.per_read[i].as_mut().unwrap(),
+                    &mut rec.stats
+                );
             }
         }
         rec
@@ -264,7 +245,7 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use crate::context::{Context, SequenceWithId};
-    use crate::types::{RecordDto, SingeRecordDto, PairedRecordDto};
+    use crate::types::{RecordDto, SingeRecordDto};
     use crate::steps::generic::GenericStep;
     use clap::Parser;
 
@@ -287,7 +268,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGCCCC", b"IIIIIIIIIIII");
-        let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
+        let rec = RecordDto::paired(r1, r2);
 
         let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);
@@ -313,7 +294,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGAAAA", b"IIIIIIIIIIII");
-        let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
+        let rec = RecordDto::paired(r1, r2);
 
         let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);
@@ -338,7 +319,7 @@ mod tests {
         let mut state = step.create_state();
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
-        let rec = RecordDto::Single(r1);
+        let rec = RecordDto::single(r1);
 
         let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);

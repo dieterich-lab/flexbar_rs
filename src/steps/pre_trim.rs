@@ -1,5 +1,4 @@
 use crate::args::Args;
-use crate::types::RecordDto;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 use crate::steps::generic::PerReadAlignmentResults;
@@ -47,15 +46,9 @@ impl GenericStep for PreTrim {
     }
 
     fn apply(&self, mut rec: RecordInTransformation, _state: &mut Self::State) -> RecordInTransformation {
-        match rec.record {
-            RecordDto::Single(_) => {
-                apply_pre_trim(rec.alignment_results.per_read[0].as_mut().unwrap(), self.pre_trim_left, self.pre_trim_right);
-            }
-            RecordDto::Paired(_) => {
-                for i in 0..2 {
-                    apply_pre_trim(rec.alignment_results.per_read[i].as_mut().unwrap(), self.pre_trim_left, self.pre_trim_right);
-                }
-            }
+        for i in 0..2 {
+            if rec.record.reads[i].is_none() || rec.is_dropped_read(i) { continue }
+            apply_pre_trim(rec.alignment_results.per_read[i].as_mut().unwrap(), self.pre_trim_left, self.pre_trim_right);
         }
         rec
     }
@@ -65,7 +58,8 @@ impl GenericStep for PreTrim {
 mod tests {
     use super::*;
     use crate::args::Args;
-    use crate::types::{RunType, SingeRecordDto, PairedRecordDto};
+    use crate::types::{RunType, SingeRecordDto};
+    use crate::types::RecordDto;
     use clap::Parser;
 
     #[test]
@@ -76,7 +70,7 @@ mod tests {
         let step = PreTrim::new(&args, &context);
         let mut state = step.create_state();
 
-        let record = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII"));
+        let record = RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII"));
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range, 5..12);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().bases_pre_trim, 8);
@@ -92,7 +86,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("read1/1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("read1/2", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
-        let record = RecordDto::Paired(PairedRecordDto::new(r1, r2));
+        let record = RecordDto::paired(r1, r2);
         
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range, 5..12);

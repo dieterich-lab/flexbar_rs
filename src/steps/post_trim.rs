@@ -1,19 +1,6 @@
 use crate::args::Args;
-use crate::types::RecordDto;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
-use crate::steps::generic::PerReadAlignmentResults;
-
-fn apply_post_trim(per_read: &mut PerReadAlignmentResults, post_trim_length: usize) {
-    if per_read.dropped || post_trim_length == 0 {
-        return;
-    }
-    let current_length = per_read.read_range.end - per_read.read_range.start;
-    if current_length > post_trim_length {
-        per_read.bases_post_trim += current_length - post_trim_length;
-        per_read.read_range.end = per_read.read_range.start + post_trim_length;
-    }
-}
 
 pub struct PostTrim {
     pub post_trim_length: usize,
@@ -35,14 +22,13 @@ impl GenericStep for PostTrim {
     }
 
     fn apply(&self, mut rec: RecordInTransformation, _state: &mut Self::State) -> RecordInTransformation {
-        match rec.record {
-            RecordDto::Single(_) => {
-                apply_post_trim(rec.alignment_results.per_read[0].as_mut().unwrap(), self.post_trim_length);
-            }
-            RecordDto::Paired(_) => {
-                for i in 0..2 {
-                    apply_post_trim(rec.alignment_results.per_read[i].as_mut().unwrap(), self.post_trim_length);
-                }
+        for i in 0..2 {
+            if rec.record.reads[i].is_none() || rec.is_dropped_read(i) { continue }
+            let read_length = rec.get_read_length(i);
+            if read_length > self.post_trim_length {
+                let start = rec.alignment_results.per_read[i].as_ref().unwrap().read_range.start;
+                rec.alignment_results.per_read[i].as_mut().unwrap().read_range.end = start + self.post_trim_length;
+                rec.alignment_results.per_read[i].as_mut().unwrap().bases_post_trim = read_length - self.post_trim_length;
             }
         }
         rec
@@ -54,7 +40,7 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
-    use crate::types::{RunType, SingeRecordDto, PairedRecordDto};
+    use crate::types::{RecordDto, RunType, SingeRecordDto};
 
     #[test]
     fn test_post_trim_apply_single() {
@@ -64,7 +50,7 @@ mod tests {
         let step = PostTrim::new(&args, &context);
         let mut state = step.create_state();
 
-        let record = RecordDto::Single(SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII"));
+        let record = RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII"));
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..10);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().bases_post_trim, 5);
@@ -81,7 +67,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("id", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
-        let rec = RecordDto::Paired(PairedRecordDto::new(r1, r2));
+        let rec = RecordDto::paired(r1, r2);
 
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..10);

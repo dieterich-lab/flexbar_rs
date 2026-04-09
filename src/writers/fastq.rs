@@ -10,7 +10,7 @@ impl<'a> GenericWriterBackend<'a> for FastqBackend<'a> {
         fastq::Writer::new(writer)
     }
 
-    fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()> {
+    fn write_read(&mut self, record: &SingeRecordDto) -> io::Result<()> {
         self.write_record(record)
     }
 
@@ -35,7 +35,7 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
             let mut writer: SingleWriterFastq = crate::writers::generic::get_test_writer(buffers.clone());
-            let record = RecordDto::Single(SingeRecordDto::with_attrs(
+            let record = RecordDto::single(SingeRecordDto::with_attrs(
                 "id1", Some("desc1"), b"ACGT", b"!!!!"
             ));
             writer.write(&record, None).expect("Failed to write record");

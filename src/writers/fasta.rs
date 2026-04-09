@@ -10,7 +10,7 @@ impl<'a> GenericWriterBackend<'a> for FastaBackend<'a> {
         fasta::Writer::new(writer)
     }
 
-    fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()> {
+    fn write_read(&mut self, record: &SingeRecordDto) -> io::Result<()> {
         let fasta_record = fasta::Record::with_attrs(
             record.id(),
             record.desc(),
@@ -38,7 +38,7 @@ mod tests {
         let buffers = Arc::new(Mutex::new(std::collections::HashMap::new()));
         {
             let mut writer: SingleWriterFasta = crate::writers::generic::get_test_writer(buffers.clone());
-            let record = RecordDto::Single(SingeRecordDto::with_attrs(
+            let record = RecordDto::single(SingeRecordDto::with_attrs(
                 "id1", Some("desc1"), b"ACGT", b"!!!!"
             ));
             writer.write(&record, None).expect("Failed to write record");

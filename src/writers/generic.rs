@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 pub trait GenericWriterBackend<'a>: Send {
     fn new(writer: Box<dyn Write + Send + 'a>) -> Self;
-    fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()>;
+    fn write_read(&mut self, record: &SingeRecordDto) -> io::Result<()>;
     fn get_extension() -> &'static str;
 }
 
@@ -99,21 +99,15 @@ pub fn get_test_writer<'a, B: GenericWriterBackend<'a>>(
 impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
     fn write(&mut self, record: &RecordDto, tag: Option<&str>) -> io::Result<()>
     {
-        match record {
-            RecordDto::Single(rec) => {
-                let backend = self.get_backend(tag, None)?;
-                backend.write_record(rec)?;
+        let paired = record.is_paired();
+        for i in 0..2 {
+            if let Some(Some(read)) = record.reads.get(i) {
+                if read.seq().is_empty() { continue; }
+                let read_index = if paired { Some(i) } else { None };
+                let backend = self.get_backend(tag, read_index)?;
+                backend.write_read(&read)?;
                 self.statistics.total_records_written += 1;
-                self.statistics.total_bases_written += rec.seq().len();
-            }
-            RecordDto::Paired(paired) => {
-                for i in 0..2 {
-                    if paired.reads[i].seq().is_empty() { continue; }
-                    let backend = self.get_backend(tag, Some(i))?;
-                    backend.write_record(&paired.reads[i])?;
-                    self.statistics.total_records_written += 1;
-                    self.statistics.total_bases_written += paired.reads[i].seq().len();
-                }
+                self.statistics.total_bases_written += read.seq().len();
             }
         }
 
@@ -125,7 +119,7 @@ impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
                 }
             }
         }
-        trace!("Writer processed record: {} with tag: {:?}", record.id(None), tag);
+        trace!("Writer processed record: {} with tag: {:?}", record.id(0), tag);
         Ok(())
     }
 
@@ -137,14 +131,14 @@ impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{SingeRecordDto, PairedRecordDto};
+    use crate::types::{SingeRecordDto};
 
     struct TestBackend<'a> {
         writer: Box<dyn Write + Send + 'a>,
     }
     impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
         fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { writer } }
-        fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()> {
+        fn write_read(&mut self, record: &SingeRecordDto) -> io::Result<()> {
             self.writer.write_all(record.id().as_bytes())
         }
         fn get_extension() -> &'static str { "txt" }
@@ -155,7 +149,7 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
             let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
-            let record = RecordDto::Single(
+            let record = RecordDto::single(
                 SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!")
             );
             writer.write(&record, None).unwrap();
@@ -171,7 +165,7 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
             let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
-            let record = RecordDto::Single(SingeRecordDto::with_attrs(
+            let record = RecordDto::single(SingeRecordDto::with_attrs(
                 "id1", None, b"ACGT", b"!!!!"
             ));
             
@@ -203,7 +197,7 @@ mod tests {
         
         {
             let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
-            let rec1 = RecordDto::Single(SingeRecordDto::with_attrs(
+            let rec1 = RecordDto::single(SingeRecordDto::with_attrs(
                 "R1", None, b"A", b"I"
             ));
             
@@ -222,7 +216,7 @@ mod tests {
         
         {
             let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
-            let rec1 = RecordDto::Single(SingeRecordDto::with_attrs(
+            let rec1 = RecordDto::single(SingeRecordDto::with_attrs(
                 "R1", None, b"A", b"I"
             ));
             
@@ -244,10 +238,10 @@ mod tests {
         
         {
             let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
-            let rec1 = RecordDto::Single(SingeRecordDto::with_attrs(
+            let rec1 = RecordDto::single(SingeRecordDto::with_attrs(
                 "R1", None, b"A", b"I"
             ));
-            let rec2 = RecordDto::Single(SingeRecordDto::with_attrs(
+            let rec2 = RecordDto::single(SingeRecordDto::with_attrs(
                 "R2", None, b"A", b"I"
             ));
             
@@ -274,7 +268,7 @@ mod tests {
             let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
             let rec1 = SingeRecordDto::with_attrs("R1", None, b"A", b"I");
             let rec2 = SingeRecordDto::with_attrs("R2", None, b"T", b"J");
-            let paired = RecordDto::Paired(PairedRecordDto::new(rec1, rec2));
+            let paired = RecordDto::paired(rec1, rec2);
             
             writer.write(&paired, Some("tagA")).unwrap();
         }
