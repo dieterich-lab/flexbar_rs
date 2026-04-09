@@ -5,7 +5,7 @@ use crate::logging::log_fatal;
 use crate::args::Args;
 use crate::context::Context;
 use crate::readers::backends::generic::GenericReaderBackend;
-use crate::readers::backends::{ReaderBackend, ReaderBackendError};
+use crate::readers::backends::{ReaderBackend};
 use crate::readers::backends::fasta::FastaBackend;
 use crate::readers::backends::fastq::FastqBackend;
 use crate::statistics::ReaderStatistics;
@@ -13,7 +13,6 @@ use crate::utils::io::get_raw_reader;
 
 pub struct SequenceReader<Reader: BufRead + Send> {
     backends: [Option<ReaderBackend<Reader>>; 2],
-    source: String,
     compression: CompressionType,
     last_id: String,
     statistics: ReaderStatistics,
@@ -26,14 +25,17 @@ pub struct SequenceReader<Reader: BufRead + Send> {
 impl<Reader: BufRead + Send> SequenceReader<Reader> {
     pub fn new(
         readers: Vec<Reader>,
-        source: String,
+        sources: Vec<String>,
         file_format: FileFormat,
         compression: CompressionType,
         skip: usize,
         count: Option<usize>,
         trace: bool,
     ) -> Self {
-        debug!("Creating new sequence reader with source {}:", source);
+        debug!("Creating new sequence reader with source:");
+        for (i, source) in sources.iter().enumerate() {
+            debug!("- Source {}: {}", i+1, source);
+        }
         debug!("- Format: {:?}", file_format);
         debug!("- Compression: {:?}", compression);
         debug!("- Skip {}/Count {:?}", skip, count);
@@ -43,13 +45,16 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
         }
         for (i, reader) in readers.into_iter().enumerate() {
             backends[i] = match file_format {
-                FileFormat::Fasta => Some(ReaderBackend::Fasta(FastaBackend::new(reader))),
-                FileFormat::Fastq => Some(ReaderBackend::Fastq(FastqBackend::new(reader))),
+                FileFormat::Fasta => Some(
+                    ReaderBackend::Fasta(FastaBackend::new(reader, &sources[i]))
+                ),
+                FileFormat::Fastq => Some(
+                    ReaderBackend::Fastq(FastqBackend::new(reader, &sources[i]))
+                ),
             };
         }
         Self {
             backends,
-            source,
             compression,
             last_id: String::new(),
             statistics: crate::statistics::ReaderStatistics::default(),
@@ -60,22 +65,22 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
         }
     }
 
-    fn read_record(&mut self) -> Result<Option<RecordDto>, ReaderBackendError<Reader>> {
+    fn read_record(&mut self) -> Option<RecordDto> {
         if self.backends[1].is_none() {
-            let rec = self.backends[0].as_mut().unwrap().read_record()?;
+            let rec = self.backends[0].as_mut().unwrap().read_record();
             if rec.is_none() {
-                return Ok(None);
+                return None;
             }
-            Ok(Some(RecordDto::single(rec.unwrap())))
+            Some(RecordDto::single(rec.unwrap()))
         } else {
             let mut records: [Option<SingeRecordDto>; 2] = [None, None];
             for i in 0..2 {
-                records[i] = self.backends[i].as_mut().unwrap().read_record()?;
+                records[i] = self.backends[i].as_mut().unwrap().read_record();
             }
             match records {
-                [None, None] => Ok(None),
+                [None, None] => None,
                 [Some(r1), Some(r2)] => {
-                    Ok(Some(RecordDto::paired(r1, r2)))
+                    Some(RecordDto::paired(r1, r2))
                 },
                 _ => {
                     log_fatal("Paired files have different number of records.");
@@ -94,19 +99,11 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
 
     fn try_get_record(&mut self) -> Option<RecordDto> {
         match self.read_record() {
-            Ok(Some(record)) => {
+            Some(record) => {
                 self.last_id = Self::truncate_id(record.id(0));
                 Some(record)
             },
-            Ok(None) => None,
-            Err(e) => {
-                let context = if self.last_id.is_empty() {
-                    " (no records processed yet)".to_string()
-                } else {
-                    format!(" (last successful record ID: {})", self.last_id)
-                };
-                log_fatal(&format!("Error reading from {}: {}{}", self.source, e, context));
-            }
+            None => None,
         }
     }
 
@@ -163,14 +160,7 @@ impl SequenceReader<io::BufReader<Box<dyn io::Read + Send>>>
                 }
             }
         }
-
-        let source = if sources.len() == 1 {
-            sources[0].clone()
-        } else {
-            format!("paired files: {}, {}", sources[0], sources[1])
-        };
-
-        Self::new(readers, source, context.format, compression, args.skip, args.count, args.trace)
+        Self::new(readers, sources, context.format, compression, args.skip, args.count, args.trace)
     }
 }
 
@@ -257,7 +247,7 @@ mod tests {
         let mut gen_reader: SequenceReader<_> =
             SequenceReader::new(
                 vec![reader],
-                "test.fq".to_string(),
+                vec!["test".to_string()],
                 FileFormat::Fastq,
                 CompressionType::Uncompressed,
                 0,
@@ -281,7 +271,7 @@ mod tests {
         let mut gen_reader: SequenceReader<_> =
             SequenceReader::new(
                 vec![reader1, reader2],
-                "test.fq".to_string(),
+                vec!["test1".to_string(), "test2".to_string()],
                 FileFormat::Fastq,
                 CompressionType::Uncompressed,
                 0,
