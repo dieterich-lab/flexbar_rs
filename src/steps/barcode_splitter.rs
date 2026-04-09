@@ -82,7 +82,7 @@ impl GenericStep for BarcodeSplitter {
             },
             RunType::Paired => {
                 barcodes[0] = context.barcodes.clone();
-                barcodes[1] = context.barcodes.clone();
+                barcodes[1] = context.barcodes2.clone();
                 for i in 0..2 {
                     if !barcodes[i].is_empty() {
                         multi_aligner_setups[i] = Some(
@@ -585,5 +585,122 @@ mod tests {
         assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
         assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..8);
         assert_eq!(result.alignment_results.per_read[1].as_ref().unwrap().read_range, 0..12);
+    }
+
+    #[test]
+    fn test_barcode_splitting_paired_only_read1() {
+        let mut args = Args::parse_from(["flexbar", "--barcode-trim-end", "Right"]);
+        args.barcode_trim_end = TrimEnd::Right;
+        args.barcode_min_overlap = Some(4);
+
+        let mut context = Context::empty();
+        context.run_type = RunType::Paired;
+        context.barcodes.push(SequenceWithId {
+            id: "bc1".to_string(),
+            sequence: "AAAA".to_string(),
+        });
+
+        let step = BarcodeSplitter::new(&args, &context);
+        let mut state = step.create_state();
+
+        // Barcode in R1, should be detected
+        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let rec = RecordDto::paired(r1, r2);
+        let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
+        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..8);
+        assert_eq!(result.alignment_results.per_read[1].as_ref().unwrap().read_range, 0..12);
+
+        // Barcode in R2, but not in R1. Should NOT be detected because context.barcodes2 is empty.
+        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
+        let rec = RecordDto::paired(r1, r2);
+        let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
+        // It should NOT be bc1 because that's only for R1.
+        assert!(result.alignment_results.barcode_tag.is_none());
+        assert!(result.alignment_results.per_read[0].as_ref().unwrap().dropped);
+    }
+
+    #[test]
+    fn test_barcode_splitting_paired_only_read2() {
+        let mut args = Args::parse_from(["flexbar", "--barcode-trim-end", "Right"]);
+        args.barcode_trim_end = TrimEnd::Right;
+        args.barcode_min_overlap = Some(4);
+
+        let mut context = Context::empty();
+        context.run_type = RunType::Paired;
+        context.barcodes2.push(SequenceWithId {
+            id: "bc2".to_string(),
+            sequence: "CCCC".to_string(),
+        });
+
+        let step = BarcodeSplitter::new(&args, &context);
+        let mut state = step.create_state();
+
+        // Barcode in R2, should be detected
+        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
+        let rec = RecordDto::paired(r1, r2);
+        let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
+        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc2".to_string()));
+        assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..12);
+        assert_eq!(result.alignment_results.per_read[1].as_ref().unwrap().read_range, 0..8);
+
+        // Barcode in R1, but context.barcodes is empty. Should NOT be detected.
+        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let rec = RecordDto::paired(r1, r2);
+        let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
+        assert!(result.alignment_results.barcode_tag.is_none());
+        assert!(result.alignment_results.per_read[1].as_ref().unwrap().dropped);
+    }
+
+    #[test]
+    fn test_barcode_splitting_paired_both_reads_different_barcodes() {
+        let mut args = Args::parse_from(["flexbar", "--barcode-trim-end", "Right"]);
+        args.barcode_trim_end = TrimEnd::Right;
+        args.barcode_min_overlap = Some(4);
+
+        let mut context = Context::empty();
+        context.run_type = RunType::Paired;
+        context.barcodes.push(SequenceWithId {
+            id: "bc1".to_string(),
+            sequence: "AAAA".to_string(),
+        });
+        context.barcodes2.push(SequenceWithId {
+            id: "bc2".to_string(),
+            sequence: "CCCC".to_string(),
+        });
+
+        let step = BarcodeSplitter::new(&args, &context);
+        let mut state = step.create_state();
+
+        // bc1 in R1, bc2 in R2. Should detect both, but BarcodeSplitter picks the BEST one (they likely score same).
+        // Let's make them clearly different.
+        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII"); // Score for AAAA in R1
+        let r2 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII"); // Score for CCCC in R2
+        let rec = RecordDto::paired(r1, r2);
+        let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
+        
+        // It will pick one of them.
+        assert!(result.alignment_results.barcode_tag == Some("barcode_bc1".to_string()) || 
+                result.alignment_results.barcode_tag == Some("barcode_bc2".to_string()));
+
+        // Case: bc1 in R2 (WRONG READ). Should NOT be detected because bc1 is in context.barcodes (for R1).
+        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
+        let rec = RecordDto::paired(r1, r2);
+        let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
+        // It will NOT find bc1 in R2 because bc1 is not in context.barcodes2.
+        // It will NOT find anything in R1.
+        assert!(result.alignment_results.barcode_tag.is_none() || result.alignment_results.barcode_tag != Some("barcode_bc1".to_string()));
+        
+        // Case: bc2 in R1 (WRONG READ). Should NOT be detected.
+        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let rec = RecordDto::paired(r1, r2);
+        let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
+        assert!(result.alignment_results.barcode_tag.is_none() || result.alignment_results.barcode_tag != Some("barcode_bc2".to_string()));
     }
 }
