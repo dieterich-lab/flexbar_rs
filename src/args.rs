@@ -3,7 +3,6 @@ use clap::Parser;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::PathBuf;
-use log::warn;
 use crate::logging::log_fatal;
 
 #[derive(Parser, Debug, Serialize, Deserialize, Clone)]
@@ -45,14 +44,11 @@ pub struct Args {
     #[arg(long = "barcode-reads", alias = "br")]
     pub barcode_reads: Option<PathBuf>,
 
-    /// Minimum overlap of barcode and read. Values below 10 are not supported
-    /// and may cause the aligner to fail with errors like "Cutoff is too low to
-    /// detect the pattern". Defaults to the minimum length of the supplied
-    /// barcodes.
+    /// Minimum overlap of barcode and read
     #[arg(long = "barcode-min-overlap", alias = "bo")]
     pub barcode_min_overlap: Option<usize>,
 
-    /// Error rate threshold for mismatches and gaps - maximum 0.1
+    /// Error rate threshold for mismatches and gaps
     #[arg(long = "barcode-error-rate", alias = "be", default_value_t = 0.0)]
     pub barcode_error_rate: f32,
 
@@ -514,16 +510,6 @@ impl Args {
                 }
             }
             _ => {}
-        }
-        if self.barcode_error_rate > 0.1 {
-            log_fatal("--barcode-error-rate must be less than 0.1.");
-        }
-        match self.barcode_min_overlap {
-            Some(x) => if x < 10 {
-                warn!("--barcode-min-overlap is below 10 ({})." , x);
-                warn!("You may see \"Cutoff is too low to detect the pattern\" errors.");
-            },
-            None => ()
         }
     }
 }

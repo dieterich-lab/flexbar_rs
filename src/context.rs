@@ -256,15 +256,11 @@ impl Context {
         }
 
         if let Some(barcode_file) = &args.barcodes {
-            let b = self.load_fasta_file(barcode_file);
-            self.check_barcodes(&args, &b, "barcodes");
-            self.barcodes = b;
+            self.barcodes = self.load_fasta_file(barcode_file);
         }
 
         if let Some(barcode_file2) = &args.barcodes2 {
-            let b =  self.load_fasta_file(barcode_file2);
-            self.check_barcodes(&args, &b, "barcodes2");
-            self.barcodes2 = b;
+            self.barcodes2 = self.load_fasta_file(barcode_file2);
         }
 
         self.apply_revcomp(args.adapter_revcomp);
@@ -387,21 +383,6 @@ impl Context {
             }
         }
         barcodes
-    }
-
-    fn check_barcodes(&self, args: &Args, barcodes: &Vec<SequenceWithId>, desc: &str) {
-        let min_length_barcodes = barcodes.iter()
-            .map(|b| b.sequence.len())
-            .min()
-            .unwrap_or(0);
-        if let Some(x) = args.barcode_min_overlap && x > min_length_barcodes {
-            warn!("WARNING: Some of your barcodes are shorter than the --barcode-min-overlap.");
-            warn!("WARNING: You will not detect these barcodes.");
-        }
-        if min_length_barcodes < 10 {
-            warn!("WARNING: Some of your {} are shorter than 10 bases.", desc);
-            warn!("WARNING: You may see \"Cutoff is too low to detect the pattern\" errors.");
-        }
     }
 
     fn format_last_successful(&self, last_successful: Option<SequenceWithId>) -> String {
