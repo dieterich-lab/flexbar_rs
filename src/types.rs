@@ -262,6 +262,7 @@ pub type SingeRecordDto = bio::io::fastq::Record;
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecordDto {
     pub reads: [Option<SingeRecordDto>; 2],
+    pub barcode_read: Option<SingeRecordDto>
 }
 
 macro_rules! implement_by_record_index {
@@ -291,11 +292,11 @@ macro_rules! implement_by_record_index {
 
 impl RecordDto {
     pub fn single(read: SingeRecordDto) -> Self {
-        Self { reads: [Some(read), None] }
+        Self { reads: [Some(read), None], barcode_read: None }
     }
 
     pub fn paired(r1: SingeRecordDto, r2: SingeRecordDto) -> Self {
-        Self { reads: [Some(r1), Some(r2)] }
+        Self { reads: [Some(r1), Some(r2)], barcode_read: None }
     }
 
     pub fn is_paired(&self) -> bool {

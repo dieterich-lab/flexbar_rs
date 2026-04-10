@@ -183,10 +183,10 @@ impl GenericStep for AdapterRemoverStep {
 
     fn new(args: &Args, context: &Context) -> Self {
         let inner  = match context.run_type {
-            RunType::Single => {
+            RunType::Single | RunType::SingleBarcoded => {
                 [Some(AdapterRemover::new(args, &context.adapters)), None]
             },
-            RunType::Paired => {
+            RunType::Paired | RunType::PairedBarcoded => {
                 match args.adapter_read_set {
                     AdapterReadset::One => [
                         Some(AdapterRemover::new(args, &context.adapters)),
@@ -201,9 +201,6 @@ impl GenericStep for AdapterRemoverStep {
                         Some(AdapterRemover::new(args, &context.adapters2)),
                     ],
                 }
-            }
-            _ => {
-                panic!("Barcoded run types not implemented yet");
             }
         };
 

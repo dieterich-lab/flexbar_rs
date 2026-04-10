@@ -24,13 +24,7 @@ pub struct UncalledFilter {
 impl GenericStep for UncalledFilter {
     type State = ();
 
-    fn new(args: &Args, context: &Context) -> Self {
-        match context.run_type {
-            RunType::SingleBarcoded | RunType::PairedBarcoded => {
-                panic!("Barcoded run types not implemented yet");
-            }
-            _ => {}
-        }
+    fn new(args: &Args, _context: &Context) -> Self {
         if args.max_uncalled == 0 {
             panic!("max_uncalled must be greater than 0");
         }

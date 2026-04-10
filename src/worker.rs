@@ -219,7 +219,7 @@ fn finalize(mut rec: RecordInTransformation) -> FinalRecord {
     }
 
     FinalRecord {
-        record: Some(RecordDto { reads: final_reads }),
+        record: Some(RecordDto { reads: final_reads, barcode_read: None }),
         output_tag: rec.alignment_results.barcode_tag,
         stats: rec.stats,
     }
