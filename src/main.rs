@@ -6,9 +6,15 @@ pub mod statistics;
 pub mod logging;
 mod readers;
 mod writers;
-mod workers;
 mod workflow;
 mod steps;
+mod multi_aligner;
+mod worker;
+
+extern crate jemallocator;
+
+#[global_allocator]
+static GLOBAL: jemallocator::Jemalloc = jemallocator::Jemalloc;
 
 use std::env;
 use log::info;

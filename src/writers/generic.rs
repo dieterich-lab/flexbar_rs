@@ -2,73 +2,115 @@ use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use log::trace;
-use crate::types::{CompressionType, SingeRecordDto};
-use crate::utils::io::{get_writer_from_path, get_writer_path};
+use crate::types::{RecordDto, SingeRecordDto};
 use crate::writers::Writer;
+
+#[cfg(test)]
+use std::sync::{Arc, Mutex};
 
 pub trait GenericWriterBackend<'a>: Send {
     fn new(writer: Box<dyn Write + Send + 'a>) -> Self;
-    fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()>;
+    fn write_read(&mut self, record: &SingeRecordDto) -> io::Result<()>;
     fn get_extension() -> &'static str;
 }
 
 
 const DEFAULT_TAG: &str = "/\\/default/\\/";
 
+// (bar_tag, read_index, extension) -> (writer, description)
+pub type WriterFactory<'a> = Box<dyn
+    Fn(Option<&str>, Option<usize>, &'static str)
+        -> io::Result<(Box<dyn Write + Send + 'a>, String)
+> + Send + 'a>;
+
 pub struct GenericWriter<'a, B: GenericWriterBackend<'a>> {
-    prefix: Option<String>,
-    compression: CompressionType,
-    backends_by_tag: HashMap<String, B>,
+    factory: WriterFactory<'a>,
+    backends_by_tag: HashMap<(String, Option<usize>), B>,
     statistics: crate::statistics::WriterStatistics,
     _phantom: std::marker::PhantomData<&'a ()>,
 }
 
 impl<'a, B: GenericWriterBackend<'a>> GenericWriter<'a, B> {
-    pub fn new(prefix: &str, compression: CompressionType) -> io::Result<Self> {
-        Ok(Self {
-            prefix: Some(prefix.to_string()),
-            compression,
+    pub fn new(factory: WriterFactory<'a>) -> Self {
+        Self {
+            factory,
             backends_by_tag: HashMap::new(),
             statistics: crate::statistics::WriterStatistics::default(),
             _phantom: std::marker::PhantomData,
-        })
-    }
-
-    pub fn from_writer(writer: Box<dyn Write + Send + 'a>) -> Self {
-        let mut tagged_backends = HashMap::new();
-        tagged_backends.insert(DEFAULT_TAG.to_string(), B::new(writer));
-        Self {
-            prefix: None,
-            compression: CompressionType::Uncompressed,
-            backends_by_tag: tagged_backends,
-            statistics: crate::statistics::WriterStatistics::default(),
-            _phantom: std::marker::PhantomData,
         }
     }
 
-    fn get_backend(&mut self, tag: Option<&str>) -> io::Result<&mut B> {
-        let t = tag.unwrap_or(DEFAULT_TAG);
-        if !self.backends_by_tag.contains_key(t) {
-            if let Some(ref prefix) = self.prefix {
-                let actual_tag = if t == DEFAULT_TAG { None } else { Some(t) };
-                let path = get_writer_path(prefix, self.compression, B::get_extension(), actual_tag);
-                let writer = get_writer_from_path(path.as_deref(), self.compression)?;
-                self.backends_by_tag.insert(t.to_string(), B::new(writer));
-            } else {
-                return Err(io::Error::new(io::ErrorKind::Other, format!("Cannot create tagged writer for tag '{}' without prefix", t)));
-            }
+    fn get_backend(&mut self, tag: Option<&str>, read_index: Option<usize>) -> io::Result<&mut B> {
+        let t = tag.unwrap_or(DEFAULT_TAG).to_string();
+        let key = (t, read_index);
+        if !self.backends_by_tag.contains_key(&key) {
+            let actual_tag = if key.0 == DEFAULT_TAG { None } else { Some(key.0.as_str()) };
+            let (writer, _description) = (self.factory)(actual_tag, key.1, B::get_extension())?;
+            self.backends_by_tag.insert(key.clone(), B::new(writer));
         }
-        Ok(self.backends_by_tag.get_mut(t).unwrap())
+        Ok(self.backends_by_tag.get_mut(&key).unwrap())
     }
 }
 
+#[cfg(test)]
+pub fn get_test_writer<'a, B: GenericWriterBackend<'a>>(
+    buffers: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+) -> GenericWriter<'a, B> {
+    let factory = Box::new(move |tag: Option<&str>, read_index: Option<usize>, _extension: &'static str| {
+        let t = tag.unwrap_or(DEFAULT_TAG).to_string();
+        let buffer_key = match read_index {
+            Some(idx) => format!("{}_R{}", t, idx + 1),
+            None => t.clone(),
+        };
+        let mut bufs = buffers.lock().unwrap();
+        bufs.entry(buffer_key.clone()).or_insert_with(Vec::new);
+        
+        // We need a writer that writes to the Vec<u8> inside the HashMap.
+        // Since we want to keep the HashMap alive and accessible from the test,
+        // and the factory is called multiple times, we have a problem with lifetimes if we just return &mut Vec<u8>.
+        // A better way for tests is to use a custom writer that has a reference to the shared storage.
+        
+        struct SharedWriter {
+            storage: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+            tag: String,
+        }
+        impl Write for SharedWriter {
+            fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                let mut storage = self.storage.lock().unwrap();
+                storage.get_mut(&self.tag).unwrap().write(buf)
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                let mut storage = self.storage.lock().unwrap();
+                storage.get_mut(&self.tag).unwrap().flush()
+            }
+        }
+
+        let writer: Box<dyn Write + Send + 'a> = Box::new(SharedWriter {
+            storage: buffers.clone(),
+            tag: buffer_key.clone(),
+        });
+        
+        Ok((writer, format!("memory:{}", buffer_key)))
+    });
+
+    GenericWriter::new(factory)
+}
+
 impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
-    fn write(&mut self, record: &SingeRecordDto, tag: Option<&str>) -> io::Result<()>
+    fn write(&mut self, record: &RecordDto, tag: Option<&str>) -> io::Result<()>
     {
-        let backend = self.get_backend(tag)?;
-        backend.write_record(record)?;
-        self.statistics.total_records_written += 1;
-        self.statistics.total_bases_written += record.seq().len();
+        let paired = record.is_paired();
+        for i in 0..2 {
+            if let Some(Some(read)) = record.reads.get(i) {
+                if read.seq().is_empty() { continue; }
+                let read_index = if paired { Some(i) } else { None };
+                let backend = self.get_backend(tag, read_index)?;
+                backend.write_read(&read)?;
+                self.statistics.total_records_written += 1;
+                self.statistics.total_bases_written += read.seq().len();
+            }
+        }
+
         if let Some(t) = tag {
             if t.starts_with("barcode_") && t != DEFAULT_TAG {
                 let bc_id = &t["barcode_".len()..];
@@ -77,7 +119,7 @@ impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
                 }
             }
         }
-        trace!("Writer processed record: {} with tag: {:?}", record.id(), tag);
+        trace!("Writer processed record: {} with tag: {:?}", record.id(0), tag);
         Ok(())
     }
 
@@ -89,23 +131,27 @@ impl<'a, B: GenericWriterBackend<'a>> Writer for GenericWriter<'a, B> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Read;
+    use crate::types::{SingeRecordDto};
+
+    struct TestBackend<'a> {
+        writer: Box<dyn Write + Send + 'a>,
+    }
+    impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
+        fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { writer } }
+        fn write_read(&mut self, record: &SingeRecordDto) -> io::Result<()> {
+            self.writer.write_all(record.id().as_bytes())
+        }
+        fn get_extension() -> &'static str { "txt" }
+    }
 
     #[test]
     fn test_generic_writer_statistics() {
-        let mut buffer = Vec::new();
+        let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
-            struct TestBackend<'a> {
-                _writer: Box<dyn Write + Send + 'a>,
-            }
-            impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
-                fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { _writer: writer } }
-                fn write_record(&mut self, _record: &SingeRecordDto) -> io::Result<()> { Ok(()) }
-                fn get_extension() -> &'static str { "txt" }
-            }
-
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::from_writer(Box::new(&mut buffer));
-            let record = SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!");
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
+            let record = RecordDto::single(
+                SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!")
+            );
             writer.write(&record, None).unwrap();
             
             let stats = writer.statistics();
@@ -116,20 +162,12 @@ mod tests {
 
     #[test]
     fn test_generic_writer_barcode_statistics() {
-        let temp = tempfile::tempdir().unwrap();
-        let prefix = temp.path().join("out").to_str().unwrap().to_string();
+        let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
-            struct TestBackend<'a> {
-                _writer: Box<dyn Write + Send + 'a>,
-            }
-            impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
-                fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { _writer: writer } }
-                fn write_record(&mut self, _record: &SingeRecordDto) -> io::Result<()> { Ok(()) }
-                fn get_extension() -> &'static str { "txt" }
-            }
-
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
-            let record = SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!");
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
+            let record = RecordDto::single(SingeRecordDto::with_attrs(
+                "id1", None, b"ACGT", b"!!!!"
+            ));
             
             // Write with barcode tag
             writer.write(&record, Some("barcode_bc1")).unwrap();
@@ -155,104 +193,94 @@ mod tests {
 
     #[test]
     fn test_generic_writer_tagging_unsafe() {
-        let temp = tempfile::tempdir().unwrap();
-        let prefix = temp.path().join("out").to_str().unwrap().to_string();
+        let buffers = Arc::new(Mutex::new(HashMap::new()));
         
-        struct TestBackend<'a> {
-            writer: Box<dyn Write + Send + 'a>,
-        }
-        impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
-            fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { writer } }
-            fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()> {
-                self.writer.write_all(record.id().as_bytes())
-            }
-            fn get_extension() -> &'static str { "txt" }
-        }
-
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
-            let rec1 = SingeRecordDto::with_attrs("R1", None, b"A", b"I");
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
+            let rec1 = RecordDto::single(SingeRecordDto::with_attrs(
+                "R1", None, b"A", b"I"
+            ));
             
             // This tag contains characters that should be removed in the filename
             writer.write(&rec1, Some("tag/with\\slashes")).unwrap();
         }
 
-        let tagged_path = temp.path().join("out_tagwithslashes.txt");
-        assert!(tagged_path.exists());
-        
-        let mut s = String::new();
-        std::fs::File::open(tagged_path).unwrap().read_to_string(&mut s).unwrap();
+        let bufs = buffers.lock().unwrap();
+        let s = String::from_utf8(bufs.get("tag/with\\slashes").unwrap().clone()).unwrap();
         assert_eq!(s, "R1");
     }
 
     #[test]
     fn test_generic_writer_on_demand_default() {
-        let temp = tempfile::tempdir().unwrap();
-        let prefix = temp.path().join("out").to_str().unwrap().to_string();
+        let buffers = Arc::new(Mutex::new(HashMap::new()));
         
-        struct TestBackend<'a> {
-            _writer: Box<dyn Write + Send + 'a>,
-        }
-        impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
-            fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { _writer: writer } }
-            fn write_record(&mut self, _record: &SingeRecordDto) -> io::Result<()> { Ok(()) }
-            fn get_extension() -> &'static str { "txt" }
-        }
-
-        let default_path = temp.path().join("out.txt");
-        let tagged_path = temp.path().join("out_tagA.txt");
-
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
-            let rec1 = SingeRecordDto::with_attrs("R1", None, b"A", b"I");
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
+            let rec1 = RecordDto::single(SingeRecordDto::with_attrs(
+                "R1", None, b"A", b"I"
+            ));
             
             // Write only with a tag
             writer.write(&rec1, Some("tagA")).unwrap();
             
-            assert!(!default_path.exists(), "Default output file should not exist yet");
-            assert!(tagged_path.exists(), "Tagged output file should exist");
+            let bufs = buffers.lock().unwrap();
+            assert!(!bufs.contains_key(DEFAULT_TAG), "Default output file should not exist yet");
+            assert!(bufs.contains_key("tagA"), "Tagged output file should exist");
         }
         
-        assert!(!default_path.exists(), "Default output file should still not exist after drop");
+        let bufs = buffers.lock().unwrap();
+        assert!(!bufs.contains_key(DEFAULT_TAG), "Default output file should still not exist after drop");
     }
 
     #[test]
     fn test_generic_writer_tagging() {
-        let temp = tempfile::tempdir().unwrap();
-        let prefix = temp.path().join("out").to_str().unwrap().to_string();
+        let buffers = Arc::new(Mutex::new(HashMap::new()));
         
-        struct TestBackend<'a> {
-            writer: Box<dyn Write + Send + 'a>,
-        }
-        impl<'a> GenericWriterBackend<'a> for TestBackend<'a> {
-            fn new(writer: Box<dyn Write + Send + 'a>) -> Self { Self { writer } }
-            fn write_record(&mut self, record: &SingeRecordDto) -> io::Result<()> {
-                self.writer.write_all(record.id().as_bytes())
-            }
-            fn get_extension() -> &'static str { "txt" }
-        }
-
         {
-            let mut writer: GenericWriter<'_, TestBackend<'_>> = GenericWriter::new(&prefix, CompressionType::Uncompressed).unwrap();
-            let rec1 = SingeRecordDto::with_attrs("R1", None, b"A", b"I");
-            let rec2 = SingeRecordDto::with_attrs("R2", None, b"A", b"I");
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
+            let rec1 = RecordDto::single(SingeRecordDto::with_attrs(
+                "R1", None, b"A", b"I"
+            ));
+            let rec2 = RecordDto::single(SingeRecordDto::with_attrs(
+                "R2", None, b"A", b"I"
+            ));
             
             writer.write(&rec1, None).unwrap();
             writer.write(&rec2, Some("tagA")).unwrap();
         }
 
-        let default_path = temp.path().join("out.txt");
-        let tagged_path = temp.path().join("out_tagA.txt");
-
-        assert!(default_path.exists());
-        assert!(tagged_path.exists());
+        let bufs = buffers.lock().unwrap();
+        assert!(bufs.contains_key(DEFAULT_TAG));
+        assert!(bufs.contains_key("tagA"));
         
-        let mut s1 = String::new();
-        std::fs::File::open(default_path).unwrap().read_to_string(&mut s1).unwrap();
+        let s1 = String::from_utf8(bufs.get(DEFAULT_TAG).unwrap().clone()).unwrap();
         assert_eq!(s1, "R1");
 
-        let mut s2 = String::new();
-        std::fs::File::open(tagged_path).unwrap().read_to_string(&mut s2).unwrap();
+        let s2 = String::from_utf8(bufs.get("tagA").unwrap().clone()).unwrap();
+        assert_eq!(s2, "R2");
+    }
+
+    #[test]
+    fn test_generic_writer_paired() {
+        let buffers = Arc::new(Mutex::new(HashMap::new()));
+        
+        {
+            let mut writer: GenericWriter<'_, TestBackend<'_>> = get_test_writer(buffers.clone());
+            let rec1 = SingeRecordDto::with_attrs("R1", None, b"A", b"I");
+            let rec2 = SingeRecordDto::with_attrs("R2", None, b"T", b"J");
+            let paired = RecordDto::paired(rec1, rec2);
+            
+            writer.write(&paired, Some("tagA")).unwrap();
+        }
+
+        let bufs = buffers.lock().unwrap();
+        assert!(bufs.contains_key("tagA_R1"));
+        assert!(bufs.contains_key("tagA_R2"));
+        
+        let s1 = String::from_utf8(bufs.get("tagA_R1").unwrap().clone()).unwrap();
+        assert_eq!(s1, "R1");
+
+        let s2 = String::from_utf8(bufs.get("tagA_R2").unwrap().clone()).unwrap();
         assert_eq!(s2, "R2");
     }
 }

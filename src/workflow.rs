@@ -1,105 +1,122 @@
+use std::cell::{RefCell};
+use std::io::BufRead;
 use rayon::prelude::*;
 use crate::args::Args;
-use crate::context::Context;
-use crate::readers::fasta::SingleReaderFasta;
-use crate::readers::fastq::SingleReaderFastq;
-use crate::readers::{SequenceReader, get_batch_iter};
-use crate::writers::fasta::SingleWriterFasta;
-use crate::writers::fastq::SingleWriterFastq;
-use crate::types::{FileFormat, CompressionType, SingeRecordDto};
-use crate::workers::single::SingleWorker;
-use std::path::Path;
+use crate::writers::fasta::{SingleWriterFasta};
+use crate::writers::fastq::{SingleWriterFastq};
+use crate::types::{CompressionType, RecordDto};
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
-use crate::logging::log_fatal;
 use log::{debug};
 use crate::context;
+use crate::steps::generic::FinalRecord;
+use crate::worker::{Worker, WorkerState};
+use crossbeam_channel::{bounded, Receiver, Sender};
+use std::thread;
+use std::thread::JoinHandle;
+use crate::readers::sequence::{SequenceReader, SequenceReaderBatchIterator};
 
 pub fn do_it(args: Args) {
     let context = context::Context::new(&args);
-    let reads_path = args.reads.as_ref().unwrap_or_else(|| {
-        log_fatal("No input reads provided");
-    });
+
     let output_prefix = args.output_reads.as_ref()
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| args.target.clone());
+    let reader = SequenceReader::create_form_args(&args, &context);
+    let compression = get_compression(&reader, &args);
+    let worker = Worker::new(&args, &context);
+    let writer = get_writer(&args, &output_prefix, compression);
 
-    let stats = process_single(&args, &context, reads_path, &output_prefix);
-    stats.print();
-}
+    let (batch_in_tx, batch_in_rx) = bounded::<Vec<RecordDto>>(16);
+    let (batch_out_tx, batch_out_rx) = bounded::<ProcessedBatch>(16);
 
-fn process_single(args: &Args, context: &Context, reads_path: &Path, output_prefix: &str) -> Statistics {
-    let mut reader = get_single_reader(reads_path, context.format, args);
-    let compression = get_compression(&reader, args);
-    let worker = SingleWorker::new(args, context);
-    let mut writer = get_single_writer(args, output_prefix, compression);
-    let worker_stats = process_batch(&mut reader, &worker, &mut writer, args.batch_size, args.count);
+    let reader_handle = spawn_reader_thread(reader, batch_in_tx, args.batch_size);
+    let writer_handle = spawn_writer_thread(writer, batch_out_rx);
 
-    Statistics {
+    process_batch_orchestrator(batch_in_rx, batch_out_tx, &worker);
+
+    let reader = reader_handle.join().expect("Reader thread panicked");
+    let (writer, worker_stats) = writer_handle.join().expect("Writer thread panicked");
+
+    let stats = Statistics {
         reader: reader.statistics(),
         worker: worker_stats,
         writer: writer.statistics(),
-    }
+    };
+    stats.print();
 }
 
-
-fn process_batch(
-    reader: &mut Box<dyn SequenceReader + Send>,
-    worker: &SingleWorker,
-    writer: &mut Box<dyn Writer>,
+fn spawn_reader_thread<Reader: BufRead + Send + 'static>(
+    mut reader: SequenceReader<Reader>,
+    batch_in_tx: Sender<Vec<RecordDto>>,
     batch_size: usize,
-    count: Option<usize>,
-) -> WorkerStatistics {
-    let mut worker_stats = WorkerStatistics::default();
-    let mut batch_num = 0;
-    let mut processed_total = 0;
-
-    for mut batch_in in get_batch_iter(reader.as_mut(), batch_size) {
-        batch_num += 1;
-        debug!("Processing batch {}", batch_num);
-
-        if let Some(c) = count {
-            if processed_total + batch_in.len() > c {
-                let remaining = c - processed_total;
-                batch_in.truncate(remaining);
-            }
-        }
-
-        let batch_len = batch_in.len();
-        
-        let batch_out: Vec<(Option<SingeRecordDto>, Option<String>, WorkerStatistics)> = batch_in
-            .into_par_iter()
-            .map(|rec| worker.process(&rec))
-            .collect();
-
-        for (rec_opt, tag_opt, stats) in batch_out {
-            worker_stats += stats;
-            if let Some(rec) = rec_opt {
-                writer.write(&rec, tag_opt.as_deref()).expect("Failed to write record");
-            }
-        }
-
-        processed_total += batch_len;
-        if let Some(c) = count {
-            if processed_total >= c {
+) -> JoinHandle<SequenceReader<Reader>> {
+    thread::spawn(move || {
+        for batch in SequenceReaderBatchIterator::new(&mut reader, batch_size) {
+            if batch_in_tx.send(batch).is_err() {
                 break;
             }
         }
-    }
-
-    worker_stats
+        reader
+    })
 }
 
-fn get_single_reader(reads_path: &Path, format: FileFormat, args: &crate::args::Args) -> Box<dyn SequenceReader + Send> {
-    match format {
-        FileFormat::Fasta => Box::new(SingleReaderFasta::create_form_args(reads_path, args)
-            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA reader: {}", e)))),
-        FileFormat::Fastq => Box::new(SingleReaderFastq::create_form_args(reads_path, args)
-            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ reader: {}", e)))),
+fn spawn_writer_thread(
+    mut writer: Box<dyn Writer>,
+    batch_out_rx: Receiver<ProcessedBatch>,
+) -> JoinHandle<(Box<dyn Writer>, WorkerStatistics)> {
+    thread::spawn(move || {
+        let mut worker_stats = WorkerStatistics::default();
+        while let Ok(batch_out) = batch_out_rx.recv() {
+            worker_stats += batch_out.stats;
+            for rec in batch_out.records {
+                writer.write(&rec.0, rec.1.as_deref())
+                    .expect("Failed to write record");
+            }
+        }
+        (writer, worker_stats)
+    })
+}
+
+fn process_batch_orchestrator(
+    batch_in_rx: Receiver<Vec<RecordDto>>,
+    batch_out_tx: Sender<ProcessedBatch>,
+    worker: &Worker,
+) {
+    let mut batch_num = 0;
+    while let Ok(batch_in) = batch_in_rx.recv() {
+        batch_num += 1;
+        debug!("Processing batch {}", batch_num);
+
+        let batch_out: Vec<FinalRecord> = batch_in
+            .into_par_iter()
+            .map(|rec| process_record(&rec, worker))
+            .collect();
+
+        let mut stats = WorkerStatistics::default();
+        let mut records = Vec::with_capacity(batch_out.len());
+
+        for res in batch_out {
+            stats += res.stats;
+            if let Some(r) = res.record {
+                records.push((r, res.output_tag));
+            }
+        }
+
+        if batch_out_tx.send(ProcessedBatch { records, stats }).is_err() {
+            break;
+        }
     }
 }
 
-fn get_compression(reader: &Box<dyn SequenceReader + Send>, args: &crate::args::Args) -> CompressionType {
+struct ProcessedBatch {
+    records: Vec<(RecordDto, Option<String>)>,
+    stats: WorkerStatistics,
+}
+
+fn get_compression<Reader: BufRead + Send>(reader: &SequenceReader<Reader>, args: &Args)
+    -> CompressionType
+{
     match args.output_compression {
         Some(CompressionType::Keep) => reader.compression(),
         Some(c) => c,
@@ -107,16 +124,33 @@ fn get_compression(reader: &Box<dyn SequenceReader + Send>, args: &crate::args::
     }
 }
 
-fn get_single_writer(args: &crate::args::Args, output_prefix: &str, compression: CompressionType) -> Box<dyn Writer> {
+use crate::utils::io::{get_writer_factory};
+
+fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType) -> Box<dyn Writer> {
     let p = match args.single_reads {
-        true => "-",
-        false => output_prefix,
+        true => "-".to_string(),
+        false => output_prefix.to_string(),
     };
+    let factory = get_writer_factory(p, compression, args.write_buffer);
     if args.fasta_output {
-        Box::new(SingleWriterFasta::new(p, compression)
-            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTA writer: {}", e))))
+        Box::new(SingleWriterFasta::new(factory))
     } else {
-        Box::new(SingleWriterFastq::new(p, compression)
-            .unwrap_or_else(|e| log_fatal(&format!("Failed to create FASTQ writer: {}", e))))
+        Box::new(SingleWriterFastq::new(factory))
     }
+}
+
+thread_local! {
+    static WORKER_STATE: RefCell<Option<WorkerState>> = RefCell::new(None);
+}
+
+fn process_record(
+    record: &RecordDto, worker: &Worker
+) -> FinalRecord {
+    WORKER_STATE.with(|state| {
+        let mut state = state.borrow_mut();
+        if state.is_none() {
+            *state = Some(worker.create_state());
+        }
+        worker.process_record(record, state.as_mut().unwrap())
+    })
 }

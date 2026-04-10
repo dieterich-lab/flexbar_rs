@@ -1,0 +1,287 @@
+use std::io::{self, BufRead};
+use log::{debug, trace};
+use crate::types::{CompressionType, FileFormat, RecordDto, SingeRecordDto};
+use crate::logging::log_fatal;
+use crate::args::Args;
+use crate::context::Context;
+use crate::readers::backends::generic::GenericReaderBackend;
+use crate::readers::backends::{ReaderBackend};
+use crate::readers::backends::fasta::FastaBackend;
+use crate::readers::backends::fastq::FastqBackend;
+use crate::statistics::ReaderStatistics;
+use crate::utils::io::get_raw_reader;
+
+pub struct SequenceReader<Reader: BufRead + Send> {
+    backends: [Option<ReaderBackend<Reader>>; 2],
+    compression: CompressionType,
+    last_id: String,
+    statistics: ReaderStatistics,
+    skip: usize,
+    count: Option<usize>,
+    trace: bool,
+    _phantom: std::marker::PhantomData<(Reader, RecordDto)>,
+}
+
+impl<Reader: BufRead + Send> SequenceReader<Reader> {
+    pub fn new(
+        readers: Vec<Reader>,
+        sources: Vec<String>,
+        file_format: FileFormat,
+        compression: CompressionType,
+        skip: usize,
+        count: Option<usize>,
+        trace: bool,
+    ) -> Self {
+        debug!("Creating new sequence reader with source:");
+        for (i, source) in sources.iter().enumerate() {
+            debug!("- Source {}: {}", i+1, source);
+        }
+        debug!("- Format: {:?}", file_format);
+        debug!("- Compression: {:?}", compression);
+        debug!("- Skip {}/Count {:?}", skip, count);
+        let mut backends: [Option<ReaderBackend<Reader>>; 2] = [None, None];
+        if readers.len() > 2 {
+            log_fatal("GenericReader only supports up to two input files.");
+        }
+        for (i, reader) in readers.into_iter().enumerate() {
+            backends[i] = match file_format {
+                FileFormat::Fasta => Some(
+                    ReaderBackend::Fasta(FastaBackend::new(reader, &sources[i]))
+                ),
+                FileFormat::Fastq => Some(
+                    ReaderBackend::Fastq(FastqBackend::new(reader, &sources[i]))
+                ),
+            };
+        }
+        Self {
+            backends,
+            compression,
+            last_id: String::new(),
+            statistics: crate::statistics::ReaderStatistics::default(),
+            skip,
+            count,
+            trace,
+            _phantom: std::marker::PhantomData,
+        }
+    }
+
+    fn read_record(&mut self) -> Option<RecordDto> {
+        if self.backends[1].is_none() {
+            let rec = self.backends[0].as_mut().unwrap().read_record();
+            if rec.is_none() {
+                return None;
+            }
+            Some(RecordDto::single(rec.unwrap()))
+        } else {
+            let mut records: [Option<SingeRecordDto>; 2] = [None, None];
+            for i in 0..2 {
+                records[i] = self.backends[i].as_mut().unwrap().read_record();
+            }
+            match records {
+                [None, None] => None,
+                [Some(r1), Some(r2)] => {
+                    Some(RecordDto::paired(r1, r2))
+                },
+                _ => {
+                    log_fatal("Paired files have different number of records.");
+                }
+            }
+        }
+    }
+
+    pub fn compression(&self) -> CompressionType {
+        self.compression
+    }
+
+    pub fn statistics(&self) -> crate::statistics::ReaderStatistics {
+        self.statistics
+    }
+
+    fn try_get_record(&mut self) -> Option<RecordDto> {
+        match self.read_record() {
+            Some(record) => {
+                self.last_id = Self::truncate_id(record.id(0));
+                Some(record)
+            },
+            None => None,
+        }
+    }
+
+    fn truncate_id(id: &str) -> String {
+        if id.len() > 64 {
+            id[..64].to_string() + "..."
+        } else {
+            id.to_string()
+        }
+    }
+
+    pub fn count_read(&mut self, record: &SingeRecordDto, read_index: usize) {
+        self.statistics.total_records_read += 1;
+        self.statistics.total_bases_read += record.seq().len();
+        if self.trace {
+            let cooked_id = if self.backends[1].is_none() {
+                record.id()
+            } else {
+                &*format!("{} Read {}", record.id(), read_index + 1)
+            };
+            trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {}",
+                cooked_id,
+                record.desc().unwrap_or("None"),
+                String::from_utf8_lossy(record.seq()),
+                String::from_utf8_lossy(record.qual())
+            );
+        }
+    }
+}
+
+impl SequenceReader<io::BufReader<Box<dyn io::Read + Send>>>
+{
+    pub fn create_form_args(args: &Args, context: &Context) -> Self {
+        let mut paths = Vec::new();
+        paths.push(args.reads.as_ref().unwrap_or_else(|| {
+            log_fatal("No input reads provided");
+        }));
+        if args.reads2.is_some() {
+            paths.push(args.reads2.as_ref().unwrap());
+        }
+        let mut readers = Vec::with_capacity(paths.len());
+        let mut sources = Vec::with_capacity(paths.len());
+        let mut compression = CompressionType::Uncompressed;
+
+        for path in paths {
+            match get_raw_reader(path, args.read_buffer) {
+                Ok((reader, source, comp)) => {
+                    readers.push(reader);
+                    sources.push(source);
+                    compression = comp;
+                },
+                Err(e) => {
+                    log_fatal(&format!("Error opening file {}: {}", path.display(), e));
+                }
+            }
+        }
+        Self::new(readers, sources, context.format, compression, args.skip, args.count, args.trace)
+    }
+}
+
+impl<Reader: BufRead + Send> Iterator for SequenceReader<Reader> {
+    type Item = RecordDto;
+
+    fn next(&mut self) -> Option<RecordDto> {
+        loop {
+            return match self.try_get_record() {
+                Some(record) => {
+                    if self.skip > 0 {
+                        self.skip -= 1;
+                        if self.skip == 0 {
+                            trace!("Done skipped records according to -- skip parameter.");
+                        }
+                        continue;
+                    }
+                    if let Some(count) = self.count {
+                        if count > 0 {
+                            self.count = Some(count - 1);
+                        } else {
+                            trace!("Stopped reading records due to --count parameter.");
+                            return None;
+                        }
+                    }
+                    for i in 0..2 {
+                        if let Some(read) = &record.reads[i] {
+                            self.count_read(read, i);
+                        }
+                    }
+                    Some(record)
+                },
+                None => None
+            }
+        }
+    }
+}
+
+pub struct SequenceReaderBatchIterator<'a, Reader: BufRead + Send> {
+    reader: &'a mut SequenceReader<Reader>,
+    batch_size: usize,
+}
+
+impl<'a, Reader: BufRead + Send> SequenceReaderBatchIterator<'a, Reader> {
+    pub fn new(reader: &'a mut SequenceReader<Reader>, batch_size: usize) -> Self {
+        Self { reader, batch_size }
+    }
+}
+
+impl<'a, Reader: BufRead + Send> Iterator
+    for SequenceReaderBatchIterator<'a, Reader>
+{
+    type Item = Vec<RecordDto>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        trace!("Starting to read new batch ...");
+        let mut batch = Vec::with_capacity(self.batch_size);
+        for _ in 0..self.batch_size {
+            if let Some(record) = self.reader.next() {
+                batch.push(record);
+            } else {
+                break;
+            }
+        }
+        if batch.is_empty() {
+            trace!("Fetched empty batch. No records available.");
+            None
+        } else {
+            trace!("Fetched bach of {} record(s).", batch.len());
+            Some(batch)
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::BufReader;
+
+    #[test]
+    fn test_generic_reader_statistics() {
+        let data = b"@id1\nACGT\n+\n!!!!\n";
+        let reader = BufReader::new(&data[..]);
+        let mut gen_reader: SequenceReader<_> =
+            SequenceReader::new(
+                vec![reader],
+                vec!["test".to_string()],
+                FileFormat::Fastq,
+                CompressionType::Uncompressed,
+                0,
+                None,
+                true
+            );
+        
+        let _ = gen_reader.next();
+        let stats = gen_reader.statistics();
+        assert_eq!(stats.total_records_read, 1);
+        assert_eq!(stats.total_bases_read, 4);
+    }
+
+    #[test]
+    fn test_generic_reader_statistics_paired() {
+        let data1 = b"@id1/1\nACGT\n+\n!!!!\n";
+        let data2 = b"@id1/2\nTGCA\n+\n????\n";
+        let reader1 = BufReader::new(&data1[..]);
+        let reader2 = BufReader::new(&data2[..]);
+
+        let mut gen_reader: SequenceReader<_> =
+            SequenceReader::new(
+                vec![reader1, reader2],
+                vec!["test1".to_string(), "test2".to_string()],
+                FileFormat::Fastq,
+                CompressionType::Uncompressed,
+                0,
+                None,
+                true
+            );
+
+        let _ = gen_reader.next();
+        let stats = gen_reader.statistics();
+        assert_eq!(stats.total_records_read, 2, "Should count both reads in a pair");
+        assert_eq!(stats.total_bases_read, 8, "Should count bases from both reads in a pair");
+    }
+}

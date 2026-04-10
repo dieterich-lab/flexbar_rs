@@ -258,3 +258,62 @@ impl FromStr for AdapterTrimmed {
 
 pub type SingeRecordDto = bio::io::fastq::Record;
 
+
+#[derive(Clone, Debug, Serialize, Deserialize)]
+pub struct RecordDto {
+    pub reads: [Option<SingeRecordDto>; 2],
+    pub barcode_read: Option<SingeRecordDto>
+}
+
+macro_rules! implement_by_record_index {
+    ($name: ident, $ReturnType: ty) => {
+        #[inline(always)]
+        pub fn $name(&self, read_index: usize) -> $ReturnType {
+            match read_index {
+                0 => {
+                    if let Some(read) = &self.reads[0] {
+                        read.$name()
+                    } else {
+                        panic!("Invalid read index {:?}", read_index)
+                    }
+                }
+                1 => {
+                    if let Some(read) = &self.reads[1] {
+                        read.$name()
+                    } else {
+                        panic!("Invalid read index {:?}", read_index)
+                    }
+                }
+                _ => panic!("Invalid read index {:?}", read_index),
+            }
+        }
+    };
+}
+
+impl RecordDto {
+    pub fn single(read: SingeRecordDto) -> Self {
+        Self { reads: [Some(read), None], barcode_read: None }
+    }
+
+    pub fn paired(r1: SingeRecordDto, r2: SingeRecordDto) -> Self {
+        Self { reads: [Some(r1), Some(r2)], barcode_read: None }
+    }
+
+    pub fn is_paired(&self) -> bool {
+        self.reads[1].is_some()
+    }
+
+    implement_by_record_index!(id, &str);
+    implement_by_record_index!(desc, Option<&str>);
+    implement_by_record_index!(seq, &[u8]);
+    implement_by_record_index!(qual, &[u8]);
+
+    #[inline(always)]
+    pub fn record_id(&self) -> &str {
+        if let Some(read) = &self.reads[0] {
+            read.id()
+        } else {
+            panic!("RecordDto has no reads")
+        }
+    }
+}

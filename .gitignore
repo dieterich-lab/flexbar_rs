@@ -3,6 +3,8 @@
 /perf_test/EV19002.R1_short.fastq.gz
 /perf_test/out/
 /flamegraph.svg
+/flamegraph_banded.svg
 /perf.data
 /perf.data.old
 /perf_test/EV19002.R1_10000.fastq.gz
+/examples/biorust_issue/

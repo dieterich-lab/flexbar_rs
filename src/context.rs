@@ -9,15 +9,21 @@ use std::io::BufReader;
 use crate::logging::log_fatal;
 
 
-#[derive(Clone)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct SequenceWithId {
     pub id: String,
     pub sequence: String,
 }
 
+impl PartialEq<&str> for SequenceWithId {
+    fn eq(&self, other: &&str) -> bool {
+        self.sequence == *other
+    }
+}
+
 pub struct Context {
-    pub adapters: Vec<String>,
-    pub adapters2: Vec<String>,
+    pub adapters: Vec<SequenceWithId>,
+    pub adapters2: Vec<SequenceWithId>,
     pub barcodes: Vec<SequenceWithId>,
     pub barcodes2: Vec<SequenceWithId>,
     pub use_rc_trim_end: bool,
@@ -28,6 +34,20 @@ pub struct Context {
 }
 
 impl Context {
+    pub fn empty() -> Self {
+        Self {
+            adapters: Vec::new(),
+            adapters2: Vec::new(),
+            barcodes: Vec::new(),
+            barcodes2: Vec::new(),
+            use_rc_trim_end: false,
+            format: FileFormat::Fasta,
+            run_type: RunType::Single,
+            bar_detect: BarcodeDetect::Off,
+            adapter_removal: AdapterRemoval::Off,
+        }
+    }
+
     pub fn new(args: &Args) -> Self {
         let has_adapters = Self::determine_has_adapters(args);
         let format = get_file_type(args.reads.as_ref());
@@ -55,7 +75,7 @@ impl Context {
     }
 
     fn determine_run_type(args: &Args) -> RunType {
-        match args.barcodes {
+        match args.barcode_reads {
             Some(_) => {
                 if args.reads2.is_some() {
                     RunType::PairedBarcoded
@@ -210,13 +230,12 @@ impl Context {
         }
 
         if let Some(adapter_seq) = &args.adapter_seq {
-            self.adapters.push(adapter_seq.clone());
+            append_single_adapter(&mut self.adapters, adapter_seq);
         }
 
         if let Some(adapter_file) = &args.adapters {
-            let mut new_items = self.load_fasta_file(adapter_file)
+            let mut new_items  = self.load_fasta_file(adapter_file)
                 .into_iter()
-                .map(|item| item.sequence)
                 .collect();
             self.adapters.append(&mut new_items);
         }
@@ -226,8 +245,14 @@ impl Context {
         {
             self.adapters2 = self.load_fasta_file(adapter_file2)
                 .into_iter()
-                .map(|item| item.sequence)
                 .collect();
+        }
+
+        if self.adapters2.is_empty()
+            && (args.adapter_read_set == AdapterReadset::Two || args.adapter_read_set == AdapterReadset::None)
+            && (self.run_type == RunType::Paired || self.run_type == RunType::PairedBarcoded)
+        {
+            self.adapters2 = self.adapters.clone();
         }
 
         if let Some(barcode_file) = &args.barcodes {
@@ -244,11 +269,11 @@ impl Context {
 
         self.apply_revcomp(args.adapter_revcomp);
         
-        for (i, adapter) in self.adapters.iter().enumerate() {
-            info!("Adapter 1-{}: {}", i + 1, adapter);
+        for adapter in self.adapters.iter() {
+            info!("Adapter {}: {}", adapter.id, adapter.sequence);
         }
-        for (i, adapter) in self.adapters2.iter().enumerate() {
-            info!("Adapter 2-{}: {}", i + 1, adapter);
+        for adapter in self.adapters2.iter() {
+            info!("Adapter-2 {}: {}", adapter.id, adapter.sequence);
         }
         for (i, b) in self.barcodes.iter().enumerate() {
             info!("Barcode-1-{}: {} {}", i, b.id, b.sequence);
@@ -259,32 +284,69 @@ impl Context {
     }
 
     fn load_preset(&mut self, preset: &AdapterPreset) {
+        let mut new_adapters = self.adapters.to_vec();
+        let mut new_adapters2 = self.adapters2.to_vec();
         match preset {
             AdapterPreset::TruSeq => {
-                self.adapters.push("AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string());
-                self.adapters2.push("AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string());
+                new_adapters.push(SequenceWithId {
+                    id: "TruSeq-1".to_string(),
+                    sequence: "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string()
+                });
+                new_adapters2.push(SequenceWithId {
+                    id: "TruSeq-2".to_string(),
+                    sequence: "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string()
+                });
             }
             AdapterPreset::SmallRna => {
-                self.adapters.push("TGGAATTCTCGGGTGCCAAGG".to_string());
+                new_adapters.push(SequenceWithId {
+                    id: "SmallRna".to_string(),
+                    sequence: "TGGAATTCTCGGGTGCCAAGG".to_string()
+                });
             }
             AdapterPreset::Methyl => {
-                self.adapters.push("AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string());
-                self.adapters2.push("AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string());
+                new_adapters.push(SequenceWithId {
+                    id: "Methyl-1".to_string(),
+                    sequence: "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string()
+                });
+                new_adapters2.push(SequenceWithId {
+                    id: "Methyl-2".to_string(),
+                    sequence: "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string()
+                });
             }
             AdapterPreset::Ribo => {
-                self.adapters.push("AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string());
-                self.adapters2.push("AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string());
+                new_adapters.push(SequenceWithId {
+                    id: "Ribo-1".to_string(),
+                    sequence: "AGATCGGAAGAGCACACGTCTGAACTCCAGTCAC".to_string()
+                });
+                new_adapters2.push(SequenceWithId {
+                    id: "Ribo-2".to_string(),
+                    sequence: "AGATCGGAAGAGCGTCGTGTAGGGAAAGAGTGT".to_string()
+                });
             }
             AdapterPreset::Nextera => {
-                self.adapters.push("CTGTCTCTTATACACATCT".to_string());
-                self.adapters2.push("CTGTCTCTTATACACATCT".to_string());
+                new_adapters.push(SequenceWithId {
+                    id: "Nextera-1".to_string(),
+                    sequence: "TCGTCGGCAGCGTCAGATGTGTATAAGAGACAG".to_string()
+                });
+                new_adapters2.push(SequenceWithId {
+                    id: "Nextera-2".to_string(),
+                    sequence: "GTCTCGTGGGCTCGGAGATGTGTATAAGAGACAG".to_string()
+                });
             }
             AdapterPreset::NexteraMp => {
-                self.adapters.push("CTGTCTCTTATACACATCT".to_string());
-                self.adapters2.push("CTGTCTCTTATACACATCT".to_string());
+                new_adapters.push(SequenceWithId {
+                    id: "NexteraMP-1".to_string(),
+                    sequence: "CTGTCTCTTATACACATCT".to_string()
+                });
+                new_adapters2.push(SequenceWithId {
+                    id: "NexteraMP-2".to_string(),
+                    sequence: "CTGTCTCTTATACACATCT".to_string()
+                });
             }
             AdapterPreset::Off => (),
         }
+        self.adapters = new_adapters;
+        self.adapters2 = new_adapters2;
     }
 
     fn load_fasta_file(&mut self, path: &std::path::Path) -> Vec<SequenceWithId> {
@@ -359,17 +421,33 @@ impl Context {
         match mode {
             RevCompMode::Off => (),
             RevCompMode::On => {
-                let rc1: Vec<String> = self.adapters.iter().map(|s| String::from_utf8(revcomp(s.as_bytes())).unwrap()).collect();
-                let rc2: Vec<String> = self.adapters2.iter().map(|s| String::from_utf8(revcomp(s.as_bytes())).unwrap()).collect();
-                self.adapters.extend(rc1);
-                self.adapters2.extend(rc2);
+                self.adapters.extend(convert_to_revcomp(&self.adapters));
+                self.adapters2.extend(convert_to_revcomp(&self.adapters2));
             }
             RevCompMode::Only => {
-                self.adapters = self.adapters.iter().map(|s| String::from_utf8(revcomp(s.as_bytes())).unwrap()).collect();
-                self.adapters2 = self.adapters2.iter().map(|s| String::from_utf8(revcomp(s.as_bytes())).unwrap()).collect();
+                self.adapters = convert_to_revcomp(&self.adapters);
+                self.adapters2 = convert_to_revcomp(&self.adapters2);
             }
         }
     }
+}
+
+fn append_single_adapter(adapters: &mut Vec<SequenceWithId>, new_adapter: &String) {
+    let index = adapters.len();
+    adapters.push(
+        SequenceWithId { id: format!("adapter_{}", index), sequence: new_adapter.to_string() }
+    );
+}
+
+fn convert_to_revcomp(adapters: &[SequenceWithId]) -> Vec<SequenceWithId> {
+    let mut result: Vec<SequenceWithId> = Vec::new();
+    for adapter in adapters {
+        result.push(SequenceWithId {
+            id: format!("{}_rc", adapter.id),
+            sequence: String::from_utf8(revcomp(adapter.sequence.as_bytes())).unwrap()
+        });
+    }
+    result
 }
 
 #[cfg(test)]
@@ -479,5 +557,48 @@ mod tests {
         };
         let context = Context::new(&args);
         assert_eq!(context.adapter_removal, AdapterRemoval::Normal2);
+    }
+
+    #[test]
+    fn test_context_adapter_copy_to_second_read() {
+        // Case 1: adapter_read_set = Two, no adapters2
+        let args = Args {
+            reads: Some(PathBuf::from("r1.fq")),
+            reads2: Some(PathBuf::from("r2.fq")),
+            adapter_seq: Some("AGCT".to_string()),
+            adapter_read_set: AdapterReadset::Two,
+            ..Args::parse_from(["flexbar"])
+        };
+        let context = Context::new(&args);
+        assert_eq!(context.adapters.len(), 1);
+        assert_eq!(context.adapters[0].sequence, "AGCT");
+        assert_eq!(context.adapters2.len(), 1);
+        assert_eq!(context.adapters2[0].sequence, "AGCT");
+
+        // Case 2: adapter_read_set = None, no adapters2
+        let args = Args {
+            reads: Some(PathBuf::from("r1.fq")),
+            reads2: Some(PathBuf::from("r2.fq")),
+            adapter_seq: Some("AGCT".to_string()),
+            adapter_read_set: AdapterReadset::None,
+            ..Args::parse_from(["flexbar"])
+        };
+        let context = Context::new(&args);
+        assert_eq!(context.adapters.len(), 1);
+        assert_eq!(context.adapters[0].sequence, "AGCT");
+        assert_eq!(context.adapters2.len(), 1);
+        assert_eq!(context.adapters2[0].sequence, "AGCT");
+
+        // Case 3: adapter_read_set = One, no adapters2 -> adapters2 should be empty
+        let args = Args {
+            reads: Some(PathBuf::from("r1.fq")),
+            reads2: Some(PathBuf::from("r2.fq")),
+            adapter_seq: Some("AGCT".to_string()),
+            adapter_read_set: AdapterReadset::One,
+            ..Args::parse_from(["flexbar"])
+        };
+        let context = Context::new(&args);
+        assert_eq!(context.adapters.len(), 1);
+        assert_eq!(context.adapters2.len(), 0);
     }
 }
