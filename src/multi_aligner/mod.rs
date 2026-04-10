@@ -387,7 +387,7 @@ impl MultiAligner {
     }
 
     fn get_shrink_window(trim_end: TrimEnd, sequence_len: usize, ref_len: usize, best: &MultiAlignerResult) -> Range<usize> {
-        match trim_end {
+        let range = match trim_end {
             TrimEnd::Right => {
                 0 .. best.get_start_index() + best.stripped_leading_n_count
             },
@@ -413,7 +413,8 @@ impl MultiAligner {
                 }
             },
             TrimEnd::Any => panic!("Should never happen!"),
-        }
+        };
+        max(0, min(sequence_len, range.start)) .. max(0, min(sequence_len, range.end))
     }
 
     fn shrink_to_direction(&self, state: &mut MultiAlignerState, setup: &MultiAlignerSetup, sequence: &[u8], mut best: MultiAlignerResult, trim_end: TrimEnd) -> Option<MultiAlignerResult> {

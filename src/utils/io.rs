@@ -27,14 +27,16 @@ pub fn get_file_type(path: Option<&PathBuf>) -> FileFormat {
     })
 }
 
-pub fn get_raw_reader<P: AsRef<Path>>(path: P, buffer_size: usize) -> io::Result<(BufReader<Box<dyn Read + Send>>, String, CompressionType)> {
+pub fn get_raw_reader<P: AsRef<Path>>(path: P, buffer_size: usize) -> (BufReader<Box<dyn Read + Send>>, String, CompressionType) {
     let path_ref = path.as_ref();
     let source = path_ref.to_string_lossy().into_owned();
 
     let (reader, compression): (Box<dyn Read + Send>, CompressionType) = if source == "-" {
         (Box::new(io::stdin()), CompressionType::Uncompressed)
     } else {
-        let file = File::open(path_ref)?;
+        let file = File::open(path_ref).unwrap_or_else(|e| {
+            log_fatal(&format!("Error opening file {}: {}", path_ref.display(), e));
+        });
         let extension = path_ref.extension()
             .and_then(|s| s.to_str())
             .map(|s| s.to_lowercase());
@@ -42,12 +44,19 @@ pub fn get_raw_reader<P: AsRef<Path>>(path: P, buffer_size: usize) -> io::Result
         match extension.as_deref() {
             Some("gz") => (Box::new(MultiGzDecoder::new(file)), CompressionType::Gz),
             Some("bz2") => (Box::new(BzDecoder::new(file)), CompressionType::Bz2),
-            Some("zstd") | Some("zst") => (Box::new(ZstdDecoder::new(file)?), CompressionType::Zstd),
+            Some("zstd") | Some("zst") => {
+                match ZstdDecoder::new(file) {
+                    Ok(decoder) => (Box::new(decoder), CompressionType::Zstd),
+                    Err(e) => {
+                        log_fatal(&format!("Error creating zstd decoder for {}: {}", path_ref.display(), e));
+                    }
+                }
+            },
             _ => (Box::new(file), CompressionType::Uncompressed),
         }
     };
 
-    Ok((BufReader::with_capacity(buffer_size, reader), source, compression))
+    (BufReader::with_capacity(buffer_size, reader), source, compression)
 }
 
 pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &str, tag: Option<&str>, read_index: Option<usize>) -> Option<PathBuf> {
@@ -139,7 +148,7 @@ mod tests {
         let path = tmp.path().with_extension("bz2");
         std::fs::copy(tmp.path(), &path).unwrap();
 
-        let (mut reader, source, compression) = get_raw_reader(&path, 4096).unwrap();
+        let (mut reader, source, compression) = get_raw_reader(&path, 4096);
         assert_eq!(compression, CompressionType::Bz2);
         assert!(source.contains(path.to_str().unwrap()));
 
@@ -209,7 +218,7 @@ mod tests {
             writer.flush().unwrap();
         }
         
-        let (mut reader, _source, detected_compression) = get_raw_reader(&path, 4096).unwrap();
+        let (mut reader, _source, detected_compression) = get_raw_reader(&path, 4096);
         assert_eq!(detected_compression, compression);
         
         let mut buffer = Vec::new();
@@ -246,7 +255,7 @@ mod tests {
 
     #[test]
     fn test_stdin_reader() {
-        let (_reader, source, compression) = get_raw_reader("-", 4096).unwrap();
+        let (_reader, source, compression) = get_raw_reader("-", 4096);
         assert_eq!(source, "-");
         assert_eq!(compression, CompressionType::Uncompressed);
     }
@@ -269,7 +278,7 @@ mod tests {
         let path = dir.path().join("test.gz");
         File::create(&path).unwrap().write_all(&buf).unwrap();
 
-        let (mut reader, _source, compression) = get_raw_reader(&path, 4096).unwrap();
+        let (mut reader, _source, compression) = get_raw_reader(&path, 4096);
         assert_eq!(compression, CompressionType::Gz);
 
         let mut content = String::new();

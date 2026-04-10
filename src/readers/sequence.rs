@@ -13,6 +13,7 @@ use crate::utils::io::get_raw_reader;
 
 pub struct SequenceReader<Reader: BufRead + Send> {
     backends: [Option<ReaderBackend<Reader>>; 2],
+    barcode_backend: Option<ReaderBackend<Reader>>,
     compression: CompressionType,
     last_id: String,
     statistics: ReaderStatistics,
@@ -31,10 +32,15 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
         skip: usize,
         count: Option<usize>,
         trace: bool,
+        barcode_reader: Option<Reader>,
+        barcode_source: Option<String>,
     ) -> Self {
         debug!("Creating new sequence reader with source:");
         for (i, source) in sources.iter().enumerate() {
             debug!("- Source {}: {}", i+1, source);
+        }
+        if let Some(source) = &barcode_source {
+            debug!("- Barcode Source: {}", source);
         }
         debug!("- Format: {:?}", file_format);
         debug!("- Compression: {:?}", compression);
@@ -53,8 +59,23 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
                 ),
             };
         }
+
+        let barcode_backend = if let (Some(reader), Some(source)) = (barcode_reader, barcode_source) {
+            match file_format {
+                FileFormat::Fasta => Some(
+                    ReaderBackend::Fasta(FastaBackend::new(reader, &source))
+                ),
+                FileFormat::Fastq => Some(
+                    ReaderBackend::Fastq(FastqBackend::new(reader, &source))
+                ),
+            }
+        } else {
+            None
+        };
+
         Self {
             backends,
+            barcode_backend,
             compression,
             last_id: String::new(),
             statistics: crate::statistics::ReaderStatistics::default(),
@@ -66,24 +87,41 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
     }
 
     fn read_record(&mut self) -> Option<RecordDto> {
+        let barcode = if let Some(backend) = &mut self.barcode_backend {
+            let b_rec = backend.read_record();
+            if b_rec.is_none() {
+                return None;
+            }
+            b_rec
+        } else {
+            None
+        };
+
         if self.backends[1].is_none() {
             let rec = self.backends[0].as_mut().unwrap().read_record();
             if rec.is_none() {
                 return None;
             }
-            Some(RecordDto::single(rec.unwrap()))
+            if let Some(barcode) = barcode {
+                Some(RecordDto::single_barcoded(rec.unwrap(), barcode))
+            } else {
+                Some(RecordDto::single(rec.unwrap()))
+            }
         } else {
             let mut records: [Option<SingeRecordDto>; 2] = [None, None];
             for i in 0..2 {
                 records[i] = self.backends[i].as_mut().unwrap().read_record();
             }
-            match records {
-                [None, None] => None,
-                [Some(r1), Some(r2)] => {
+            match (records, barcode) {
+                ([None, None], None) => None,
+                ([Some(r1), Some(r2)], None) => {
                     Some(RecordDto::paired(r1, r2))
                 },
+                ([Some(r1), Some(r2)], Some(barcode)) => {
+                    Some(RecordDto::paired_barcoded(r1, r2, barcode))
+                },
                 _ => {
-                    log_fatal("Paired files have different number of records.");
+                    log_fatal("Input files have different number of records.");
                 }
             }
         }
@@ -144,23 +182,33 @@ impl SequenceReader<io::BufReader<Box<dyn io::Read + Send>>>
         if args.reads2.is_some() {
             paths.push(args.reads2.as_ref().unwrap());
         }
+
+        let mut barcode_path = None;
+        if args.barcode_reads.is_some() {
+            barcode_path = args.barcode_reads.as_ref();
+        }
+
         let mut readers = Vec::with_capacity(paths.len());
         let mut sources = Vec::with_capacity(paths.len());
         let mut compression = CompressionType::Uncompressed;
 
         for path in paths {
-            match get_raw_reader(path, args.read_buffer) {
-                Ok((reader, source, comp)) => {
-                    readers.push(reader);
-                    sources.push(source);
-                    compression = comp;
-                },
-                Err(e) => {
-                    log_fatal(&format!("Error opening file {}: {}", path.display(), e));
-                }
-            }
+            let (reader, source, comp) = get_raw_reader(path, args.read_buffer);
+            readers.push(reader);
+            sources.push(source);
+            compression = comp;
         }
-        Self::new(readers, sources, context.format, compression, args.skip, args.count, args.trace)
+
+        let mut barcode_reader = None;
+        let mut barcode_source = None;
+
+        if let Some(path) = barcode_path {
+            let (reader, source, _) = get_raw_reader(path, args.read_buffer);
+            barcode_reader = Some(reader);
+            barcode_source = Some(source);
+        }
+
+        Self::new(readers, sources, context.format, compression, args.skip, args.count, args.trace, barcode_reader, barcode_source)
     }
 }
 
@@ -252,7 +300,9 @@ mod tests {
                 CompressionType::Uncompressed,
                 0,
                 None,
-                true
+                true,
+                None,
+                None
             );
         
         let _ = gen_reader.next();
@@ -276,7 +326,9 @@ mod tests {
                 CompressionType::Uncompressed,
                 0,
                 None,
-                true
+                true,
+                None,
+                None
             );
 
         let _ = gen_reader.next();

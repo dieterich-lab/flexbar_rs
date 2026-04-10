@@ -295,8 +295,16 @@ impl RecordDto {
         Self { reads: [Some(read), None], barcode_read: None }
     }
 
+    pub fn single_barcoded(read: SingeRecordDto, barcode: SingeRecordDto) -> Self {
+        Self { reads: [Some(read), None], barcode_read: Some(barcode) }
+    }
+
     pub fn paired(r1: SingeRecordDto, r2: SingeRecordDto) -> Self {
         Self { reads: [Some(r1), Some(r2)], barcode_read: None }
+    }
+
+    pub fn paired_barcoded(r1: SingeRecordDto, r2: SingeRecordDto, barcode: SingeRecordDto) -> Self {
+        Self { reads: [Some(r1), Some(r2)], barcode_read: Some(barcode) }
     }
 
     pub fn is_paired(&self) -> bool {

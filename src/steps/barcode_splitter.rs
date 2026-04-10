@@ -72,7 +72,7 @@ impl GenericStep for BarcodeSplitter {
         let mut barcodes: [Vec<SequenceWithId>; 2] = [Vec::new(), Vec::new()];
         let mut multi_aligner_setups: [Option<MultiAlignerSetup>; 2] = [None, None];
         match context.run_type {
-            RunType::Single => {
+            RunType::Single | RunType::SingleBarcoded => {
                 barcodes[0] = context.barcodes.clone();
                 if !barcodes[0].is_empty() {
                     multi_aligner_setups[0] = Some(
@@ -80,7 +80,7 @@ impl GenericStep for BarcodeSplitter {
                     )
                 }
             },
-            RunType::Paired => {
+            RunType::Paired | RunType::PairedBarcoded => {
                 barcodes[0] = context.barcodes.clone();
                 barcodes[1] = context.barcodes2.clone();
                 for i in 0..2 {
@@ -91,9 +91,6 @@ impl GenericStep for BarcodeSplitter {
                     }
                 }
             },
-            _ => {
-                panic!("Barcoded run types not implemented yet");
-            }
         }
 
         let mut multi_aligners: [Option<MultiAligner>; 2] = [None, None];
@@ -128,23 +125,55 @@ impl GenericStep for BarcodeSplitter {
     fn apply(&self, mut rec: RecordInTransformation, state: &mut Self::State) -> RecordInTransformation {
         let mut best_overall: Option<(usize, MultiAlignerResult)> = None;
 
-        let num_reads = if rec.record.reads[1].is_some() { 2 } else { 1 };
+        if let Some(barcode_read) = &rec.record.barcode_read {
+            // Use separate barcode read for detection
+            if let Some(setup) = &self.multi_aligner_setups[0] {
+                let aligner = self.multi_aligners[0].as_ref().unwrap();
+                let (tag, bar_seq) = {
+                    let seq = barcode_read.seq();
+                    let inner_state = state.multi_aligner_states[0].as_mut().unwrap();
+                    if let Some(best) = aligner.align(inner_state, &setup, seq) {
+                        let barcode = &self.barcodes[0][best.reference_index];
+                        let tag = format!("barcode_{}", barcode.id);
+                        let bar_seq = if self.trace { Some((barcode.sequence.as_bytes().to_vec(), best.format(seq, barcode.sequence.as_bytes()))) } else { None };
+                        (Some(tag), bar_seq)
+                    } else {
+                        (None, None)
+                    }
+                };
 
-        for read_idx in 0..num_reads {
-            if self.multi_aligner_setups[read_idx].is_none() { continue; }
-            let setup = self.multi_aligner_setups[read_idx].as_ref().unwrap();
-            let aligner = self.multi_aligners[read_idx].as_ref().unwrap();
-            let mut state = state.multi_aligner_states[read_idx].as_mut().unwrap();
-            let seq = rec.get_sequence(read_idx);
-            if let Some(best) = aligner.align(&mut state, &setup, &seq) {
-                match &best_overall {
-                    Some((_, current_best)) if best.score() > current_best.score() => {
-                        best_overall = Some((read_idx, best));
+                if let Some(tag) = tag {
+                    assign_barcode_tag(&mut rec, tag, self.trace);
+                    if let Some((_, formatted)) = bar_seq {
+                        trace!(
+                            "Barcode splitter on {} selected the following alignment from Barcode Read:",
+                            rec.record_id()
+                        );
+                        trace!("{}", formatted);
                     }
-                    None => {
-                        best_overall = Some((read_idx, best));
+                    // No barcode removal for separate barcode reads
+                    return rec;
+                }
+            }
+        } else {
+            let num_reads = if rec.record.reads[1].is_some() { 2 } else { 1 };
+
+            for read_idx in 0..num_reads {
+                if self.multi_aligner_setups[read_idx].is_none() { continue; }
+                let setup = self.multi_aligner_setups[read_idx].as_ref().unwrap();
+                let aligner = self.multi_aligners[read_idx].as_ref().unwrap();
+                let mut state = state.multi_aligner_states[read_idx].as_mut().unwrap();
+                let seq = rec.get_sequence(read_idx);
+                if let Some(best) = aligner.align(&mut state, &setup, &seq) {
+                    match &best_overall {
+                        Some((_, current_best)) if best.score() > current_best.score() => {
+                            best_overall = Some((read_idx, best));
+                        }
+                        None => {
+                            best_overall = Some((read_idx, best));
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
             }
         }
@@ -702,5 +731,92 @@ mod tests {
         let rec = RecordDto::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert!(result.alignment_results.barcode_tag.is_none() || result.alignment_results.barcode_tag != Some("barcode_bc2".to_string()));
+    }
+
+    #[test]
+    fn test_barcode_splitting_separate_barcode_read_single() {
+        let mut args = Args::parse_from(["flexbar", "--barcode-reads", "bar.fq"]);
+        args.barcode_min_overlap = Some(4);
+
+        let mut context = Context::empty();
+        context.run_type = RunType::SingleBarcoded;
+        context.barcodes.push(SequenceWithId {
+            id: "bc1".to_string(),
+            sequence: "AAAA".to_string(),
+        });
+
+        let step = BarcodeSplitter::new(&args, &context);
+        let mut state = step.create_state();
+
+        // Barcode in separate barcode read
+        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let bar = SingeRecordDto::with_attrs("id", None, b"AAAA", b"IIII");
+        let rec = RecordDto::single_barcoded(r1, bar);
+        let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
+
+        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        // No removal for separate barcode read
+        assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..12);
+    }
+
+    #[test]
+    fn test_barcode_splitting_separate_barcode_read_paired() {
+        let mut args = Args::parse_from(["flexbar", "--barcode-reads", "bar.fq"]);
+        args.barcode_min_overlap = Some(4);
+
+        let mut context = Context::empty();
+        context.run_type = RunType::PairedBarcoded;
+        context.barcodes.push(SequenceWithId {
+            id: "bc1".to_string(),
+            sequence: "AAAA".to_string(),
+        });
+
+        let step = BarcodeSplitter::new(&args, &context);
+        let mut state = step.create_state();
+
+        // Barcode in separate barcode read
+        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r2 = SingeRecordDto::with_attrs("id", None, b"HHHHHHHHHHHH", b"IIIIIIIIIIII");
+        let bar = SingeRecordDto::with_attrs("id", None, b"AAAA", b"IIII");
+        let rec = RecordDto::paired_barcoded(r1, r2, bar);
+        let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
+
+        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        // No removal
+        assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..12);
+        assert_eq!(result.alignment_results.per_read[1].as_ref().unwrap().read_range, 0..12);
+    }
+
+    #[test]
+    fn test_barcode_splitting_separate_barcode_read_ignores_read_barcodes() {
+        let mut args = Args::parse_from(["flexbar", "--barcode-reads", "bar.fq", "--barcode-trim-end", "Right"]);
+        args.barcode_trim_end = TrimEnd::Right;
+        args.barcode_min_overlap = Some(4);
+
+        let mut context = Context::empty();
+        context.run_type = RunType::SingleBarcoded;
+        context.barcodes.push(SequenceWithId {
+            id: "bc1".to_string(),
+            sequence: "AAAA".to_string(),
+        });
+        context.barcodes.push(SequenceWithId {
+            id: "bc2".to_string(),
+            sequence: "CCCC".to_string(),
+        });
+
+        let step = BarcodeSplitter::new(&args, &context);
+        let mut state = step.create_state();
+
+        // R1 contains bc1 at the end, but barcode read contains bc2.
+        // It should detect bc2 and NOT trim bc1 from R1.
+        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGAAAA", b"IIIIIIIIIIII");
+        let bar = SingeRecordDto::with_attrs("id", None, b"CCCC", b"IIII");
+        let rec = RecordDto::single_barcoded(r1, bar);
+        let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
+
+        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc2".to_string()));
+        // No removal because separate barcode read was used
+        assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..12);
+        assert_eq!(result.get_sequence(0), b"GGGGGGGGAAAA");
     }
 }
