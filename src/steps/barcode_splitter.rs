@@ -286,9 +286,17 @@ mod tests {
                 sequence: "NNNNNNTAGCTCTGTAGGCACCATCAAT".to_string()
             }
         ];
+        let has_second_read = record.reads[1].is_some();
+        let has_barcode = record.barcode_read.is_some();
+        let run_type= match (has_second_read, has_barcode) {
+            (false, false) => RunType::Single,
+            (true, false) => RunType::Paired,
+            (false, true) => RunType::SingleBarcoded,
+            (true, true) => RunType::PairedBarcoded,
+        };
         let context = Context {
             barcodes: barcodes.clone(),
-            run_type: if record.reads[1].is_none() { RunType::Single } else { RunType::Paired },
+            run_type,
             ..Context::empty()
         };
         let step = BarcodeSplitter::new(&args, &context);
