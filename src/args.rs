@@ -295,12 +295,7 @@ pub struct Args {
     #[arg(short = 'S', long = "single-reads-paired")]
     pub single_reads_paired: bool,
 
-    // Logging and tagging
-    /// Print chosen read alignments: ALL, MOD, TAB
-    #[arg(short = 'l', long)]
-    pub align_log: Option<LogAlign>,
-
-    /// Write statistics to stderr instead of target log file
+    /// Write logs to stderr instead of target log file
     #[arg(short = 'o', long = "stderr-log")]
     pub stderr_log: bool,
 
@@ -480,7 +475,6 @@ impl Args {
         if !is_present("single_reads_paired") { self.single_reads_paired = file_args.single_reads_paired; }
 
         // Logging and tagging
-        if !is_present("align_log") { self.align_log = file_args.align_log; }
         if !is_present("stderr_log") { self.stderr_log = file_args.stderr_log; }
         if !is_present("output_log") { self.output_log = file_args.output_log; }
         if !is_present("removal_tags") { self.removal_tags = file_args.removal_tags; }
