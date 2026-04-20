@@ -36,6 +36,8 @@ pub fn do_it(args: Args) {
     let reader = reader_handle.join().expect("Reader thread panicked");
     let (writer, worker_stats) = writer_handle.join().expect("Writer thread panicked");
 
+    writer.write_length_distribution().expect("Failed to write length distribution");
+
     let stats = Statistics {
         reader: reader.statistics(),
         worker: worker_stats,
@@ -135,7 +137,7 @@ fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType) ->
     } else {
         FileFormat::Fastq
     };
-    SequenceWriter::new(format, factory)
+    SequenceWriter::new(format, factory, args.length_dist)
 }
 
 thread_local! {

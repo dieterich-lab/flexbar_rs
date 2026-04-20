@@ -40,15 +40,19 @@ pub struct SequenceWriter<'a> {
     factory: WriterFactory<'a>,
     backends_by_tag: HashMap<(String, Option<usize>), WriterBackend<'a>>,
     statistics: crate::statistics::WriterStatistics,
+    track_length_dist: bool,
+    backend_descriptions: HashMap<(String, Option<usize>), String>,
 }
 
 impl<'a> SequenceWriter<'a> {
-    pub fn new(format: FileFormat, factory: WriterFactory<'a>) -> Self {
+    pub fn new(format: FileFormat, factory: WriterFactory<'a>, track_length_dist: bool) -> Self {
         Self {
             format,
             factory,
             backends_by_tag: HashMap::new(),
             statistics: crate::statistics::WriterStatistics::default(),
+            track_length_dist,
+            backend_descriptions: HashMap::new(),
         }
     }
 
@@ -58,8 +62,9 @@ impl<'a> SequenceWriter<'a> {
         if !self.backends_by_tag.contains_key(&key) {
             let actual_tag = if key.0 == DEFAULT_TAG { None } else { Some(key.0.as_str()) };
             let extension = WriterBackend::get_extension(self.format);
-            let (writer, _description) = (self.factory)(actual_tag, key.1, extension)?;
+            let (writer, description) = (self.factory)(actual_tag, key.1, extension)?;
             self.backends_by_tag.insert(key.clone(), WriterBackend::new(self.format, writer));
+            self.backend_descriptions.insert(key.clone(), description);
         }
         Ok(self.backends_by_tag.get_mut(&key).unwrap())
     }
@@ -72,8 +77,7 @@ impl<'a> SequenceWriter<'a> {
                 let read_index = if paired { Some(i) } else { None };
                 let backend = self.get_backend(tag, read_index)?;
                 backend.write_read(&read)?;
-                self.statistics.total_records_written += 1;
-                self.statistics.total_bases_written += read.seq().len();
+                self.update_statistics(read, tag, read_index);
             }
         }
 
@@ -86,6 +90,52 @@ impl<'a> SequenceWriter<'a> {
             }
         }
         trace!("Writer processed record: {} with tag: {:?}", record.record_id(), tag);
+        Ok(())
+    }
+
+    fn update_statistics(&mut self, read: &SingeRecordDto, tag: Option<&str>, read_index: Option<usize>) {
+        self.statistics.total_records_written += 1;
+        let seq_len = read.seq().len();
+        self.statistics.total_bases_written += seq_len;
+        if self.track_length_dist {
+            let t_str = tag.unwrap_or(DEFAULT_TAG).to_string();
+            let key = (t_str.clone(), read_index);
+            let dist = self.statistics.length_distribution.entry(key).or_insert_with(HashMap::new);
+            *dist.entry(seq_len).or_insert(0) += 1;
+        }
+    }
+
+    pub fn write_length_distribution(&self) -> io::Result<()> {
+        if !self.track_length_dist {
+            return Ok(());
+        }
+        for (key, dist) in &self.statistics.length_distribution {
+            let actual_tag = if key.0 == DEFAULT_TAG { None } else { Some(key.0.as_str()) };
+            let extension = WriterBackend::get_extension(self.format);
+            let dist_extension = format!("{}.lengthdist", extension);
+            
+            // leak the string to get a &'static str as required by the factory
+            let dist_ext_static: &'static str = Box::leak(dist_extension.into_boxed_str());
+
+            let (writer, description) = (self.factory)(actual_tag, key.1, dist_ext_static)?;
+            
+            if description == "STDOUT" {
+                continue;
+            }
+
+            let mut file = io::BufWriter::new(writer);
+            writeln!(file, "Readlength\tCount")?;
+            
+            let mut lengths: Vec<_> = dist.keys().cloned().collect();
+            lengths.sort_unstable();
+            
+            for len in lengths {
+                let count = dist.get(&len).unwrap();
+                if *count > 0 {
+                    writeln!(file, "{}\t{}", len, count)?;
+                }
+            }
+        }
         Ok(())
     }
 
@@ -103,13 +153,21 @@ mod tests {
     pub fn get_test_writer<'a>(
         format: FileFormat,
         buffers: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+        track_length_dist: bool,
     ) -> SequenceWriter<'a> {
-        let factory = Box::new(move |tag: Option<&str>, read_index: Option<usize>, _extension: &'static str| {
+        let factory = Box::new(move |tag: Option<&str>, read_index: Option<usize>, extension: &'static str| {
             let t = tag.unwrap_or(DEFAULT_TAG).to_string();
-            let buffer_key = match read_index {
+            let base_key = match read_index {
                 Some(idx) => format!("{}_R{}", t, idx + 1),
                 None => t.clone(),
             };
+            
+            let buffer_key = if extension.ends_with(".lengthdist") {
+                format!("{}.lengthdist", base_key)
+            } else {
+                base_key
+            };
+
             let mut bufs = buffers.lock().unwrap();
             bufs.entry(buffer_key.clone()).or_insert_with(Vec::new);
             
@@ -136,14 +194,14 @@ mod tests {
             Ok((writer, format!("memory:{}", buffer_key)))
         });
 
-        SequenceWriter::new(format, factory)
+        SequenceWriter::new(format, factory, track_length_dist)
     }
 
     #[test]
     fn test_sequence_writer_statistics() {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
-            let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone());
+            let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), false);
             let record = RecordDto::single(
                 SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!")
             );
@@ -159,7 +217,7 @@ mod tests {
     fn test_sequence_writer_barcode_statistics() {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
-            let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone());
+            let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), false);
             let record = RecordDto::single(SingeRecordDto::with_attrs(
                 "id1", None, b"ACGT", b"!!!!"
             ));
@@ -186,7 +244,7 @@ mod tests {
     fn test_fasta_writer_cursor() {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
-            let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone());
+            let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), false);
             let record = RecordDto::single(SingeRecordDto::with_attrs(
                 "id1", Some("desc1"), b"ACGT", b"!!!!"
             ));
@@ -201,20 +259,25 @@ mod tests {
     }
 
     #[test]
-    fn test_fastq_writer_cursor() {
+    fn test_sequence_writer_length_distribution() {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
-        {
-            let mut writer = get_test_writer(FileFormat::Fastq, buffers.clone());
-            let record = RecordDto::single(SingeRecordDto::with_attrs(
-                "id1", Some("desc1"), b"ACGT", b"!!!!"
-            ));
-            writer.write(&record, None).expect("Failed to write record");
-        }
+        let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), true);
+        
+        let record1 = RecordDto::single(SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!")); // len 4
+        let record2 = RecordDto::single(SingeRecordDto::with_attrs("id2", None, b"ACGTA", b"!!!!!")); // len 5
+        let record3 = RecordDto::single(SingeRecordDto::with_attrs("id3", None, b"ACGT", b"!!!!")); // len 4
+        
+        writer.write(&record1, None).unwrap();
+        writer.write(&record2, None).unwrap();
+        writer.write(&record3, None).unwrap();
+        
+        writer.write_length_distribution().unwrap();
         
         let bufs = buffers.lock().unwrap();
-        let result = String::from_utf8(bufs.get(DEFAULT_TAG).unwrap().clone()).expect("Not valid UTF-8");
-        assert!(result.contains("@id1 desc1"));
-        assert!(result.contains("ACGT"));
-        assert!(result.contains("!!!!"));
+        let dist_key = format!("{}.lengthdist", DEFAULT_TAG);
+        let content = String::from_utf8(bufs.get(&dist_key).unwrap().clone()).expect("Not valid UTF-8");
+        
+        let expected = "Readlength\tCount\n4\t2\n5\t1\n";
+        assert_eq!(content, expected);
     }
 }

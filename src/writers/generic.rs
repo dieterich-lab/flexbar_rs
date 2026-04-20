@@ -3,7 +3,6 @@ use std::io::Write;
 use crate::types::{SingeRecordDto};
 
 pub trait GenericWriterBackend<'a>: Send {
-    fn new(writer: Box<dyn Write + Send + 'a>) -> Self;
     fn write_read(&mut self, record: &SingeRecordDto) -> io::Result<()>;
 }
 

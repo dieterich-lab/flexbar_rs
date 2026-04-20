@@ -6,10 +6,6 @@ use crate::writers::generic::{GenericWriterBackend};
 pub type FastqBackend<'a> = fastq::Writer<Box<dyn io::Write + Send + 'a>>;
 
 impl<'a> GenericWriterBackend<'a> for FastqBackend<'a> {
-    fn new(writer: Box<dyn io::Write + Send + 'a>) -> Self {
-        fastq::Writer::new(writer)
-    }
-
     fn write_read(&mut self, record: &SingeRecordDto) -> io::Result<()> {
         self.write_record(record)
     }
