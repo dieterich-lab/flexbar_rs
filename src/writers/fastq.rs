@@ -13,9 +13,5 @@ impl<'a> GenericWriterBackend<'a> for FastqBackend<'a> {
     fn write_read(&mut self, record: &SingeRecordDto) -> io::Result<()> {
         self.write_record(record)
     }
-
-    fn get_extension() -> &'static str {
-        "fastq"
-    }
 }
 

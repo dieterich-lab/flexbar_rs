@@ -18,10 +18,6 @@ impl<'a> GenericWriterBackend<'a> for FastaBackend<'a> {
         );
         self.write_record(&fasta_record)
     }
-
-    fn get_extension() -> &'static str {
-        "fasta"
-    }
 }
 
 

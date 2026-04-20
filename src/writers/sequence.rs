@@ -3,7 +3,6 @@ use std::io;
 use std::io::Write;
 use log::trace;
 use crate::types::{RecordDto, SingeRecordDto, FileFormat};
-use crate::writers::Writer;
 use crate::writers::generic::{WriterFactory, DEFAULT_TAG, GenericWriterBackend};
 use crate::writers::fasta::FastaBackend;
 use crate::writers::fastq::FastqBackend;
@@ -64,10 +63,8 @@ impl<'a> SequenceWriter<'a> {
         }
         Ok(self.backends_by_tag.get_mut(&key).unwrap())
     }
-}
 
-impl<'a> Writer for SequenceWriter<'a> {
-    fn write(&mut self, record: &RecordDto, tag: Option<&str>) -> io::Result<()> {
+    pub fn write(&mut self, record: &RecordDto, tag: Option<&str>) -> io::Result<()> {
         let paired = record.is_paired();
         for i in 0..2 {
             if let Some(Some(read)) = record.reads.get(i) {
@@ -92,7 +89,7 @@ impl<'a> Writer for SequenceWriter<'a> {
         Ok(())
     }
 
-    fn statistics(&self) -> crate::statistics::WriterStatistics {
+    pub fn statistics(&self) -> crate::statistics::WriterStatistics {
         self.statistics.clone()
     }
 }

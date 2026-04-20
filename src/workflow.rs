@@ -4,7 +4,6 @@ use rayon::prelude::*;
 use crate::args::Args;
 use crate::writers::sequence::SequenceWriter;
 use crate::types::{CompressionType, RecordDto, FileFormat};
-use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
 use log::{debug};
 use crate::context;
@@ -61,9 +60,9 @@ fn spawn_reader_thread<Reader: BufRead + Send + 'static>(
 }
 
 fn spawn_writer_thread(
-    mut writer: Box<dyn Writer>,
+    mut writer: SequenceWriter<'static>,
     batch_out_rx: Receiver<ProcessedBatch>,
-) -> JoinHandle<(Box<dyn Writer>, WorkerStatistics)> {
+) -> JoinHandle<(SequenceWriter<'static>, WorkerStatistics)> {
     thread::spawn(move || {
         let mut worker_stats = WorkerStatistics::default();
         while let Ok(batch_out) = batch_out_rx.recv() {
@@ -125,7 +124,7 @@ fn get_compression<Reader: BufRead + Send>(reader: &SequenceReader<Reader>, args
 
 use crate::utils::io::{get_writer_factory};
 
-fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType) -> Box<dyn Writer> {
+fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType) -> SequenceWriter<'static> {
     let p = match args.single_reads {
         true => "-".to_string(),
         false => output_prefix.to_string(),
@@ -136,7 +135,7 @@ fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType) ->
     } else {
         FileFormat::Fastq
     };
-    Box::new(SequenceWriter::new(format, factory))
+    SequenceWriter::new(format, factory)
 }
 
 thread_local! {
