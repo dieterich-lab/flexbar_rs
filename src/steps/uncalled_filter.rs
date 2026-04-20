@@ -1,5 +1,4 @@
 use crate::args::Args;
-use crate::types::{RunType};
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 use crate::steps::generic::PerReadAlignmentResults;
@@ -81,7 +80,7 @@ impl GenericStep for UncalledFilter {
 mod tests {
     use super::*;
     use crate::args::Args;
-    use crate::types::{RecordDto, SingeRecordDto};
+    use crate::types::{RecordDto, RunType, SingeRecordDto};
     use clap::Parser;
 
     #[test]

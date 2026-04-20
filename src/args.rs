@@ -125,18 +125,6 @@ pub struct Args {
     #[arg(long = "batch-size", default_value_t = 4096)]
     pub batch_size: usize,
 
-    /// Skip restriction to pass read ends in right and left modes
-    #[arg(long = "adapter-relaxed", alias = "ax")]
-    pub adapter_relaxed: bool,
-
-    /// Overlap detection of paired reads: OFF (default), ON, SHORT, ONLY
-    #[arg(long = "adapter-pair-overlap", alias = "ap", default_value = "OFF")]
-    pub adapter_pair_overlap: PairOverlapMode,
-
-    /// Minimum overlap of paired reads for detection
-    #[arg(long = "adapter-min-poverlap", alias = "av", default_value_t = 40)]
-    pub adapter_min_poverlap: usize,
-
     /// Include reverse complements of adapters: OFF (default) ON, ONLY
     #[arg(long = "adapter-revcomp", alias = "ac", default_value = "OFF")]
     pub adapter_revcomp: RevCompMode,
@@ -307,10 +295,6 @@ pub struct Args {
     #[arg(short = 'g', long = "removal-tags")]
     pub removal_tags: bool,
 
-    /// Replace read tags by ascending number to save space
-    #[arg(short = 'e', long = "number-tags")]
-    pub number_tags: bool,
-
     /// Capture UMIs in reads at barcode or adapter N positions
     #[arg(short = 'd', long = "umi-tags")]
     pub umi_tags: bool,
@@ -425,9 +409,6 @@ impl Args {
         if !is_present("adapter_error_rate") { self.adapter_error_rate = file_args.adapter_error_rate; }
         if !is_present("adapter_trim_end") { self.adapter_trim_end = file_args.adapter_trim_end; }
         if !is_present("adapter_tail_length") { self.adapter_tail_length = file_args.adapter_tail_length; }
-        if !is_present("adapter_relaxed") { self.adapter_relaxed = file_args.adapter_relaxed; }
-        if !is_present("adapter_pair_overlap") { self.adapter_pair_overlap = file_args.adapter_pair_overlap; }
-        if !is_present("adapter_min_poverlap") { self.adapter_min_poverlap = file_args.adapter_min_poverlap; }
         if !is_present("adapter_revcomp") { self.adapter_revcomp = file_args.adapter_revcomp; }
         if !is_present("adapter_revcomp_end") { self.adapter_revcomp_end = file_args.adapter_revcomp_end; }
         if !is_present("adapter_add_barcode") { self.adapter_add_barcode = file_args.adapter_add_barcode; }
@@ -478,7 +459,6 @@ impl Args {
         if !is_present("stderr_log") { self.stderr_log = file_args.stderr_log; }
         if !is_present("output_log") { self.output_log = file_args.output_log; }
         if !is_present("removal_tags") { self.removal_tags = file_args.removal_tags; }
-        if !is_present("number_tags") { self.number_tags = file_args.number_tags; }
         if !is_present("umi_tags") { self.umi_tags = file_args.umi_tags; }
         if !is_present("debug") { self.debug = file_args.debug; }
     }

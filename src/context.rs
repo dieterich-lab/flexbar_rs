@@ -1,5 +1,5 @@
 use crate::args::Args;
-use crate::types::{AdapterPreset, AdapterReadset, AdapterRemoval, BarcodeDetect, FileFormat, PairOverlapMode, RevCompMode, RunType, TrimEnd};
+use crate::types::{AdapterPreset, AdapterReadset, AdapterRemoval, BarcodeDetect, FileFormat, RevCompMode, RunType, TrimEnd};
 use crate::utils::io::get_file_type;
 use bio::io::fasta;
 use bio::alphabets::dna::revcomp;
@@ -64,7 +64,7 @@ impl Context {
             bar_detect,
             adapter_removal: Self::determine_adapter_removal(args, has_adapters),
         };
-        context.sanitize(args, has_adapters);
+        context.sanitize(args);
         debug!("{:#?}", context.run_type);
         context.load(args);
         context
@@ -184,7 +184,7 @@ impl Context {
         false
     }
 
-    fn sanitize(&mut self, args: &Args, has_adapters: bool) {
+    fn sanitize(&mut self, args: &Args) {
         let is_paired = args.reads2.is_some();
         match args.adapter_preset {
             Some(AdapterPreset::NexteraMp) => {
@@ -196,14 +196,6 @@ impl Context {
             _ => ()
         }
 
-        if !is_paired && args.adapter_pair_overlap != PairOverlapMode::Off {
-            warn!("Adapter pair overlap mode is not supported for unpaired reads - disabling");
-        }
-        if !has_adapters && matches!(
-            args.adapter_pair_overlap, PairOverlapMode::On | PairOverlapMode::Short
-        ) {
-            warn!("Adapter pair overlap mode is not supported for no adapters - disabling");
-        }
         if args.adapter_add_barcode {
             if !is_paired {
                 warn!("Adapter barcode addition is not supported for unpaired reads - disabling");

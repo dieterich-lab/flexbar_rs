@@ -192,26 +192,6 @@ impl FromStr for RevCompMode {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub enum PairOverlapMode {
-    Off,
-    On,
-    Short,
-    Only,
-}
-
-impl FromStr for PairOverlapMode {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_uppercase().as_str() {
-            "ON" => Ok(PairOverlapMode::On),
-            "SHORT" => Ok(PairOverlapMode::Short),
-            "ONLY" => Ok(PairOverlapMode::Only),
-            _ => Ok(PairOverlapMode::Off),
-        }
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum AdapterPreset {
     Off,
     TruSeq,

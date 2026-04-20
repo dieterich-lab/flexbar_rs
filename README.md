@@ -24,15 +24,23 @@ Most options work as for Flexbar, but:
 * The gap scores have been split into two parameters, e.g. `--barcode-gap` was replaced by `--barcode-gap-open`
   and `--barcode-gap-extend`.
 
-Not yet implemented:
+Not yet implemented, but planned:
 
-* Paired reads
 * Barcode reads in separate files (-br option)
+* --length-dist
+* --iupac
+* --adapter-revcomp-end
 
 Dropped features we will not implement at all:
 
 * Support for interleaved FASTQ files
 * Trimming of homopolymers
+* A bun of adapter-related options
+  * --adapter-relaxed
+  * --adapter-pair-overlap
+  * --adapter-min-poverlap
+  * --adapter-trimmed-out
+* --number-tags
 
 ## Tuning
 
