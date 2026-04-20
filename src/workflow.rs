@@ -2,9 +2,8 @@ use std::cell::{RefCell};
 use std::io::BufRead;
 use rayon::prelude::*;
 use crate::args::Args;
-use crate::writers::fasta::{SingleWriterFasta};
-use crate::writers::fastq::{SingleWriterFastq};
-use crate::types::{CompressionType, RecordDto};
+use crate::writers::sequence::SequenceWriter;
+use crate::types::{CompressionType, RecordDto, FileFormat};
 use crate::writers::Writer;
 use crate::statistics::{Statistics, WorkerStatistics};
 use log::{debug};
@@ -132,11 +131,12 @@ fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType) ->
         false => output_prefix.to_string(),
     };
     let factory = get_writer_factory(p, compression, args.write_buffer);
-    if args.fasta_output {
-        Box::new(SingleWriterFasta::new(factory))
+    let format = if args.fasta_output {
+        FileFormat::Fasta
     } else {
-        Box::new(SingleWriterFastq::new(factory))
-    }
+        FileFormat::Fastq
+    };
+    Box::new(SequenceWriter::new(format, factory))
 }
 
 thread_local! {
