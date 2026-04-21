@@ -2,15 +2,17 @@ use log::debug;
 use crate::args::Args;
 use crate::context::Context;
 use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation};
-use crate::steps::{pre_trim::PreTrim, uncalled_filter::UncalledFilter, adapter_remover::AdapterRemoverStep, barcode_splitter::BarcodeSplitter, quality_trim::QualityTrim, filter_length::FilterLength, post_trim::PostTrim};
+use crate::steps::{pre_trim::PreTrim, uncalled_filter::UncalledFilter, adapter_remover::AdapterRemoverStep, barcode_splitter::BarcodeSplitter, quality_trim::QualityTrim, filter_length::FilterLength, post_trim::PostTrim, iupac_converter::IupacConverter};
 use crate::steps::pre_trim::PreTrimState;
 use crate::steps::filter_length::FilterLengthState;
 use crate::steps::post_trim::PostTrimState;
 use crate::steps::barcode_splitter::BarcodeSplitterState;
 use crate::steps::adapter_remover::AdapterRemoverStepState;
+use crate::steps::iupac_converter::IupacConverterState;
 use crate::types::{RecordDto, SingeRecordDto, QualTrimType};
 
 pub struct Worker {
+    pub iupac_converter: Option<IupacConverter>,
     pub pre_trim: Option<PreTrim>,
     pub barcode_splitter: Option<BarcodeSplitter>,
     pub adapter_remover: Option<AdapterRemoverStep>,
@@ -22,6 +24,7 @@ pub struct Worker {
 }
 
 pub struct WorkerState {
+    pub iupac_converter: Option<IupacConverterState>,
     pub pre_trim: Option<PreTrimState>,
     pub barcode_splitter: Option<BarcodeSplitterState>,
     pub adapter_remover: Option<AdapterRemoverStepState>,
@@ -33,6 +36,10 @@ pub struct WorkerState {
 
 impl Worker {
     pub fn new(args: &Args, context: &Context) -> Self {
+        let iupac_converter = if args.iupac {
+            Some(IupacConverter::new(args, context))
+        } else { None };
+
         let pre_trim = if args.pre_trim_left > 0 || args.pre_trim_right > 0 {
             Some(PreTrim::new(args, context))
         } else { None };
@@ -62,6 +69,9 @@ impl Worker {
         let qtrim_post_removal = args.qtrim_post_removal;
         if args.trace {
             debug!("Unified worker pipeline:");
+            if iupac_converter.is_some() {
+                debug!("- Step IupacConverter");
+            }
             if let Some(s) = &pre_trim {
                 debug!("- Step PreTrim (left: {}, right: {})", s.pre_trim_left, s.pre_trim_right);
             }
@@ -86,11 +96,12 @@ impl Worker {
             }
         }
 
-        Self { pre_trim, barcode_splitter, adapter_remover, quality_trim, filter_length, post_trim, uncalled_filter, qtrim_post_removal }
+        Self { iupac_converter, pre_trim, barcode_splitter, adapter_remover, quality_trim, filter_length, post_trim, uncalled_filter, qtrim_post_removal }
     }
 
     pub fn create_state(&self) -> WorkerState {
         WorkerState {
+            iupac_converter: self.iupac_converter.as_ref().map(|s| s.create_state()),
             pre_trim: self.pre_trim.as_ref().map(|s| s.create_state()),
             barcode_splitter: self.barcode_splitter.as_ref().map(|s| s.create_state()),
             adapter_remover: self.adapter_remover.as_ref().map(|s| s.create_state()),
@@ -111,6 +122,9 @@ impl Worker {
         }
         rec_in.stats.total_bases_read = total_bases;
 
+        if let Some(step) = &self.iupac_converter {
+            rec_in = step.apply(rec_in, state.iupac_converter.as_mut().unwrap());
+        }
         if let Some(step) = &self.pre_trim {
             rec_in = step.apply(rec_in, state.pre_trim.as_mut().unwrap());
         }

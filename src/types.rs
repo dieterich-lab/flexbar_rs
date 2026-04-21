@@ -304,4 +304,28 @@ impl RecordDto {
             panic!("RecordDto has no reads")
         }
     }
+
+    #[inline(always)]
+    pub fn patch_read_sequence(&mut self, read_index: usize, new_sequence: &[u8]) {
+        let old_read = self.reads[read_index].take().unwrap();
+        let new_read = SingeRecordDto::with_attrs(
+            old_read.id(),
+            old_read.desc(),
+            new_sequence,
+            old_read.qual(),
+        );
+        self.reads[read_index] = Some(new_read);
+    }
+    
+    #[inline(always)]
+    pub fn patch_barcode_read(&mut self, new_sequence: &[u8]) {
+        let old_barcode = self.barcode_read.take().unwrap();
+        let new_barcode = SingeRecordDto::with_attrs(
+            old_barcode.id(),
+            old_barcode.desc(),
+            new_sequence,
+            old_barcode.qual(),
+        );
+        self.barcode_read = Some(new_barcode);
+    }
 }

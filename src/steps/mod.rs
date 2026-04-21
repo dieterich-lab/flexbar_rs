@@ -8,3 +8,4 @@ pub mod post_trim;
 pub mod pre_trim;
 pub mod quality_trim;
 pub mod uncalled_filter;
+pub mod iupac_converter;

@@ -27,8 +27,6 @@ Most options work as for Flexbar, but:
 Not yet implemented, but planned:
 
 * Barcode reads in separate files (-br option)
-* --length-dist
-* --iupac
 * --adapter-revcomp-end
 
 Dropped features we will not implement at all:
