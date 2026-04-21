@@ -129,10 +129,6 @@ pub struct Args {
     #[arg(long = "adapter-revcomp", alias = "ac", default_value = "OFF")]
     pub adapter_revcomp: RevCompMode,
 
-    /// Use different trim-end for reverse complements of adapters
-    #[arg(long = "adapter-revcomp-end", alias = "ad")]
-    pub adapter_revcomp_end: Option<TrimEnd>,
-
     /// Add reverse complement of detected barcode to adapters
     #[arg(long = "adapter-add-barcode", alias = "ab")]
     pub adapter_add_barcode: bool,
@@ -410,7 +406,6 @@ impl Args {
         if !is_present("adapter_trim_end") { self.adapter_trim_end = file_args.adapter_trim_end; }
         if !is_present("adapter_tail_length") { self.adapter_tail_length = file_args.adapter_tail_length; }
         if !is_present("adapter_revcomp") { self.adapter_revcomp = file_args.adapter_revcomp; }
-        if !is_present("adapter_revcomp_end") { self.adapter_revcomp_end = file_args.adapter_revcomp_end; }
         if !is_present("adapter_add_barcode") { self.adapter_add_barcode = file_args.adapter_add_barcode; }
         if !is_present("adapter_read_set") { self.adapter_read_set = file_args.adapter_read_set; }
         if !is_present("adapter_trimmed_out") { self.adapter_trimmed_out = file_args.adapter_trimmed_out; }

@@ -24,11 +24,6 @@ Most options work as for Flexbar, but:
 * The gap scores have been split into two parameters, e.g. `--barcode-gap` was replaced by `--barcode-gap-open`
   and `--barcode-gap-extend`.
 
-Not yet implemented, but planned:
-
-* Barcode reads in separate files (-br option)
-* --adapter-revcomp-end
-
 Dropped features we will not implement at all:
 
 * Support for interleaved FASTQ files

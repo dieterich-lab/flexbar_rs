@@ -26,7 +26,6 @@ pub struct Context {
     pub adapters2: Vec<SequenceWithId>,
     pub barcodes: Vec<SequenceWithId>,
     pub barcodes2: Vec<SequenceWithId>,
-    pub use_rc_trim_end: bool,
     pub format: FileFormat,
     pub run_type: RunType,
     pub bar_detect: BarcodeDetect,
@@ -40,7 +39,6 @@ impl Context {
             adapters2: Vec::new(),
             barcodes: Vec::new(),
             barcodes2: Vec::new(),
-            use_rc_trim_end: false,
             format: FileFormat::Fasta,
             run_type: RunType::Single,
             bar_detect: BarcodeDetect::Off,
@@ -58,7 +56,6 @@ impl Context {
             adapters2: Vec::new(),
             barcodes: Vec::new(),
             barcodes2: Vec::new(),
-            use_rc_trim_end: Self::determine_use_rc_trim_end(args),
             format,
             run_type: Self::determine_run_type(args),
             bar_detect,
@@ -114,16 +111,6 @@ impl Context {
                 }
             }
             None => BarcodeDetect::Off,
-        }
-    }
-
-    fn determine_use_rc_trim_end(args: &Args) -> bool {
-        match args.adapter_revcomp_end {
-            Some(x) => match args.adapter_revcomp {
-                RevCompMode::On => x != args.adapter_trim_end,
-                _ => false,
-            },
-            _ => false,
         }
     }
 
@@ -534,42 +521,32 @@ mod tests {
 
     #[test]
     fn test_context_adapter_copy_to_second_read() {
+        fn get_args(adapter_read_set: AdapterReadset) -> Args {
+            Args {
+                reads: Some(PathBuf::from("r1.fq")),
+                reads2: Some(PathBuf::from("r2.fq")),
+                adapter_seq: Some("AGCT".to_string()),
+                adapter_read_set,
+                ..Args::parse_from(["flexbar"])
+            }
+        }
+
         // Case 1: adapter_read_set = Two, no adapters2
-        let args = Args {
-            reads: Some(PathBuf::from("r1.fq")),
-            reads2: Some(PathBuf::from("r2.fq")),
-            adapter_seq: Some("AGCT".to_string()),
-            adapter_read_set: AdapterReadset::Two,
-            ..Args::parse_from(["flexbar"])
-        };
+        let args = get_args(AdapterReadset::Two);
         let context = Context::new(&args);
         assert_eq!(context.adapters.len(), 1);
         assert_eq!(context.adapters[0].sequence, "AGCT");
         assert_eq!(context.adapters2.len(), 1);
         assert_eq!(context.adapters2[0].sequence, "AGCT");
 
-        // Case 2: adapter_read_set = None, no adapters2
-        let args = Args {
-            reads: Some(PathBuf::from("r1.fq")),
-            reads2: Some(PathBuf::from("r2.fq")),
-            adapter_seq: Some("AGCT".to_string()),
-            adapter_read_set: AdapterReadset::None,
-            ..Args::parse_from(["flexbar"])
-        };
+        let args = get_args(AdapterReadset::None);
         let context = Context::new(&args);
         assert_eq!(context.adapters.len(), 1);
         assert_eq!(context.adapters[0].sequence, "AGCT");
         assert_eq!(context.adapters2.len(), 1);
         assert_eq!(context.adapters2[0].sequence, "AGCT");
 
-        // Case 3: adapter_read_set = One, no adapters2 -> adapters2 should be empty
-        let args = Args {
-            reads: Some(PathBuf::from("r1.fq")),
-            reads2: Some(PathBuf::from("r2.fq")),
-            adapter_seq: Some("AGCT".to_string()),
-            adapter_read_set: AdapterReadset::One,
-            ..Args::parse_from(["flexbar"])
-        };
+        let args = get_args(AdapterReadset::One);
         let context = Context::new(&args);
         assert_eq!(context.adapters.len(), 1);
         assert_eq!(context.adapters2.len(), 0);
