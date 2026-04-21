@@ -2,8 +2,9 @@ use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use log::trace;
-use crate::types::{RecordDto, SingeRecordDto, FileFormat};
-use crate::writers::generic::{WriterFactory, DEFAULT_TAG, GenericWriterBackend};
+use crate::types::{FileFormat, RecordDto, SingeRecordDto};
+use crate::utils::io::{OutputType, WriterFactory};
+use crate::writers::generic::{GenericWriterBackend, DEFAULT_TAG};
 use crate::writers::fasta::FastaBackend;
 use crate::writers::fastq::FastqBackend;
 
@@ -17,13 +18,6 @@ impl<'a> WriterBackend<'a> {
         match self {
             WriterBackend::Fasta(b) => b.write_read(record),
             WriterBackend::Fastq(b) => b.write_read(record),
-        }
-    }
-
-    fn get_extension(format: FileFormat) -> &'static str {
-        match format {
-            FileFormat::Fasta => "fasta",
-            FileFormat::Fastq => "fastq",
         }
     }
 
@@ -61,8 +55,7 @@ impl<'a> SequenceWriter<'a> {
         let key = (t, read_index);
         if !self.backends_by_tag.contains_key(&key) {
             let actual_tag = if key.0 == DEFAULT_TAG { None } else { Some(key.0.as_str()) };
-            let extension = WriterBackend::get_extension(self.format);
-            let (writer, description) = (self.factory)(actual_tag, key.1, extension)?;
+            let (writer, description) = (self.factory)(actual_tag, key.1, self.format, OutputType::Reads)?;
             self.backends_by_tag.insert(key.clone(), WriterBackend::new(self.format, writer));
             self.backend_descriptions.insert(key.clone(), description);
         }
@@ -111,13 +104,7 @@ impl<'a> SequenceWriter<'a> {
         }
         for (key, dist) in &self.statistics.length_distribution {
             let actual_tag = if key.0 == DEFAULT_TAG { None } else { Some(key.0.as_str()) };
-            let extension = WriterBackend::get_extension(self.format);
-            let dist_extension = format!("{}.lengthdist", extension);
-            
-            // leak the string to get a &'static str as required by the factory
-            let dist_ext_static: &'static str = Box::leak(dist_extension.into_boxed_str());
-
-            let (writer, description) = (self.factory)(actual_tag, key.1, dist_ext_static)?;
+            let (writer, description) = (self.factory)(actual_tag, key.1, self.format, OutputType::LengthDistribution)?;
             
             if description == "STDOUT" {
                 continue;
@@ -155,17 +142,16 @@ mod tests {
         buffers: Arc<Mutex<HashMap<String, Vec<u8>>>>,
         track_length_dist: bool,
     ) -> SequenceWriter<'a> {
-        let factory = Box::new(move |tag: Option<&str>, read_index: Option<usize>, extension: &'static str| {
+        let factory = Box::new(move |tag: Option<&str>, read_index: Option<usize>, _format: FileFormat, output_type: OutputType| {
             let t = tag.unwrap_or(DEFAULT_TAG).to_string();
             let base_key = match read_index {
                 Some(idx) => format!("{}_R{}", t, idx + 1),
                 None => t.clone(),
             };
             
-            let buffer_key = if extension.ends_with(".lengthdist") {
-                format!("{}.lengthdist", base_key)
-            } else {
-                base_key
+            let buffer_key = match output_type {
+                OutputType::LengthDistribution => format!("{}.lengthdist", base_key),
+                _ => base_key,
             };
 
             let mut bufs = buffers.lock().unwrap();

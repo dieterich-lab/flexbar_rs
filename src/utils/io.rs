@@ -12,6 +12,17 @@ use crate::types::CompressionType;
 
 use crate::logging::log_fatal;
 
+pub enum OutputType{
+    Reads,
+    LengthDistribution,
+}
+
+// (bar_tag, read_index, extension) -> (writer, description)
+pub type WriterFactory<'a> = Box<dyn
+Fn(Option<&str>, Option<usize>, FileFormat, OutputType)
+    -> io::Result<(Box<dyn Write + Send + 'a>, String)
+    > + Send + 'a>;
+
 pub fn get_file_type(path: Option<&PathBuf>) -> FileFormat {
     path.as_ref().map_or(FileFormat::Fasta, |path| {
         if path.to_string_lossy() == "-" {
@@ -59,45 +70,6 @@ pub fn get_raw_reader<P: AsRef<Path>>(path: P, buffer_size: usize) -> (BufReader
     (BufReader::with_capacity(buffer_size, reader), source, compression)
 }
 
-pub fn get_writer_path(prefix: &str, compression: CompressionType, extension: &str, tag: Option<&str>, read_index: Option<usize>) -> Option<PathBuf> {
-    if prefix == "-" {
-        return None;
-    }
-    let mut path = PathBuf::from(prefix);
-    if let Some(t) = tag {
-        let cleaned_tag = t.replace(['/', '\\'], "");
-        let mut filename = path.file_name().unwrap_or_default().to_os_string();
-        filename.push("_");
-        filename.push(cleaned_tag);
-        path.set_file_name(filename);
-    }
-    if let Some(idx) = read_index {
-        let mut filename = path.file_name().unwrap_or_default().to_os_string();
-        filename.push(format!("_{}", idx + 1));
-        path.set_file_name(filename);
-    }
-    path.set_extension(extension);
-    
-    Some(match compression {
-        CompressionType::Gz => {
-            let mut s = path.into_os_string();
-            s.push(".gz");
-            PathBuf::from(s)
-        }
-        CompressionType::Bz2 => {
-            let mut s = path.into_os_string();
-            s.push(".bz2");
-            PathBuf::from(s)
-        }
-        CompressionType::Zstd => {
-            let mut s = path.into_os_string();
-            s.push(".zst");
-            PathBuf::from(s)
-        }
-        CompressionType::Uncompressed => path,
-        CompressionType::Keep => log_fatal("Compression type KEEP is not supported for writing"),
-    })
-}
 
 fn get_writer_from_path(path: Option<&Path>, compression: CompressionType, buffer_size: usize) -> io::Result<Box<dyn Write + Send>> {
     let writer: Box<dyn Write + Send> = match path {
@@ -114,18 +86,107 @@ fn get_writer_from_path(path: Option<&Path>, compression: CompressionType, buffe
     }
 }
 
+struct WriterFactoryBackend {
+    prefix: String,
+    compression: CompressionType,
+    buffer_size: usize,
+}
+
+impl WriterFactoryBackend {
+    fn new(prefix: String, compression: CompressionType, buffer_size: usize) -> Self {
+        Self { prefix, compression, buffer_size }
+    }
+
+    fn get_writer_path(
+        &self,
+        tag: Option<&str>,
+        read_index: Option<usize>,
+        file_format: FileFormat,
+        output_type: &OutputType
+    ) -> Option<PathBuf> {
+        if self.prefix == "-" {
+            return None;
+        }
+        let cleaned_tag = match tag {
+            Some(t) => format!("_{}", t.replace(['/', '\\'], "")),
+            None => "".to_string(),
+        };
+        let read_index_str = match read_index {
+            Some(idx) => format!("_{}", idx + 1),
+            None => "".to_string(),
+        };
+        let format_str = match file_format {
+            FileFormat::Fasta => ".fasta",
+            FileFormat::Fastq => ".fastq",
+        };
+        let compression_str = match self.compression {
+            CompressionType::Gz => ".gz",
+            CompressionType::Bz2 => ".bz2",
+            CompressionType::Zstd => ".zst",
+            CompressionType::Uncompressed => "",
+            CompressionType::Keep => log_fatal("Compression type KEEP is not supported for writing"),
+        };
+        let output_type_str = match output_type {
+            OutputType::LengthDistribution => ".lengthdist",
+            _ => ""
+        };
+        Some(PathBuf::from(vec![
+            self.prefix.clone(),
+            cleaned_tag,
+            read_index_str,
+            format_str.to_string(),
+            compression_str.to_string(),
+            output_type_str.to_string(),
+        ].join("")))
+    }
+
+    fn get_raw_writer(&self, path: Option<PathBuf>, output_type: &OutputType) -> Box<dyn Write + Send> {
+        let writer: Box<dyn Write + Send> = match &path {
+            Some(p) => {
+                let f = match File::create(&p) {
+                    Ok(f) => f,
+                    Err(e) => {
+                        log_fatal(&format!("Error creating file {}: {}", p.display(), e));
+                    }
+                };
+                Box::new(BufWriter::with_capacity(self.buffer_size, f))
+            },
+            None => Box::new(BufWriter::with_capacity(self.buffer_size, io::stdout())),
+        };
+        let writer_with_compression: io::Result<Box<dyn Write + Send>> = match output_type {
+            OutputType::LengthDistribution => Ok(writer),
+            _ => match self.compression {
+                CompressionType::Gz => Ok(Box::new(GzEncoder::new(writer, flate2::Compression::default()))),
+                CompressionType::Bz2 => Ok(Box::new(BzEncoder::new(writer, bzip2::Compression::default()))),
+                CompressionType::Zstd => Ok(Box::new(ZstdEncoder::new(writer, 0).unwrap().auto_finish())),
+                CompressionType::Uncompressed => Ok(writer),
+                CompressionType::Keep => log_fatal("Compression type KEEP is not supported for writing"),
+            }
+        };
+        match writer_with_compression {
+            Ok(writer) => writer,
+            Err(e) => log_fatal(&format!(
+                "Failed to create writer ({:?}): {}",
+                path, e
+            )),
+        }
+    }
+}
+
+
 pub fn get_writer_factory<'a>(
     prefix: String,
     compression: CompressionType,
     buffer_size: usize,
-) -> Box<dyn Fn(Option<&str>, Option<usize>, &'static str) -> io::Result<(Box<dyn Write + Send + 'a>, String)> + Send + 'a> {
-    Box::new(move |tag, read_index, extension| {
-        let path = get_writer_path(&prefix, compression, extension, tag, read_index);
+) -> WriterFactory<'a> {
+    let backend = WriterFactoryBackend::new(prefix.clone(), compression, buffer_size);
+    Box::new(move |tag, read_index, file_format, output_type| {
+        let path = backend.get_writer_path(tag, read_index, file_format, &output_type);
         let description = match &path {
             Some(p) => p.to_string_lossy().into_owned(),
             None => "STDOUT".to_string(),
         };
-        let writer = get_writer_from_path(path.as_deref(), compression, buffer_size)?;
+        let writer = backend.get_raw_writer(path, &output_type);
         Ok((writer, description))
     })
 }
@@ -161,53 +222,54 @@ mod tests {
 
     #[test]
     fn test_get_writer_path_with_unsafe_tag() {
-        let prefix = "output/test";
+        let prefix = "output/test".to_string();
         let compression = CompressionType::Uncompressed;
-        let extension = "fastq";
+        let backend = WriterFactoryBackend::new(prefix, compression, 4096);
         let tag = Some("tag/with\\slashes");
-        let path = get_writer_path(prefix, compression, extension, tag, None).unwrap();
+        let path = backend.get_writer_path(tag, None, FileFormat::Fastq, &OutputType::Reads).unwrap();
         assert_eq!(path, PathBuf::from("output/test_tagwithslashes.fastq"));
     }
 
     #[test]
     fn test_get_writer_path_with_tag() {
-        let prefix = "output/test";
+        let prefix = "output/test".to_string();
         let compression = CompressionType::Uncompressed;
-        let extension = "fastq";
+        let backend = WriterFactoryBackend::new(prefix, compression, 4096);
         let tag = Some("tag1");
-        let path = get_writer_path(prefix, compression, extension, tag, None).unwrap();
+        let path = backend.get_writer_path(tag, None, FileFormat::Fastq, &OutputType::Reads).unwrap();
         assert_eq!(path, PathBuf::from("output/test_tag1.fastq"));
     }
 
     #[test]
     fn test_get_writer_path_without_tag() {
-        let prefix = "output/test";
+        let prefix = "output/test".to_string();
         let compression = CompressionType::Uncompressed;
-        let extension = "fastq";
-        let path = get_writer_path(prefix, compression, extension, None, None).unwrap();
+        let backend = WriterFactoryBackend::new(prefix, compression, 4096);
+        let path = backend.get_writer_path(None, None, FileFormat::Fastq, &OutputType::Reads).unwrap();
         assert_eq!(path, PathBuf::from("output/test.fastq"));
     }
 
     #[test]
     fn test_get_writer_path_paired() {
-        let prefix = "output/test";
+        let prefix = "output/test".to_string();
         let compression = CompressionType::Uncompressed;
-        let extension = "fastq";
+        let backend = WriterFactoryBackend::new(prefix, compression, 4096);
         
-        let path1 = get_writer_path(prefix, compression, extension, None, Some(0)).unwrap();
+        let path1 = backend.get_writer_path(None, Some(0), FileFormat::Fastq, &OutputType::Reads).unwrap();
         assert_eq!(path1, PathBuf::from("output/test_1.fastq"));
         
-        let path2 = get_writer_path(prefix, compression, extension, None, Some(1)).unwrap();
+        let path2 = backend.get_writer_path(None, Some(1), FileFormat::Fastq, &OutputType::Reads).unwrap();
         assert_eq!(path2, PathBuf::from("output/test_2.fastq"));
         
-        let path3 = get_writer_path(prefix, compression, extension, Some("tag1"), Some(0)).unwrap();
+        let path3 = backend.get_writer_path(Some("tag1"), Some(0), FileFormat::Fastq, &OutputType::Reads).unwrap();
         assert_eq!(path3, PathBuf::from("output/test_tag1_1.fastq"));
     }
 
-    fn test_compression_roundtrip(compression: CompressionType, extension: &str) {
+    fn test_compression_roundtrip(compression: CompressionType, _extension: &str) {
         let dir = tempdir().unwrap();
         let prefix = dir.path().join("test").to_str().unwrap().to_string();
-        let path_opt = get_writer_path(&prefix, compression, extension, None, None);
+        let backend = WriterFactoryBackend::new(prefix, compression, 4096);
+        let path_opt = backend.get_writer_path(None, None, FileFormat::Fastq, &OutputType::Reads);
         let path = path_opt.unwrap();
         
         let data = b"test data for compression roundtrip";
