@@ -28,7 +28,7 @@ Dropped features we will not implement at all:
 
 * Support for interleaved FASTQ files
 * Trimming of homopolymers
-* A bun of adapter-related options
+* A bunch of adapter-related options
   * --adapter-relaxed
   * --adapter-pair-overlap
   * --adapter-min-poverlap
@@ -39,7 +39,7 @@ Dropped features we will not implement at all:
 
 ### Optimizing for Execution Time
 
-**Stop using gzip - use ZSTD compression.** In typical HPC setups (>20 vCPUs)
+**Stop using gzip - use ZSTD compression.** In typical HPC setups (>10 vCPUs)
 it is essential to use compression - not only to save disk space but also
 to reduce the I/O load. With typical flexbar workloads the time needed to
 decompress and compress the data will dominate the overall runtime. When
@@ -84,6 +84,13 @@ To create binary run:
 ```
 
 The binary will be created in `target/cargo-multivers/x86_64-unknown-linux-gnu/release/flexbar_rs`.
+
+## Known issues
+
+* flexbar_rs may miss some alignments with short overlaps.
+  This is most likely caused by a problem with the Rust-bio library
+  as documented here:
+  * https://github.com/rust-bio/rust-bio/issues/656
 
 ## References
 
