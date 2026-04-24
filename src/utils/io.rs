@@ -70,22 +70,6 @@ pub fn get_raw_reader<P: AsRef<Path>>(path: P, buffer_size: usize) -> (BufReader
     (BufReader::with_capacity(buffer_size, reader), source, compression)
 }
 
-
-fn get_writer_from_path(path: Option<&Path>, compression: CompressionType, buffer_size: usize) -> io::Result<Box<dyn Write + Send>> {
-    let writer: Box<dyn Write + Send> = match path {
-        Some(p) => Box::new(BufWriter::with_capacity(buffer_size, File::create(p)?)),
-        None => Box::new(BufWriter::with_capacity(buffer_size, io::stdout())),
-    };
-
-    match compression {
-        CompressionType::Gz => Ok(Box::new(GzEncoder::new(writer, flate2::Compression::default()))),
-        CompressionType::Bz2 => Ok(Box::new(BzEncoder::new(writer, bzip2::Compression::default()))),
-        CompressionType::Zstd => Ok(Box::new(ZstdEncoder::new(writer, 0)?.auto_finish())),
-        CompressionType::Uncompressed => Ok(writer),
-        CompressionType::Keep => log_fatal("Compression type KEEP is not supported for writing"),
-    }
-}
-
 struct WriterFactoryBackend {
     prefix: String,
     compression: CompressionType,
@@ -265,21 +249,16 @@ mod tests {
         assert_eq!(path3, PathBuf::from("output/test_tag1_1.fastq"));
     }
 
-    fn test_compression_roundtrip(compression: CompressionType, _extension: &str) {
+    fn test_compression_roundtrip(compression: CompressionType) {
         let dir = tempdir().unwrap();
         let prefix = dir.path().join("test").to_str().unwrap().to_string();
-        let backend = WriterFactoryBackend::new(prefix, compression, 4096);
-        let path_opt = backend.get_writer_path(None, None, FileFormat::Fastq, &OutputType::Reads);
-        let path = path_opt.unwrap();
-        
+        let factory = get_writer_factory(prefix.clone(), compression, 4096);
+
         let data = b"test data for compression roundtrip";
-        
-        {
-            let mut writer = get_writer_from_path(Some(&path), compression, 4096).unwrap();
-            writer.write_all(data).unwrap();
-            writer.flush().unwrap();
-        }
-        
+        let (mut writer, path) = factory(None, None, FileFormat::Fastq, OutputType::Reads).unwrap();
+        writer.write_all(data).unwrap();
+        writer.flush().unwrap();
+        drop(writer);
         let (mut reader, _source, detected_compression) = get_raw_reader(&path, 4096);
         assert_eq!(detected_compression, compression);
         
@@ -290,22 +269,22 @@ mod tests {
 
     #[test]
     fn test_uncompressed_roundtrip() {
-        test_compression_roundtrip(CompressionType::Uncompressed, "txt");
+        test_compression_roundtrip(CompressionType::Uncompressed);
     }
 
     #[test]
     fn test_gz_roundtrip() {
-        test_compression_roundtrip(CompressionType::Gz, "txt");
+        test_compression_roundtrip(CompressionType::Gz);
     }
 
     #[test]
     fn test_bz2_roundtrip() {
-        test_compression_roundtrip(CompressionType::Bz2, "txt");
+        test_compression_roundtrip(CompressionType::Bz2);
     }
 
     #[test]
     fn test_zstd_roundtrip() {
-        test_compression_roundtrip(CompressionType::Zstd, "txt");
+        test_compression_roundtrip(CompressionType::Zstd);
     }
 
     #[test]
