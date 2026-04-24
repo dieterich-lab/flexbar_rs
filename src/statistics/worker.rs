@@ -1,8 +1,23 @@
 use std::ops::{Add, AddAssign};
+use std::collections::HashMap;
+
+#[derive(Debug, Default, Clone)]
+pub struct AdapterStats {
+    pub full_length: usize,
+    pub overlap: usize,
+}
+
+impl AddAssign for AdapterStats {
+    fn add_assign(&mut self, other: Self) {
+        self.full_length += other.full_length;
+        self.overlap += other.overlap;
+    }
+}
 
 #[derive(Debug, Default, Clone)]
 pub struct WorkerStatistics {
     pub total_adapters_removed: usize,
+    pub adapter_stats: HashMap<String, AdapterStats>,
     pub total_discarded_uncalled: usize,
     pub total_discarded_barcode: usize,
     pub total_discarded_length: usize,
@@ -28,6 +43,9 @@ impl Add for WorkerStatistics {
     type Output = Self;
     fn add(mut self, other: Self) -> Self {
         self.total_adapters_removed += other.total_adapters_removed;
+        for (id, stats) in other.adapter_stats {
+            *self.adapter_stats.entry(id).or_default() += stats;
+        }
         self.total_discarded_uncalled += other.total_discarded_uncalled;
         self.total_discarded_barcode += other.total_discarded_barcode;
         self.total_discarded_length += other.total_discarded_length;
@@ -48,6 +66,9 @@ impl Add for WorkerStatistics {
 impl AddAssign for WorkerStatistics {
     fn add_assign(&mut self, other: Self) {
         self.total_adapters_removed += other.total_adapters_removed;
+        for (id, stats) in other.adapter_stats {
+            *self.adapter_stats.entry(id).or_default() += stats;
+        }
         self.total_discarded_uncalled += other.total_discarded_uncalled;
         self.total_discarded_barcode += other.total_discarded_barcode;
         self.total_discarded_length += other.total_discarded_length;

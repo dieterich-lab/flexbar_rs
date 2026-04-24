@@ -133,7 +133,7 @@ impl AdapterRemover {
         _read: &SingeRecordDto,
         _read_index: Option<usize>,
         per_read: &mut PerReadAlignmentResults,
-        _stats: &mut WorkerStatistics,
+        stats: &mut WorkerStatistics,
         alignment: &MultiAlignerResult,
     ) {
         let old_len = per_read.read_range.end - per_read.read_range.start;
@@ -158,14 +158,35 @@ impl AdapterRemover {
                 }
             }
         }
-
-        let new_len = per_read.read_range.end - per_read.read_range.start;
-        per_read.bases_adapter_removal += old_len - new_len;
+        self.update_adapter_statistics(per_read, stats, &alignment, old_len);
         if self.removal_tags {
-            let id = &self.adapters[alignment.reference_index].id;
+            let adapter_id = self.adapters[alignment.reference_index].id.clone();
             per_read.removal_tags.push(
-                format!("Flexbar_removal_{}", id))
+                format!("Flexbar_removal_{}", adapter_id))
             ;
+        }
+    }
+
+    fn update_adapter_statistics(
+        &self,
+        per_read: &mut PerReadAlignmentResults,
+        stats: &mut WorkerStatistics,
+        alignment: &&MultiAlignerResult,
+        old_len: usize
+    ) {
+        let new_len = per_read.read_range.end - per_read.read_range.start;
+        let removed_bases = old_len - new_len;
+        per_read.bases_adapter_removal += removed_bases;
+
+        let adapter = &self.adapters[alignment.reference_index];
+        let adapter_id = &adapter.id;
+        let adapter_len = adapter.sequence.len();
+
+        let adapter_stats = stats.adapter_stats.entry(adapter_id.clone()).or_default();
+        if removed_bases == adapter_len {
+            adapter_stats.full_length += 1;
+        } else {
+            adapter_stats.overlap += 1;
         }
     }
 }

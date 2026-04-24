@@ -64,6 +64,16 @@ impl Statistics {
 
         info!("Total adapters removed:         {}", self.worker.total_adapters_removed);
 
+        if !self.worker.adapter_stats.is_empty() {
+            info!("");
+            info!("Adapter removal statistics:");
+            let mut sorted_adapters: Vec<_> = self.worker.adapter_stats.iter().collect();
+            sorted_adapters.sort_by_key(|(id, _)| *id);
+            for (id, stats) in sorted_adapters {
+                info!("* Adapter {}: full length: {}, overlap: {}", id, stats.full_length, stats.overlap);
+            }
+        }
+
         if !self.writer.barcode_counts.is_empty() {
             info!("");
             info!("Processed barcodes:");
