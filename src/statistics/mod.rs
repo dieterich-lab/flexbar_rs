@@ -67,10 +67,11 @@ impl Statistics {
         if !self.worker.adapter_stats.is_empty() {
             info!("");
             info!("Adapter removal statistics:");
+            info!("{:<20}{:<20}{:<20}", "Adapter:", "Overlap removal:", "Full length:");
             let mut sorted_adapters: Vec<_> = self.worker.adapter_stats.iter().collect();
             sorted_adapters.sort_by_key(|(id, _)| *id);
             for (id, stats) in sorted_adapters {
-                info!("* Adapter {}: full length: {}, overlap: {}", id, stats.full_length, stats.overlap);
+                info!("{:<20}{:<20}{:<20}", id, stats.overlap, stats.full_length);
             }
         }
 
