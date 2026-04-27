@@ -35,6 +35,26 @@ Dropped features we will not implement at all:
   * --adapter-trimmed-out
 * --number-tags
 
+### Are there known differences in the output?
+
+Yes, differences have been observed with similar parameters:
+
+* In some cases multiple optimal alignments exist with the same score.
+  In this case flexbar and flexbar_rs may select different alignments
+  and come to different results. Both flexbar and flexbar_rs do a
+  validation step based on the X-error-rate and X-overlap parameters
+  after selecting the optimal alignment. As a result, any of the two
+  may miss a valid alignment.
+
+* flexbar_rs may detect slightly more alignments in the case of short
+  overlaps with trim end RIGHT, LEFT, and ANY and low values for the
+  related overlap parameters. That seems even to happen if the above
+  issue does not apply.
+
+With real-life examples, such effects have been observed in about 0.1%
+of the reads. Presently, no case is known in which flexbar_rs will use
+a wrong alignment.
+
 ## Tuning
 
 ### Optimizing for Execution Time
@@ -84,13 +104,6 @@ To create binary run:
 ```
 
 The binary will be created in `target/cargo-multivers/x86_64-unknown-linux-gnu/release/flexbar_rs`.
-
-## Known issues
-
-* flexbar_rs may miss some alignments with short overlaps.
-  This is most likely caused by a problem with the Rust-bio library
-  as documented here:
-  * https://github.com/rust-bio/rust-bio/issues/656
 
 ## References
 
