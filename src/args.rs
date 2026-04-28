@@ -212,39 +212,6 @@ pub struct Args {
     #[arg(long = "qtrim-post-removal", alias = "qa")]
     pub qtrim_post_removal: bool,
 
-    // Trimming of homopolymers
-    /// Trim specific homopolymers on left read end after removal
-    #[arg(long = "htrim-left", alias = "hl")]
-    pub htrim_left: Option<String>,
-
-    /// Trim certain homopolymers on right read end after removal
-    #[arg(long = "htrim-right", alias = "hr")]
-    pub htrim_right: Option<String>,
-
-    /// Minimum length of homopolymers at read ends
-    #[arg(long = "htrim-min-length", alias = "hi", default_value_t = 3)]
-    pub htrim_min_length: usize,
-
-    /// Minimum length for homopolymers specified after the first one, default 0
-    #[arg(long = "htrim-min-length2", alias = "h2",  default_value_t = 0)]
-    pub htrim_min_length2: usize,
-
-    /// Maximum length of homopolymers on the left and right read end, default 0
-    #[arg(long = "htrim-max-length", alias = "hx",  default_value_t = 0)]
-    pub htrim_max_length: usize,
-
-    /// Apply maximum length of homopolymers only for first one
-    #[arg(long = "htrim-max-first", alias = "hf")]
-    pub htrim_max_first: bool,
-
-    /// Error rate threshold for mismatches
-    #[arg(long = "htrim-error-rate", alias = "he", default_value_t = 0.1)]
-    pub htrim_error_rate: f32,
-
-    /// Trim only in case of adapter removal on same side
-    #[arg(long = "htrim-adapter", alias = "ha")]
-    pub htrim_adapter: bool,
-
     // Output selection
     /// Prefer non-quality format fasta for output
     #[arg(short = 'f', long)]
@@ -429,16 +396,6 @@ impl Args {
         if !is_present("qtrim_threshold") { self.qtrim_threshold = file_args.qtrim_threshold; }
         if !is_present("qtrim_win_size") { self.qtrim_win_size = file_args.qtrim_win_size; }
         if !is_present("qtrim_post_removal") { self.qtrim_post_removal = file_args.qtrim_post_removal; }
-
-        // Trimming of homopolymers
-        if !is_present("htrim_left") { self.htrim_left = file_args.htrim_left; }
-        if !is_present("htrim_right") { self.htrim_right = file_args.htrim_right; }
-        if !is_present("htrim_min_length") { self.htrim_min_length = file_args.htrim_min_length; }
-        if !is_present("htrim_min_length2") { self.htrim_min_length2 = file_args.htrim_min_length2; }
-        if !is_present("htrim_max_length") { self.htrim_max_length = file_args.htrim_max_length; }
-        if !is_present("htrim_max_first") { self.htrim_max_first = file_args.htrim_max_first; }
-        if !is_present("htrim_error_rate") { self.htrim_error_rate = file_args.htrim_error_rate; }
-        if !is_present("htrim_adapter") { self.htrim_adapter = file_args.htrim_adapter; }
 
         // Output selection
         if !is_present("fasta_output") { self.fasta_output = file_args.fasta_output; }
