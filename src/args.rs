@@ -76,12 +76,12 @@ pub struct Args {
     #[arg(long = "barcode-mismatch", alias = "bi", default_value_t = -1)]
     pub barcode_mismatch: i32,
 
-    /// Alignment gap open score for barcodes (default -9)
-    #[arg(long = "barcode-gap-open", alias = "bg", default_value_t = -9)]
+    /// Alignment gap open score for barcodes (default -8)
+    #[arg(long = "barcode-gap-open", alias = "bg", default_value_t = -8)]
     pub barcode_gap_open: i32,
 
-    /// Alignment gap extend score for barcodes (default 0)
-    #[arg(long = "barcode-gap-extend", alias = "ba", default_value_t = 0)]
+    /// Alignment gap extend score for barcodes (default -1)
+    #[arg(long = "barcode-gap-extend", alias = "ba", default_value_t = -1)]
     pub barcode_gap_extend: i32,
 
     /// Override k-mer size for barcode banded aligner. 0 to disable.
@@ -157,12 +157,12 @@ pub struct Args {
     #[arg(long = "adapter-mismatch", alias = "ai", default_value_t = -1)]
     pub adapter_mismatch: i32,
 
-    /// Alignment gap open score for adapters (default -6)
-    #[arg(long = "adapter-gap-open", default_value_t = -6)]
+    /// Alignment gap open score for adapters (default -5)
+    #[arg(long = "adapter-gap-open", default_value_t = -5)]
     pub adapter_gap_open: i32,
 
-    /// Alignment gap extend score for adapters (default 0)
-    #[arg(long = "adapter-gap-extend", default_value_t = 0)]
+    /// Alignment gap extend score for adapters (default -1)
+    #[arg(long = "adapter-gap-extend", default_value_t = -1)]
     pub adapter_gap_extend: i32,
 
     /// Override k-mer size for adapter banded aligner. 0 to disable.
