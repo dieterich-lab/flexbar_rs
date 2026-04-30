@@ -2,7 +2,8 @@ use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use log::trace;
-use crate::types::{FileFormat, RecordDto, SingeRecordDto};
+use crate::records::unified::{UnifiedRecord, SingeRecordDto};
+use crate::types::FileFormat;
 use crate::utils::io::{OutputType, WriterFactory};
 use crate::writers::generic::{GenericWriterBackend, DEFAULT_TAG};
 use crate::writers::fasta::FastaBackend;
@@ -62,7 +63,7 @@ impl<'a> SequenceWriter<'a> {
         Ok(self.backends_by_tag.get_mut(&key).unwrap())
     }
 
-    pub fn write(&mut self, record: &RecordDto, tag: Option<&str>) -> io::Result<()> {
+    pub fn write(&mut self, record: &UnifiedRecord, tag: Option<&str>) -> io::Result<()> {
         let paired = record.is_paired();
         for i in 0..2 {
             if let Some(Some(read)) = record.reads.get(i) {
@@ -135,7 +136,7 @@ impl<'a> SequenceWriter<'a> {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
-    use crate::types::SingeRecordDto;
+    use crate::records::unified::SingeRecordDto;
 
     pub fn get_test_writer<'a>(
         format: FileFormat,
@@ -188,7 +189,7 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
             let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), false);
-            let record = RecordDto::single(
+            let record = UnifiedRecord::single(
                 SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!")
             );
             writer.write(&record, None).unwrap();
@@ -204,7 +205,7 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
             let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), false);
-            let record = RecordDto::single(SingeRecordDto::with_attrs(
+            let record = UnifiedRecord::single(SingeRecordDto::with_attrs(
                 "id1", None, b"ACGT", b"!!!!"
             ));
             
@@ -231,7 +232,7 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
             let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), false);
-            let record = RecordDto::single(SingeRecordDto::with_attrs(
+            let record = UnifiedRecord::single(SingeRecordDto::with_attrs(
                 "id1", Some("desc1"), b"ACGT", b"!!!!"
             ));
             writer.write(&record, None).expect("Failed to write record");
@@ -249,9 +250,9 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), true);
         
-        let record1 = RecordDto::single(SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!")); // len 4
-        let record2 = RecordDto::single(SingeRecordDto::with_attrs("id2", None, b"ACGTA", b"!!!!!")); // len 5
-        let record3 = RecordDto::single(SingeRecordDto::with_attrs("id3", None, b"ACGT", b"!!!!")); // len 4
+        let record1 = UnifiedRecord::single(SingeRecordDto::with_attrs("id1", None, b"ACGT", b"!!!!")); // len 4
+        let record2 = UnifiedRecord::single(SingeRecordDto::with_attrs("id2", None, b"ACGTA", b"!!!!!")); // len 5
+        let record3 = UnifiedRecord::single(SingeRecordDto::with_attrs("id3", None, b"ACGT", b"!!!!")); // len 4
         
         writer.write(&record1, None).unwrap();
         writer.write(&record2, None).unwrap();

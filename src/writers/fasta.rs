@@ -1,6 +1,6 @@
 use std::io;
 use bio::io::fasta;
-use crate::types::SingeRecordDto;
+use crate::records::unified::SingeRecordDto;
 use crate::writers::generic::{GenericWriterBackend};
 
 pub type FastaBackend<'a> = fasta::Writer<Box<dyn io::Write + Send + 'a>>;

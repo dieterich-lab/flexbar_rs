@@ -91,7 +91,8 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
-    use crate::types::{RecordDto, RunType, SingeRecordDto};
+    use crate::records::unified::{UnifiedRecord, SingeRecordDto};
+    use crate::types::RunType;
 
     #[test]
     fn test_length_filter_keep_single() {
@@ -101,7 +102,7 @@ mod tests {
         let filter = FilterLength::new(&args, &context);
         let mut state = filter.create_state();
         
-        let record = RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII"));
+        let record = UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII"));
         let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_length, 0);
@@ -115,7 +116,7 @@ mod tests {
         let filter = FilterLength::new(&args, &context);
         let mut state = filter.create_state();
         
-        let record = RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII"));
+        let record = UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII"));
         let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_length, 1);
@@ -129,7 +130,7 @@ mod tests {
         let filter = FilterLength::new(&args, &context);
         let mut state = filter.create_state();
         
-        let record = RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"A", b"I"));
+        let record = UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"A", b"I"));
         let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
     }
@@ -145,7 +146,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"0123456789", b"IIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("id", None, b"0123456789", b"IIIIIIIIII");
-        let rec = RecordDto::paired(r1, r2);
+        let rec = UnifiedRecord::paired(r1, r2);
 
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
@@ -163,7 +164,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"012345678", b"IIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("id", None, b"012345678", b"IIIIIIIII");
-        let rec = RecordDto::paired(r1, r2);
+        let rec = UnifiedRecord::paired(r1, r2);
 
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);

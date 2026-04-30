@@ -10,6 +10,7 @@ mod workflow;
 mod steps;
 mod multi_aligner;
 mod worker;
+mod records;
 
 extern crate jemallocator;
 

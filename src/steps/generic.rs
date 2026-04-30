@@ -2,7 +2,7 @@ use crate::statistics::WorkerStatistics;
 use crate::args::Args;
 use crate::context::Context;
 use std::ops::Range;
-
+use crate::records::unified::UnifiedRecord;
 
 #[derive(Default, Clone)]
 pub struct PerReadAlignmentResults {
@@ -30,16 +30,16 @@ impl AlignmentResults {
     }
 }
 
-use crate::types::{RecordDto, TrimEnd};
+use crate::types::TrimEnd;
 
 pub struct RecordInTransformation {
-    pub record: RecordDto,
+    pub record: UnifiedRecord,
     pub alignment_results: AlignmentResults,
     pub stats: WorkerStatistics,
 }
 
 impl RecordInTransformation {
-    pub fn from_dto(record: RecordDto) -> Self {
+    pub fn from_dto(record: UnifiedRecord) -> Self {
         let mut per_read: [Option<PerReadAlignmentResults>; 2] = [None, None];
         if let Some(read) = &record.reads[0] {
             per_read[0] = Some(PerReadAlignmentResults {
@@ -144,7 +144,7 @@ pub trait GenericStep: Send + Sync {
 }
 
 pub struct FinalRecord {
-    pub record: Option<RecordDto>,
+    pub record: Option<UnifiedRecord>,
     pub output_tag: Option<String>,
     pub stats: WorkerStatistics,
 }

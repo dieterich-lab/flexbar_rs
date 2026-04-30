@@ -4,10 +4,11 @@ use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 use crate::multi_aligner::MultiAlignerState;
-use crate::types::{SingeRecordDto, TrimEnd};
+use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
-use crate::multi_aligner::{MultiAligner, MultiAlignerSetup, AlignerConfig};
+use crate::multi_aligner::{AlignerConfig, MultiAligner, MultiAlignerSetup};
 use crate::multi_aligner::result::MultiAlignerResult;
+use crate::records::unified::SingeRecordDto;
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::PerReadAlignmentResults;
 
@@ -263,9 +264,9 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use crate::context::{Context, SequenceWithId};
-    use crate::types::{RecordDto, SingeRecordDto};
     use crate::steps::generic::GenericStep;
     use clap::Parser;
+    use crate::records::unified::{UnifiedRecord, SingeRecordDto};
 
     #[test]
     fn test_adapter_removal_paired() {
@@ -286,7 +287,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGCCCC", b"IIIIIIIIIIII");
-        let rec = RecordDto::paired(r1, r2);
+        let rec = UnifiedRecord::paired(r1, r2);
 
         let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);
@@ -312,7 +313,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
         let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGAAAA", b"IIIIIIIIIIII");
-        let rec = RecordDto::paired(r1, r2);
+        let rec = UnifiedRecord::paired(r1, r2);
 
         let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);
@@ -337,7 +338,7 @@ mod tests {
         let mut state = step.create_state();
 
         let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
-        let rec = RecordDto::single(r1);
+        let rec = UnifiedRecord::single(r1);
 
         let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);

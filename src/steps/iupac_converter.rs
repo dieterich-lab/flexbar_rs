@@ -58,9 +58,8 @@ fn get_iupac_converted_read(raw: &[u8]) -> (Vec<u8>, usize) {
 
 #[cfg(test)]
 mod tests {
+    use crate::records::unified::{UnifiedRecord, SingeRecordDto};
     use super::*;
-    use crate::types::{SingeRecordDto, RecordDto};
-
     #[test]
     fn test_iupac_conversion() {
         let args = Args::default();
@@ -72,7 +71,7 @@ mod tests {
         let mut state = step.create_state();
 
         let r1 = SingeRecordDto::with_attrs("read1", None, inp_seq, b"IIIIIIIIIIIIIIIIIIIIIIIIIIIIII");
-        let record = RecordDto::single(r1);
+        let record = UnifiedRecord::single(r1);
         
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         let output_seq = res.record.reads[0].as_ref().unwrap().seq();
@@ -93,7 +92,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("read1", None, inp_seq1, b"IIIII");
         let r2 = SingeRecordDto::with_attrs("read2", None, inp_seq2, b"IIIII");
-        let record = RecordDto::paired(r1, r2);
+        let record = UnifiedRecord::paired(r1, r2);
         
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert_eq!(res.record.reads[0].as_ref().unwrap().seq(), out_seq1);
@@ -110,7 +109,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("read1", None, b"ATCG", b"IIII");
         let bc = SingeRecordDto::with_attrs("bc1", None, b"NRY", b"III");
-        let record = RecordDto::single_barcoded(r1, bc);
+        let record = UnifiedRecord::single_barcoded(r1, bc);
         
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert_eq!(res.record.barcode_read.as_ref().unwrap().seq(), b"NNN");

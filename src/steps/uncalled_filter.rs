@@ -2,7 +2,7 @@ use crate::args::Args;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
 use crate::steps::generic::PerReadAlignmentResults;
-use crate::types::SingeRecordDto;
+use crate::records::unified::SingeRecordDto;
 
 fn count_uncalled_bases(read: &SingeRecordDto, results: &PerReadAlignmentResults) -> usize {
     if results.dropped {
@@ -80,8 +80,9 @@ impl GenericStep for UncalledFilter {
 mod tests {
     use super::*;
     use crate::args::Args;
-    use crate::types::{RecordDto, RunType, SingeRecordDto};
+    use crate::types::RunType;
     use clap::Parser;
+    use crate::records::unified::{UnifiedRecord, SingeRecordDto};
 
     #[test]
     fn test_uncalled_filter_single() {
@@ -91,12 +92,12 @@ mod tests {
         let step = UncalledFilter::new(&args, &context);
         let mut state = step.create_state();
 
-        let record = RecordDto::single(SingeRecordDto::with_attrs("read1", None, b"ACNNNGT", b"IIIIIII"));
+        let record = UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"ACNNNGT", b"IIIIIII"));
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_uncalled, 1);
         
-        let record2 = RecordDto::single(SingeRecordDto::with_attrs("read2", None, b"ACNNGT", b"IIIIII"));
+        let record2 = UnifiedRecord::single(SingeRecordDto::with_attrs("read2", None, b"ACNNGT", b"IIIIII"));
         let res2 = step.apply(RecordInTransformation::from_dto(record2), &mut state);
         assert!(!res2.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res2.stats.total_discarded_uncalled, 0);
@@ -112,7 +113,7 @@ mod tests {
 
         let r1 = SingeRecordDto::with_attrs("read1/1", None, b"ACNNNGT", b"IIIIIII");
         let r2 = SingeRecordDto::with_attrs("read1/2", None, b"ACGT", b"IIII");
-        let record = RecordDto::paired(r1, r2);
+        let record = UnifiedRecord::paired(r1, r2);
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert!(res.alignment_results.per_read[1].as_ref().unwrap().dropped);
@@ -120,7 +121,7 @@ mod tests {
         
         let r1_2 = SingeRecordDto::with_attrs("read2/1", None, b"ACNNGT", b"IIIIII");
         let r2_2 = SingeRecordDto::with_attrs("read2/2", None, b"ACNNGT", b"IIIIII");
-        let record2 = RecordDto::paired(r1_2, r2_2);
+        let record2 = UnifiedRecord::paired(r1_2, r2_2);
         let res2 = step.apply(RecordInTransformation::from_dto(record2), &mut state);
         assert!(!res2.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert!(!res2.alignment_results.per_read[1].as_ref().unwrap().dropped);

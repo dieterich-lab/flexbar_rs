@@ -1,13 +1,14 @@
 use std::io::{self, BufRead};
 use log::{debug, trace};
-use crate::types::{CompressionType, FileFormat, RecordDto, SingeRecordDto};
+use crate::types::{CompressionType, FileFormat};
 use crate::logging::log_fatal;
 use crate::args::Args;
 use crate::context::Context;
 use crate::readers::backends::generic::GenericReaderBackend;
-use crate::readers::backends::{ReaderBackend};
+use crate::readers::backends::ReaderBackend;
 use crate::readers::backends::fasta::FastaBackend;
 use crate::readers::backends::fastq::FastqBackend;
+use crate::records::unified::{UnifiedRecord, SingeRecordDto};
 use crate::statistics::ReaderStatistics;
 use crate::utils::io::get_raw_reader;
 
@@ -20,7 +21,7 @@ pub struct SequenceReader<Reader: BufRead + Send> {
     skip: usize,
     count: Option<usize>,
     trace: bool,
-    _phantom: std::marker::PhantomData<(Reader, RecordDto)>,
+    _phantom: std::marker::PhantomData<(Reader, UnifiedRecord)>,
 }
 
 impl<Reader: BufRead + Send> SequenceReader<Reader> {
@@ -86,7 +87,7 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
         }
     }
 
-    fn read_record(&mut self) -> Option<RecordDto> {
+    fn read_record(&mut self) -> Option<UnifiedRecord> {
         let barcode = if let Some(backend) = &mut self.barcode_backend {
             let b_rec = backend.read_record();
             if b_rec.is_none() {
@@ -103,9 +104,9 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
                 return None;
             }
             if let Some(barcode) = barcode {
-                Some(RecordDto::single_barcoded(rec.unwrap(), barcode))
+                Some(UnifiedRecord::single_barcoded(rec.unwrap(), barcode))
             } else {
-                Some(RecordDto::single(rec.unwrap()))
+                Some(UnifiedRecord::single(rec.unwrap()))
             }
         } else {
             let mut records: [Option<SingeRecordDto>; 2] = [None, None];
@@ -115,10 +116,10 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
             match (records, barcode) {
                 ([None, None], None) => None,
                 ([Some(r1), Some(r2)], None) => {
-                    Some(RecordDto::paired(r1, r2))
+                    Some(UnifiedRecord::paired(r1, r2))
                 },
                 ([Some(r1), Some(r2)], Some(barcode)) => {
-                    Some(RecordDto::paired_barcoded(r1, r2, barcode))
+                    Some(UnifiedRecord::paired_barcoded(r1, r2, barcode))
                 },
                 _ => {
                     log_fatal("Input files have different number of records.");
@@ -135,7 +136,7 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
         self.statistics
     }
 
-    fn try_get_record(&mut self) -> Option<RecordDto> {
+    fn try_get_record(&mut self) -> Option<UnifiedRecord> {
         match self.read_record() {
             Some(record) => {
                 self.last_id = Self::truncate_id(record.id(0));
@@ -213,9 +214,9 @@ impl SequenceReader<io::BufReader<Box<dyn io::Read + Send>>>
 }
 
 impl<Reader: BufRead + Send> Iterator for SequenceReader<Reader> {
-    type Item = RecordDto;
+    type Item = UnifiedRecord;
 
-    fn next(&mut self) -> Option<RecordDto> {
+    fn next(&mut self) -> Option<UnifiedRecord> {
         loop {
             return match self.try_get_record() {
                 Some(record) => {
@@ -261,7 +262,7 @@ impl<'a, Reader: BufRead + Send> SequenceReaderBatchIterator<'a, Reader> {
 impl<'a, Reader: BufRead + Send> Iterator
     for SequenceReaderBatchIterator<'a, Reader>
 {
-    type Item = Vec<RecordDto>;
+    type Item = Vec<UnifiedRecord>;
 
     fn next(&mut self) -> Option<Self::Item> {
         trace!("Starting to read new batch ...");

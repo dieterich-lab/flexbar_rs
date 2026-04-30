@@ -3,7 +3,7 @@ use bio::io::fastq;
 use bio::io::fastq::FastqRead;
 use crate::logging::log_fatal;
 use crate::readers::backends::generic::GenericReaderBackend;
-use crate::types::SingeRecordDto;
+use crate::records::unified::SingeRecordDto;
 
 pub struct FastqBackend<READER: BufRead + Send> {
     reader: fastq::Reader<READER>,

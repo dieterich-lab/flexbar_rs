@@ -3,7 +3,7 @@ use bio::io::fasta;
 use bio::io::fasta::FastaRead;
 use crate::logging::log_fatal;
 use crate::readers::backends::generic::GenericReaderBackend;
-use crate::types::SingeRecordDto;
+use crate::records::unified::SingeRecordDto;
 pub struct FastaBackend<READER: BufRead + Send> {
     reader: fasta::Reader<READER>,
     source: String,

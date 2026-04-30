@@ -1,11 +1,11 @@
-use std::cell::{RefCell};
+use std::cell::RefCell;
 use std::io::BufRead;
 use rayon::prelude::*;
 use crate::args::Args;
 use crate::writers::sequence::SequenceWriter;
-use crate::types::{CompressionType, RecordDto, FileFormat};
+use crate::types::{CompressionType, FileFormat};
 use crate::statistics::{Statistics, WorkerStatistics};
-use log::{debug};
+use log::debug;
 use crate::context;
 use crate::steps::generic::FinalRecord;
 use crate::worker::{Worker, WorkerState};
@@ -13,6 +13,7 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use std::thread;
 use std::thread::JoinHandle;
 use crate::readers::sequence::{SequenceReader, SequenceReaderBatchIterator};
+use crate::records::unified::UnifiedRecord;
 
 pub fn do_it(args: Args) {
     let context = context::Context::new(&args);
@@ -25,7 +26,7 @@ pub fn do_it(args: Args) {
     let worker = Worker::new(&args, &context);
     let writer = get_writer(&args, &output_prefix, compression);
 
-    let (batch_in_tx, batch_in_rx) = bounded::<Vec<RecordDto>>(16);
+    let (batch_in_tx, batch_in_rx) = bounded::<Vec<UnifiedRecord>>(16);
     let (batch_out_tx, batch_out_rx) = bounded::<ProcessedBatch>(16);
 
     let reader_handle = spawn_reader_thread(reader, batch_in_tx, args.batch_size);
@@ -48,7 +49,7 @@ pub fn do_it(args: Args) {
 
 fn spawn_reader_thread<Reader: BufRead + Send + 'static>(
     mut reader: SequenceReader<Reader>,
-    batch_in_tx: Sender<Vec<RecordDto>>,
+    batch_in_tx: Sender<Vec<UnifiedRecord>>,
     batch_size: usize,
 ) -> JoinHandle<SequenceReader<Reader>> {
     thread::spawn(move || {
@@ -79,7 +80,7 @@ fn spawn_writer_thread(
 }
 
 fn process_batch_orchestrator(
-    batch_in_rx: Receiver<Vec<RecordDto>>,
+    batch_in_rx: Receiver<Vec<UnifiedRecord>>,
     batch_out_tx: Sender<ProcessedBatch>,
     worker: &Worker,
 ) {
@@ -110,7 +111,7 @@ fn process_batch_orchestrator(
 }
 
 struct ProcessedBatch {
-    records: Vec<(RecordDto, Option<String>)>,
+    records: Vec<(UnifiedRecord, Option<String>)>,
     stats: WorkerStatistics,
 }
 
@@ -124,7 +125,7 @@ fn get_compression<Reader: BufRead + Send>(reader: &SequenceReader<Reader>, args
     }
 }
 
-use crate::utils::io::{get_writer_factory};
+use crate::utils::io::get_writer_factory;
 
 fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType) -> SequenceWriter<'static> {
     let p = match args.single_reads {
@@ -145,7 +146,7 @@ thread_local! {
 }
 
 fn process_record(
-    record: &RecordDto, worker: &Worker
+    record: &UnifiedRecord, worker: &Worker
 ) -> FinalRecord {
     WORKER_STATE.with(|state| {
         let mut state = state.borrow_mut();

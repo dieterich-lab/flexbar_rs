@@ -1,6 +1,6 @@
 use std::io;
 use bio::io::fastq;
-use crate::types::SingeRecordDto;
+use crate::records::unified::SingeRecordDto;
 use crate::writers::generic::{GenericWriterBackend};
 
 pub type FastqBackend<'a> = fastq::Writer<Box<dyn io::Write + Send + 'a>>;

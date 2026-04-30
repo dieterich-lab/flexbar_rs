@@ -2,7 +2,7 @@ use std::io::BufRead;
 use crate::readers::backends::fasta::FastaBackend;
 use crate::readers::backends::fastq::FastqBackend;
 use crate::readers::backends::generic::GenericReaderBackend;
-use crate::types::SingeRecordDto;
+use crate::records::unified::SingeRecordDto;
 
 pub mod fasta;
 pub mod fastq;
