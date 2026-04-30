@@ -1,4 +1,3 @@
-use bio::utils::TextSlice;
 use serde::{Deserialize, Serialize};
 
 pub type SingeRecordDto = bio::io::fastq::Record;
@@ -57,7 +56,7 @@ impl UnifiedRecord {
     }
 
     implement_by_record_index!(id, &str);
-    implement_by_record_index!(seq, TextSlice);
+    implement_by_record_index!(seq, &[u8]);
     implement_by_record_index!(desc, Option<&str>);
     implement_by_record_index!(qual, &[u8]);
 

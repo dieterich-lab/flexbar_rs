@@ -19,7 +19,7 @@ impl GenericRawRead for Record {
         self.desc().unwrap_or("").as_bytes()
     }
 
-    fn transform(self, range: Range<usize>, extra_desc_parts: Vec<String>) -> Self {
+    fn transform(self, range: Range<usize>, extra_desc_parts: Vec<String>, replace_with_dummy: bool) -> Self {
         let id = self.id().to_string();
         let mut desc_parts: Vec<String> = match self.desc() {
             Some(desc) => vec![desc.to_string()],
@@ -31,7 +31,47 @@ impl GenericRawRead for Record {
             true => Some(joined_desc.as_ref()),
             false => None,
         };
-        let seq = self.seq()[range].to_vec();
+        let seq = if replace_with_dummy {
+            b"N".to_vec()
+        } else {
+            self.seq()[range].to_vec()
+        };
         Record::with_attrs(&id, desc, &seq)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use bio::io::fasta::Record;
+
+    #[test]
+    fn test_fasta_transform() {
+        let record = Record::with_attrs("id1", Some("desc1"), b"ATGCATGC");
+        let transformed = record.transform(2..6, vec!["extra".to_string()], false);
+        
+        assert_eq!(transformed.id(), "id1");
+        assert_eq!(transformed.desc(), Some("desc1_extra"));
+        assert_eq!(transformed.seq(), b"GCAT");
+    }
+
+    #[test]
+    fn test_fasta_transform_dummy() {
+        let record = Record::with_attrs("id1", Some("desc1"), b"ATGCATGC");
+        let transformed = record.transform(2..6, vec![], true);
+        
+        assert_eq!(transformed.id(), "id1");
+        assert_eq!(transformed.desc(), Some("desc1"));
+        assert_eq!(transformed.seq(), b"N");
+    }
+    
+    #[test]
+    fn test_fasta_transform_no_desc() {
+        let record = Record::with_attrs("id1", None, b"ATGCATGC");
+        let transformed = record.transform(0..4, vec!["extra".to_string()], false);
+        
+        assert_eq!(transformed.id(), "id1");
+        assert_eq!(transformed.desc(), Some("extra"));
+        assert_eq!(transformed.seq(), b"ATGC");
     }
 }

@@ -31,7 +31,7 @@ impl<Reader: BufRead + Send> GenericReaderBackend<Reader> for FastaBackend<Reade
                         fasta_record.id(),
                         fasta_record.desc(),
                         fasta_record.seq(),
-                        &vec![b'I'; fasta_record.seq().len()],
+                        vec![b'I'; fasta_record.seq().len()].as_slice(),
                     ))
                 }
             }
