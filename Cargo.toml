@@ -19,6 +19,7 @@ zstd = "0.13"
 tempfile = "3.10"
 jemallocator = "0.5.4"
 crossbeam-channel = "0.5.15"
+rust-htslib = "*"
 
 [profile.release]
 strip = "symbols"

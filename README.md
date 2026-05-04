@@ -6,7 +6,7 @@ This tool is a rewrite of Flexbar in Rust. The original Fexbar can be found here
 
 * https://github.com/seqan/flexbar
 
-It is heavily based on Rust-bio.
+It is heavily based on Rust-bio and uses the rust-htslib library to handle BAM files.
 
 ## Quickstart for Flexbar Veterans
 
@@ -85,6 +85,21 @@ output file.
 
 ## Building
 
+Before building make sure that you have checkout the version
+you want, including the submodule. So don't forget `--recursive`
+option with clone command:
+
+```bash
+git clone --recursive https://github.com/seqan/flexbar_rs.git
+```
+
+To build the htslib submodule a bunch of compile time depedenicies are
+needed. On Debian-like systems most fo them can be installed like this:
+
+```bash
+sudo apt-get install build-essential libclang-dev
+```
+
 To create an optimized production binary, you need to first get some support software:
 
 ```bash
@@ -126,3 +141,10 @@ Available on https://github.com/seqan/flexbar
 Köster, J. (2016). Rust-Bio: a fast and safe bioinformatics library. Bioinformatics, 32(3), 444-446.
 
 DOI: [29821195](https://zenodo.org/badge/latestdoi/29821195)
+
+### rust-htslib
+
+The rust-htslib library is used to handle BAM files and is
+integrated as a git submodule.
+
+Available on https://github.com/rust-bio/rust-htslib
