@@ -1,10 +1,9 @@
 use log::debug;
 use crate::args::Args;
 use crate::context::Context;
-use crate::records::unified::{UnifiedRecord, UnifiedRead};
+use crate::records::unified::{UnifiedRecord, FinalRecord};
 use crate::records::generic_read::GenericRawRead;
-use crate::statistics::WorkerStatistics;
-use crate::steps::generic::{FinalRecord, GenericStep, PerReadAlignmentResults, RecordInTransformation};
+use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::{adapter_remover::AdapterRemoverStep, barcode_splitter::BarcodeSplitter, filter_length::FilterLength, iupac_converter::IupacConverter, post_trim::PostTrim, pre_trim::PreTrim, quality_trim::QualityTrim, uncalled_filter::UncalledFilter};
 use crate::steps::pre_trim::PreTrimState;
 use crate::steps::filter_length::FilterLengthState;
@@ -12,7 +11,7 @@ use crate::steps::post_trim::PostTrimState;
 use crate::steps::barcode_splitter::BarcodeSplitterState;
 use crate::steps::adapter_remover::AdapterRemoverStepState;
 use crate::steps::iupac_converter::IupacConverterState;
-use crate::types::{FileFormat, QualTrimType};
+use crate::types::QualTrimType;
 
 pub struct Worker {
     pub iupac_converter: Option<IupacConverter>,
@@ -24,7 +23,6 @@ pub struct Worker {
     pub post_trim: PostTrim,
     pub uncalled_filter: Option<UncalledFilter>,
     pub qtrim_post_removal: bool,
-    pub output_format: FileFormat,
 }
 
 pub struct WorkerState {
@@ -71,10 +69,6 @@ impl Worker {
         let post_trim = PostTrim::new(args, context);
 
         let qtrim_post_removal = args.qtrim_post_removal;
-        let output_format = match args.fasta_output {
-            true => FileFormat::Fasta,
-            false => FileFormat::Fastq,
-        };
 
         debug!("Unified worker pipeline:");
         if iupac_converter.is_some() {
@@ -106,7 +100,6 @@ impl Worker {
         Self {
             iupac_converter, pre_trim, barcode_splitter, adapter_remover, quality_trim,
             filter_length, post_trim, uncalled_filter, qtrim_post_removal,
-            output_format,
         }
     }
 
@@ -159,9 +152,7 @@ impl Worker {
         self.finalize(rec_in)
     }
 
-    fn finalize(&self, mut rec: RecordInTransformation) -> FinalRecord {
-        let mut reads: [Option<UnifiedRead>; 2] = [None, None];
-
+    fn finalize(&self, rec: RecordInTransformation) -> FinalRecord {
         let umi_tags = if rec.alignment_results.per_read[0].is_some() && !rec.alignment_results.per_read[0].as_ref().unwrap().umi_tags.is_empty() {
             rec.alignment_results.per_read[0].as_ref().unwrap().umi_tags.clone()
         } else if rec.alignment_results.per_read[1].is_some() {
@@ -170,100 +161,11 @@ impl Worker {
             vec![]
         };
 
-        for i in 0..2 {
-            if let Some(old_read) = &rec.record.reads[i] {
-                let original_len = old_read.seq().len();
-                let results = rec.alignment_results.per_read[i].as_ref().unwrap();
-                finalize_read_stats(&mut rec.stats, results, original_len);
-                if results.dropped { continue; }
-                let paired_read_dropped = rec.record.reads[1 - i].is_some()
-                    && rec.alignment_results.per_read[1 - i].as_ref().unwrap().dropped;
-                reads[i] = Some(self.get_final_read(old_read, results, &umi_tags, paired_read_dropped));
-            }
-        }
-
-        FinalRecord {
-            record: UnifiedRecord { reads, barcode_read: None },
-            output_tag: rec.alignment_results.barcode_tag,
-            stats: rec.stats,
-        }
+        rec.record.finalize(rec.alignment_results, &umi_tags, rec.stats)
     }
 
-    fn get_final_read(
-        &self,
-        old_read: &UnifiedRead,
-        results: &PerReadAlignmentResults,
-        umi_tags: &Vec<String>,
-        paired_read_dropped: bool
-    ) -> UnifiedRead {
-        let range = &results.read_range;
-        let new_desc = Self::get_new_desc(
-            old_read.desc(),
-            &results.removal_tags,
-            &umi_tags,
-            paired_read_dropped
-        );
-        match self.output_format {
-            FileFormat::Fasta => {
-                UnifiedRead::new_fasta(
-                    old_read.id(),
-                    new_desc.as_deref(),
-                    &old_read.seq()[range.clone()],
-                )
-            },
-            FileFormat::Fastq => {
-                UnifiedRead::new_fastq(
-                    old_read.id(),
-                    new_desc.as_deref(),
-                    &old_read.seq()[range.clone()],
-                    &old_read.qual().unwrap_or(&[])[range.clone()],
-                )
-            }
-        }
-    }
-
-    fn get_new_desc(
-        old_desc: Option<&str>,
-        removal_tags: &Vec<String>,
-        umi_tags: &Vec<String>,
-        paired_read_dropped: bool
-    ) -> Option<String> {
-        let mut desc_parts: Vec<String> = Vec::new();
-        if let Some(x) = old_desc {
-            desc_parts.push(x.to_string());
-        }
-        for tag in removal_tags {
-            desc_parts.push(tag.clone());
-        }
-        for tag in umi_tags {
-            desc_parts.push(tag.clone());
-        }
-        if paired_read_dropped {
-            desc_parts.push("single".to_string());
-        }
-        if desc_parts.is_empty() {
-            None
-        } else {
-            Some(desc_parts.join("_"))
-        }
-    }
 }
 
-fn finalize_read_stats(
-    stats: &mut WorkerStatistics,
-    per_read: &PerReadAlignmentResults,
-    original_len: usize
-) {
-    if per_read.dropped {
-        stats.bases_discarded += original_len;
-    } else {
-        stats.bases_quality_trim += per_read.bases_quality_trim;
-        stats.bases_adapter_removal += per_read.bases_adapter_removal;
-        stats.bases_barcode_removal += per_read.bases_barcode_removal;
-        stats.bases_post_trim += per_read.bases_post_trim;
-        stats.bases_pre_trim += per_read.bases_pre_trim;
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -479,7 +381,7 @@ mod tests {
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc_str(), Some("Flexbar_removal"));
+        assert_eq!(processed.desc(), Some("Flexbar_removal"));
     }
 
     #[test]
@@ -493,7 +395,7 @@ mod tests {
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc_str(), Some("Flexbar_removal_ad1"));
+        assert_eq!(processed.desc(), Some("Flexbar_removal_ad1"));
     }
 
     #[test]
@@ -511,7 +413,7 @@ mod tests {
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc_str(), Some("Flexbar_removal_Flexbar_removal_ad1"));
+        assert_eq!(processed.desc(), Some("Flexbar_removal_Flexbar_removal_ad1"));
     }
 
     #[test]
@@ -554,7 +456,7 @@ mod tests {
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(result.output_tag, Some("barcode_bc1".to_string()));
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc_str(), Some("AA_TT"));
+        assert_eq!(processed.desc(), Some("AA_TT"));
         assert_eq!(processed.seq(), b"ACGT");
     }
 
@@ -569,7 +471,7 @@ mod tests {
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc_str(), Some("CCCC"));
+        assert_eq!(processed.desc(), Some("CCCC"));
         assert_eq!(processed.seq(), b"ACTGT");
     }
 

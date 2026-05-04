@@ -1,9 +1,9 @@
+use crate::records::unified::{GenericRawRead, UnifiedRecord};
+use crate::records::unified_read::UnifiedRead;
+use std::ops::Range;
 use crate::statistics::WorkerStatistics;
 use crate::args::Args;
 use crate::context::Context;
-use std::ops::Range;
-use crate::records::unified::{GenericRawRead, UnifiedRecord};
-use crate::records::unified_read::UnifiedRead;
 
 #[derive(Default, Clone)]
 pub struct PerReadAlignmentResults {
@@ -142,10 +142,4 @@ pub trait GenericStep: Send + Sync {
     fn apply(
         &self, rec: RecordInTransformation, state: &mut Self::State
     ) -> RecordInTransformation;
-}
-
-pub struct FinalRecord {
-    pub record: UnifiedRecord,
-    pub output_tag: Option<String>,
-    pub stats: WorkerStatistics,
 }

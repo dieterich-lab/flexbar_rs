@@ -29,6 +29,8 @@ impl UnifiedRead {
     }
 }
 
+use std::ops::Range;
+
 impl GenericRawRead for UnifiedRead {
     fn seq(&self) -> &[u8] {
         match self {
@@ -58,10 +60,16 @@ impl GenericRawRead for UnifiedRead {
         }
     }
 
-    fn desc_str(&self) -> Option<&str> {
+    fn finalize(
+        &self,
+        range: &Range<usize>,
+        removal_tags: &Vec<String>,
+        umi_tags: &Vec<String>,
+        paired_read_dropped: bool,
+    ) -> Self {
         match self {
-            UnifiedRead::Fasta(r) => GenericRawRead::desc_str(r),
-            UnifiedRead::Fastq(r) => GenericRawRead::desc_str(r),
+            UnifiedRead::Fasta(r) => UnifiedRead::Fasta(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
+            UnifiedRead::Fastq(r) => UnifiedRead::Fastq(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
         }
     }
 }

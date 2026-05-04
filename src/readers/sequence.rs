@@ -165,7 +165,7 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
             };
             trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {}",
                 cooked_id,
-                record.desc_str().unwrap_or("None"),
+                record.desc().unwrap_or("None"),
                 String::from_utf8_lossy(record.seq()),
                 String::from_utf8_lossy(record.qual().unwrap_or(&[]))
             );

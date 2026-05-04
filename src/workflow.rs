@@ -7,7 +7,7 @@ use crate::types::{CompressionType, FileFormat};
 use crate::statistics::{Statistics, WorkerStatistics};
 use log::debug;
 use crate::context;
-use crate::steps::generic::FinalRecord;
+use crate::records::unified::FinalRecord;
 use crate::worker::{Worker, WorkerState};
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::thread;
