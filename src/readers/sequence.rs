@@ -163,9 +163,8 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
             } else {
                 &*format!("{} Read {}", record.id(), read_index + 1)
             };
-            trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {}",
+            trace!("Reader processed record:\nID: {}\nSeq: {}\nQual: {}",
                 cooked_id,
-                record.desc().unwrap_or("None"),
                 String::from_utf8_lossy(record.seq()),
                 String::from_utf8_lossy(record.qual().unwrap_or(&[]))
             );

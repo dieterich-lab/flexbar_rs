@@ -188,7 +188,7 @@ mod tests {
     fn test_sequence_writer_statistics() {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
-            let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), false);
+            let mut writer = get_test_writer(FileFormat::Fastq, buffers.clone(), false);
             let record = UnifiedRecord::single(
                 UnifiedRead::new_fastq("id1", None, b"ACGT", b"!!!!")
             );
@@ -204,7 +204,7 @@ mod tests {
     fn test_sequence_writer_barcode_statistics() {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
-            let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), false);
+            let mut writer = get_test_writer(FileFormat::Fastq, buffers.clone(), false);
             let record = UnifiedRecord::single(UnifiedRead::new_fastq(
                 "id1", None, b"ACGT", b"!!!!"
             ));
@@ -232,8 +232,8 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
             let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), false);
-            let record = UnifiedRecord::single(UnifiedRead::new_fastq(
-                "id1", Some("desc1"), b"ACGT", b"!!!!"
+            let record = UnifiedRecord::single(UnifiedRead::new_fasta(
+                "id1", Some("desc1"), b"ACGT"
             ));
             writer.write(&record, None).expect("Failed to write record");
         }
@@ -250,9 +250,9 @@ mod tests {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), true);
         
-        let record1 = UnifiedRecord::single(UnifiedRead::new_fastq("id1", None, b"ACGT", b"!!!!")); // len 4
-        let record2 = UnifiedRecord::single(UnifiedRead::new_fastq("id2", None, b"ACGTA", b"!!!!!")); // len 5
-        let record3 = UnifiedRecord::single(UnifiedRead::new_fastq("id3", None, b"ACGT", b"!!!!")); // len 4
+        let record1 = UnifiedRecord::single(UnifiedRead::new_fasta("id1", None, b"ACGT")); // len 4
+        let record2 = UnifiedRecord::single(UnifiedRead::new_fasta("id2", None, b"ACGTA")); // len 5
+        let record3 = UnifiedRecord::single(UnifiedRead::new_fasta("id3", None, b"ACGT")); // len 4
         
         writer.write(&record1, None).unwrap();
         writer.write(&record2, None).unwrap();

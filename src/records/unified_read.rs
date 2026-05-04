@@ -53,13 +53,6 @@ impl GenericRawRead for UnifiedRead {
         }
     }
 
-    fn desc(&self) -> Option<&str> {
-        match self {
-            UnifiedRead::Fasta(r) => GenericRawRead::desc(r),
-            UnifiedRead::Fastq(r) => GenericRawRead::desc(r),
-        }
-    }
-
     fn finalize(
         &self,
         range: &Range<usize>,

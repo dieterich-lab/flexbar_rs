@@ -17,10 +17,6 @@ impl GenericRawRead for Record {
         self.id()
     }
 
-    fn desc(&self) -> Option<&str> {
-        self.desc()
-    }
-
     fn finalize(
         &self,
         range: &Range<usize>,
