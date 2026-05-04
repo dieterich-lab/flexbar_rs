@@ -1,8 +1,10 @@
 use log::debug;
 use crate::args::Args;
 use crate::context::Context;
-use crate::records::unified::{UnifiedRecord, SingeRecordDto};
-use crate::steps::generic::{FinalRecord, GenericStep, RecordInTransformation};
+use crate::records::unified::{UnifiedRecord, UnifiedRead};
+use crate::records::generic_read::GenericRawRead;
+use crate::statistics::WorkerStatistics;
+use crate::steps::generic::{FinalRecord, GenericStep, PerReadAlignmentResults, RecordInTransformation};
 use crate::steps::{adapter_remover::AdapterRemoverStep, barcode_splitter::BarcodeSplitter, filter_length::FilterLength, iupac_converter::IupacConverter, post_trim::PostTrim, pre_trim::PreTrim, quality_trim::QualityTrim, uncalled_filter::UncalledFilter};
 use crate::steps::pre_trim::PreTrimState;
 use crate::steps::filter_length::FilterLengthState;
@@ -10,7 +12,7 @@ use crate::steps::post_trim::PostTrimState;
 use crate::steps::barcode_splitter::BarcodeSplitterState;
 use crate::steps::adapter_remover::AdapterRemoverStepState;
 use crate::steps::iupac_converter::IupacConverterState;
-use crate::types::QualTrimType;
+use crate::types::{FileFormat, QualTrimType};
 
 pub struct Worker {
     pub iupac_converter: Option<IupacConverter>,
@@ -22,6 +24,7 @@ pub struct Worker {
     pub post_trim: PostTrim,
     pub uncalled_filter: Option<UncalledFilter>,
     pub qtrim_post_removal: bool,
+    pub output_format: FileFormat,
 }
 
 pub struct WorkerState {
@@ -68,36 +71,43 @@ impl Worker {
         let post_trim = PostTrim::new(args, context);
 
         let qtrim_post_removal = args.qtrim_post_removal;
-        if args.trace {
-            debug!("Unified worker pipeline:");
-            if iupac_converter.is_some() {
-                debug!("- Step IupacConverter");
-            }
-            if let Some(s) = &pre_trim {
-                debug!("- Step PreTrim (left: {}, right: {})", s.pre_trim_left, s.pre_trim_right);
-            }
-            if let Some(s) = &uncalled_filter {
-                debug!("- Step UncalledFilter (max_uncalled: {})", s.max_uncalled);
-            }
-            if !qtrim_post_removal { if let Some(s) = &quality_trim {
-                debug!("- Step QualityTrim (threshold: {}, window size: {})", s.threshold, s.win_size);
-            }}
-            if let Some(s) = &barcode_splitter {
-                debug!("- Step BarcodeSplitter (trim end {:?}, keep: {}, unassigned: {})", s.trim_end, s.barcode_keep, s.barcode_unassigned);
-            }
-            if adapter_remover.is_some() {
-                debug!("- Step AdapterRemoverStep");
-            }
-            if qtrim_post_removal { if let Some(s) = &quality_trim {
-                debug!("- Step QualityTrim (threshold: {}, window size: {})", s.threshold, s.win_size);
-            }}
-            debug!("- Step FilterLength (min length: {})", filter_length.min_read_length);
-            if post_trim.post_trim_length > 0 {
-                debug!("- Step PostTrim (length: {})", post_trim.post_trim_length);
-            }
+        let output_format = match args.fasta_output {
+            true => FileFormat::Fasta,
+            false => FileFormat::Fastq,
+        };
+
+        debug!("Unified worker pipeline:");
+        if iupac_converter.is_some() {
+            debug!("- Step IupacConverter");
+        }
+        if let Some(s) = &pre_trim {
+            debug!("- Step PreTrim (left: {}, right: {})", s.pre_trim_left, s.pre_trim_right);
+        }
+        if let Some(s) = &uncalled_filter {
+            debug!("- Step UncalledFilter (max_uncalled: {})", s.max_uncalled);
+        }
+        if !qtrim_post_removal { if let Some(s) = &quality_trim {
+            debug!("- Step QualityTrim (threshold: {}, window size: {})", s.threshold, s.win_size);
+        }}
+        if let Some(s) = &barcode_splitter {
+            debug!("- Step BarcodeSplitter (trim end {:?}, keep: {}, unassigned: {})", s.trim_end, s.barcode_keep, s.barcode_unassigned);
+        }
+        if adapter_remover.is_some() {
+            debug!("- Step AdapterRemoverStep");
+        }
+        if qtrim_post_removal { if let Some(s) = &quality_trim {
+            debug!("- Step QualityTrim (threshold: {}, window size: {})", s.threshold, s.win_size);
+        }}
+        debug!("- Step FilterLength (min length: {})", filter_length.min_read_length);
+        if post_trim.post_trim_length > 0 {
+            debug!("- Step PostTrim (length: {})", post_trim.post_trim_length);
         }
 
-        Self { iupac_converter, pre_trim, barcode_splitter, adapter_remover, quality_trim, filter_length, post_trim, uncalled_filter, qtrim_post_removal }
+        Self {
+            iupac_converter, pre_trim, barcode_splitter, adapter_remover, quality_trim,
+            filter_length, post_trim, uncalled_filter, qtrim_post_removal,
+            output_format,
+        }
     }
 
     pub fn create_state(&self) -> WorkerState {
@@ -146,11 +156,104 @@ impl Worker {
         }
         rec_in = self.filter_length.apply(rec_in, &mut state.filter_length);
         if self.post_trim.post_trim_length > 0 { rec_in = self.post_trim.apply(rec_in, &mut state.post_trim); }
-        finalize(rec_in)
+        self.finalize(rec_in)
+    }
+
+    fn finalize(&self, mut rec: RecordInTransformation) -> FinalRecord {
+        let mut reads: [Option<UnifiedRead>; 2] = [None, None];
+
+        let umi_tags = if rec.alignment_results.per_read[0].is_some() && !rec.alignment_results.per_read[0].as_ref().unwrap().umi_tags.is_empty() {
+            rec.alignment_results.per_read[0].as_ref().unwrap().umi_tags.clone()
+        } else if rec.alignment_results.per_read[1].is_some() {
+            rec.alignment_results.per_read[1].as_ref().unwrap().umi_tags.clone()
+        } else {
+            vec![]
+        };
+
+        for i in 0..2 {
+            if let Some(old_read) = &rec.record.reads[i] {
+                let original_len = old_read.seq().len();
+                let results = rec.alignment_results.per_read[i].as_ref().unwrap();
+                finalize_read_stats(&mut rec.stats, results, original_len);
+                if results.dropped { continue; }
+                let paired_read_dropped = rec.record.reads[1 - i].is_some()
+                    && rec.alignment_results.per_read[1 - i].as_ref().unwrap().dropped;
+                reads[i] = Some(self.get_final_read(old_read, results, &umi_tags, paired_read_dropped));
+            }
+        }
+
+        FinalRecord {
+            record: UnifiedRecord { reads, barcode_read: None },
+            output_tag: rec.alignment_results.barcode_tag,
+            stats: rec.stats,
+        }
+    }
+
+    fn get_final_read(
+        &self,
+        old_read: &UnifiedRead,
+        results: &PerReadAlignmentResults,
+        umi_tags: &Vec<String>,
+        paired_read_dropped: bool
+    ) -> UnifiedRead {
+        let range = &results.read_range;
+        let new_desc = Self::get_new_desc(
+            old_read.desc(),
+            &results.removal_tags,
+            &umi_tags,
+            paired_read_dropped
+        );
+        match self.output_format {
+            FileFormat::Fasta => {
+                UnifiedRead::new_fasta(
+                    old_read.id(),
+                    new_desc.as_deref(),
+                    &old_read.seq()[range.clone()],
+                )
+            },
+            FileFormat::Fastq => {
+                UnifiedRead::new_fastq(
+                    old_read.id(),
+                    new_desc.as_deref(),
+                    &old_read.seq()[range.clone()],
+                    &old_read.qual().unwrap_or(&[])[range.clone()],
+                )
+            }
+        }
+    }
+
+    fn get_new_desc(
+        old_desc: Option<&str>,
+        removal_tags: &Vec<String>,
+        umi_tags: &Vec<String>,
+        paired_read_dropped: bool
+    ) -> Option<String> {
+        let mut desc_parts: Vec<String> = Vec::new();
+        if let Some(x) = old_desc {
+            desc_parts.push(x.to_string());
+        }
+        for tag in removal_tags {
+            desc_parts.push(tag.clone());
+        }
+        for tag in umi_tags {
+            desc_parts.push(tag.clone());
+        }
+        if paired_read_dropped {
+            desc_parts.push("single".to_string());
+        }
+        if desc_parts.is_empty() {
+            None
+        } else {
+            Some(desc_parts.join("_"))
+        }
     }
 }
 
-fn finalize_read_stats(stats: &mut crate::statistics::WorkerStatistics, per_read: &crate::steps::generic::PerReadAlignmentResults, original_len: usize) {
+fn finalize_read_stats(
+    stats: &mut WorkerStatistics,
+    per_read: &PerReadAlignmentResults,
+    original_len: usize
+) {
     if per_read.dropped {
         stats.bases_discarded += original_len;
     } else {
@@ -162,90 +265,13 @@ fn finalize_read_stats(stats: &mut crate::statistics::WorkerStatistics, per_read
     }
 }
 
-fn finalize(mut rec: RecordInTransformation) -> FinalRecord {
-    let mut good_reads: u32 = 0;
-    let mut records = [
-        SingeRecordDto::with_attrs("", None, &[], &[]),
-        SingeRecordDto::with_attrs("", None, &[], &[]),
-    ];
-
-    let umi_tags = if rec.alignment_results.per_read[0].is_some() && !rec.alignment_results.per_read[0].as_ref().unwrap().umi_tags.is_empty() {
-        rec.alignment_results.per_read[0].as_ref().unwrap().umi_tags.clone()
-    } else if rec.alignment_results.per_read[1].is_some() {
-        rec.alignment_results.per_read[1].as_ref().unwrap().umi_tags.clone()
-    } else {
-        vec![]
-    };
-
-    for i in 0..2 {
-        if let Some(old_rec) = &rec.record.reads[i] {
-            let original_len = old_rec.seq().len();
-            let results = rec.alignment_results.per_read[i].as_ref().unwrap();
-            finalize_read_stats(&mut rec.stats, results, original_len);
-
-            if !results.dropped {
-                good_reads += 1;
-                let range = &results.read_range;
-                let mut desc_parts: Vec<String> = Vec::new();
-                if let Some(desc) = old_rec.desc() {
-                    desc_parts.push(desc.to_string());
-                }
-                for tag in &results.removal_tags {
-                    desc_parts.push(tag.clone());
-                }
-                for tag in &umi_tags {
-                    desc_parts.push(tag.clone());
-                }
-                
-                // If it's a paired record and the other read is dropped
-                if rec.record.reads[1 - i].is_some() && rec.alignment_results.per_read[1 - i].as_ref().unwrap().dropped {
-                    desc_parts.push("single".to_string());
-                }
-
-                let new_desc = if desc_parts.is_empty() {
-                    None
-                } else {
-                    Some(desc_parts.join("_"))
-                };
-
-                records[i] = SingeRecordDto::with_attrs(
-                    old_rec.id(),
-                    new_desc.as_deref(),
-                    &old_rec.seq()[range.clone()],
-                    &old_rec.qual()[range.clone()],
-                );
-            }
-        }
-    }
-
-    if good_reads == 0 {
-        return FinalRecord {
-            record: None,
-            output_tag: rec.alignment_results.barcode_tag,
-            stats: rec.stats,
-        };
-    }
-
-    let mut final_reads: [Option<SingeRecordDto>; 2] = [None, None];
-    for i in 0..2 {
-        if rec.record.reads[i].is_some() {
-            final_reads[i] = Some(records[i].clone());
-        }
-    }
-
-    FinalRecord {
-        record: Some(UnifiedRecord { reads: final_reads, barcode_read: None }),
-        output_tag: rec.alignment_results.barcode_tag,
-        stats: rec.stats,
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use clap::Parser;
     use crate::context::{Context, SequenceWithId};
-    use crate::records::unified::SingeRecordDto;
+    use crate::records::unified::{UnifiedRecord, UnifiedRead};
+    use crate::records::generic_read::GenericRawRead;
     use crate::types::{FileFormat, TrimEnd};
 
     fn process_record_unified(args: &Args, record: &UnifiedRecord) -> FinalRecord {
@@ -271,12 +297,12 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "5", "--min-read-length", "0"]);
         let barcodes = vec![SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() }];
         let barcodes2 = vec![SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() }];
-        let r1 = SingeRecordDto::with_attrs("R1", None, b"AAAAAGGGGG", b"IIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("R1", None, b"TTTTTGGGGG", b"IIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("R1", None, b"AAAAAGGGGG", b"IIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("R1", None, b"TTTTTGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let res = process_record_paired_helper(args, &rec, barcodes, barcodes2);
         assert_eq!(res.output_tag, Some("barcode_B1".to_string()));
-        let records = match res.record.unwrap().reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
+        let records = match res.record.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
         assert_eq!(records[0].seq(), b"GGGGG");
         assert_eq!(records[1].seq(), b"TTTTTGGGGG");
     }
@@ -286,12 +312,12 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--barcode-trim-end", "LEFT", "--barcode-min-overlap", "5", "--min-read-length", "0"]);
         let barcodes = vec![SequenceWithId { id: "B2".to_string(), sequence: "CCCCC".to_string() }];
         let barcodes2 = vec![SequenceWithId { id: "B2".to_string(), sequence: "CCCCC".to_string() }];
-        let r1 = SingeRecordDto::with_attrs("R1", None, b"TTTTTGGGGG", b"IIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("R1", None, b"CCCCCGGGGG", b"IIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("R1", None, b"TTTTTGGGGG", b"IIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("R1", None, b"CCCCCGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let res = process_record_paired_helper(args, &rec, barcodes, barcodes2);
         assert_eq!(res.output_tag, Some("barcode_B2".to_string()));
-        let records = match res.record.unwrap().reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
+        let records = match res.record.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
         assert_eq!(records[0].seq(), b"TTTTTGGGGG");
         assert_eq!(records[1].seq(), b"GGGGG");
     }
@@ -301,12 +327,13 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--barcode-unassigned", "--min-read-length", "0"]);
         let barcodes = vec![SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() }];
         let barcodes2 = vec![SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() }];
-        let r1 = SingeRecordDto::with_attrs("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let res = process_record_paired_helper(args, &rec, barcodes, barcodes2);
         assert_eq!(res.output_tag, Some("barcode_unassigned".to_string()));
-        assert!(res.record.is_some());
+        assert!(res.record.reads[0].is_some());
+        assert!(res.record.reads[1].is_some());
     }
 
     #[test]
@@ -314,12 +341,13 @@ mod tests {
         let args = Args::parse_from(&["flexbar_rs", "--min-read-length", "0"]);
         let barcodes = vec![SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() }];
         let barcodes2 = vec![SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() }];
-        let r1 = SingeRecordDto::with_attrs("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let res = process_record_paired_helper(args, &rec, barcodes, barcodes2);
         assert_eq!(res.output_tag, None);
-        assert!(res.record.is_none());
+        assert!(res.record.reads[0].is_none());
+        assert!(res.record.reads[1].is_none());
     }
 
     #[test]
@@ -329,11 +357,12 @@ mod tests {
         args.barcode_min_overlap = Some(5);
         args.min_read_length = 10;
         let barcodes = vec![SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() }];
-        let r1 = SingeRecordDto::with_attrs("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("R1", None, b"0123456789", b"IIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("R1", None, b"0123456789", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let res = process_record_paired_helper(args, &rec, barcodes, vec![]);
-        assert!(res.record.is_none());
+        assert!(res.record.reads[0].is_none());
+        assert!(res.record.reads[1].is_none());
     }
 
     #[test]
@@ -344,14 +373,16 @@ mod tests {
         args.min_read_length = 10;
         args.single_reads = true;
         let barcodes = vec![SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() }];
-        let r1 = SingeRecordDto::with_attrs("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("R1", None, b"0123456789", b"IIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("R1", None, b"0123456789", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let res = process_record_paired_helper(args, &rec, barcodes, vec![]);
-        assert!(res.record.is_some());
-        let records = match res.record.unwrap().reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
-        assert_eq!(records[0].seq(), b"");
-        assert_eq!(records[1].seq(), b"0123456789");
+        assert!(res.record.reads[0].is_none());
+        if let Some(r2) = res.record.reads[1].as_ref() {
+            assert_eq!(r2.seq(), b"0123456789");
+        } else {
+            panic!("expected second read");
+        }
     }
 
     #[test]
@@ -362,12 +393,11 @@ mod tests {
         args.min_read_length = 10;
         args.single_reads_paired = true;
         let barcodes = vec![SequenceWithId { id: "B1".to_string(), sequence: "AAAAA".to_string() }];
-        let r1 = SingeRecordDto::with_attrs("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("R1", None, b"0123456789", b"IIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("R1", None, b"0123456789", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let res = process_record_paired_helper(args, &rec, barcodes, vec![]);
-        assert!(res.record.is_some());
-        let records = match res.record.unwrap().reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
+        let records = match res.record.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
         assert_eq!(records[0].seq(), b"N");
         assert_eq!(records[1].seq(), b"0123456789");
     }
@@ -378,8 +408,8 @@ mod tests {
         args.qtrim = QualTrimType::Tail;
         args.qtrim_threshold = 20;
         args.min_read_length = 0;
-        let r1 = SingeRecordDto::with_attrs("R1", None, b"5555544444", b"8888877777");
-        let r2 = SingeRecordDto::with_attrs("R2", None, b"5555544444", b"8888833333");
+        let r1 = UnifiedRead::new_fastq("R1", None, b"5555544444", b"8888877777");
+        let r2 = UnifiedRead::new_fastq("R2", None, b"5555544444", b"8888833333");
         let rec = UnifiedRecord::paired(r1, r2);
         let mut context = Context::empty();
         context.format = FileFormat::Fastq;
@@ -387,8 +417,7 @@ mod tests {
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
         let res = worker.process_record(&rec, &mut state);
-        assert!(res.record.is_some());
-        let records = match res.record.unwrap().reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
+        let records = match res.record.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
         assert_eq!(records[0].seq(), b"5555544444");
         assert_eq!(records[1].seq(), b"55555");
     }
@@ -397,21 +426,21 @@ mod tests {
     #[test]
     fn test_process_right_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
-        let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
         let result = process_record_unified(&args, &UnifiedRecord::single(record));
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq(), b"ACTGT");
-        assert_eq!(processed.qual(), b"IIIII");
+        assert_eq!(processed.qual(), Some(&b"IIIII"[..]));
     }
 
     #[test]
     fn test_process_left_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "LEFT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
-        let record = SingeRecordDto::with_attrs("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
         let result = process_record_unified(&args, &UnifiedRecord::single(record));
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq(), b"ACTGT");
-        assert_eq!(processed.qual(), b"IIIII");
+        assert_eq!(processed.qual(), Some(&b"IIIII"[..]));
     }
 
     #[test]
@@ -421,9 +450,9 @@ mod tests {
         context.barcodes = vec![SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}];
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
-        let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"GGGGACGT", b"IIIIIIII");
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(result.output_tag, Some("barcode_bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
     }
@@ -431,10 +460,10 @@ mod tests {
     #[test]
     fn test_max_uncalled_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--max-uncalled", "2"]);
-        let record = SingeRecordDto::with_attrs("read1", None, b"ACNNGT", b"IIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"ACNNGT", b"IIIIII");
         let result = process_record_unified(&args, &UnifiedRecord::single(record));
         assert_eq!(result.stats.total_discarded_uncalled, 0);
-        let record2 = SingeRecordDto::with_attrs("read2", None, b"ACNNGN", b"IIIIII");
+        let record2 = UnifiedRead::new_fastq("read2", None, b"ACNNGN", b"IIIIII");
         let result2 = process_record_unified(&args, &UnifiedRecord::single(record2));
         assert_eq!(result2.stats.total_discarded_uncalled, 1);
     }
@@ -446,11 +475,11 @@ mod tests {
         context.barcodes = vec![SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}];
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
-        let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGT", b"IIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"GGGGACGT", b"IIIIIIII");
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc(), Some("Flexbar_removal"));
+        assert_eq!(processed.desc_str(), Some("Flexbar_removal"));
     }
 
     #[test]
@@ -460,11 +489,11 @@ mod tests {
         context.adapters = vec![SequenceWithId { id: "ad1".to_string(), sequence: "AGATCGGAAGAG".to_string() }];
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
-        let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc(), Some("Flexbar_removal_ad1"));
+        assert_eq!(processed.desc_str(), Some("Flexbar_removal_ad1"));
     }
 
     #[test]
@@ -478,38 +507,38 @@ mod tests {
         context.barcodes = vec![SequenceWithId{id: "bc1".to_string(), sequence: "GGGG".to_string()}];
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
-        let record = SingeRecordDto::with_attrs("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc(), Some("Flexbar_removal_Flexbar_removal_ad1"));
+        assert_eq!(processed.desc_str(), Some("Flexbar_removal_Flexbar_removal_ad1"));
     }
 
     #[test]
     fn test_quality_trim_tail_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "TAIL", "--qtrim-threshold", "20", "--min-read-length", "0"]);
-        let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
+        let record = UnifiedRead::new_fastq("read1", None, b"ACTGTACGT", b"IIIII4444");
         let result = process_record_unified(&args, &UnifiedRecord::single(record));
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq(), b"ACTGT");
-        assert_eq!(processed.qual(), b"IIIII");
+        assert_eq!(processed.qual(), Some(&b"IIIII"[..]));
     }
 
     #[test]
     fn test_quality_trim_win_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "WIN", "--qtrim-threshold", "20", "--qtrim-win-size", "5", "--min-read-length", "0"]);
-        let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGTACGT", b"IIIII44444III");
+        let record = UnifiedRead::new_fastq("read1", None, b"ACTGTACGTACGT", b"IIIII44444III");
         let result = process_record_unified(&args, &UnifiedRecord::single(record));
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq(), b"ACTGT");
     }
 
     #[test]
     fn test_quality_trim_bwa_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "BWA", "--qtrim-threshold", "20", "--min-read-length", "0"]);
-        let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTACGT", b"IIIII4444");
+        let record = UnifiedRead::new_fastq("read1", None, b"ACTGTACGT", b"IIIII4444");
         let result = process_record_unified(&args, &UnifiedRecord::single(record));
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq(), b"ACTGT");
     }
 
@@ -520,12 +549,12 @@ mod tests {
         context.barcodes = vec![SequenceWithId{id: "bc1".to_string(), sequence: "NNGGGGNN".to_string()}];
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
-        let record = SingeRecordDto::with_attrs("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(result.output_tag, Some("barcode_bc1".to_string()));
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc(), Some("AA_TT"));
+        assert_eq!(processed.desc_str(), Some("AA_TT"));
         assert_eq!(processed.seq(), b"ACGT");
     }
 
@@ -536,24 +565,24 @@ mod tests {
         context.adapters = vec![SequenceWithId { id: "adapter".to_string(), sequence: "AGATNNNN".to_string() }];
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
-        let record = SingeRecordDto::with_attrs("read1", None, b"ACTGTAGATCCCC", b"IIIIIIIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"ACTGTAGATCCCC", b"IIIIIIIIIIIII");
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(processed.desc(), Some("CCCC"));
+        assert_eq!(processed.desc_str(), Some("CCCC"));
         assert_eq!(processed.seq(), b"ACTGT");
     }
 
     #[test]
     fn test_min_read_length_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
-        let record = SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"0123456789", b"IIIIIIIIII");
         let result = process_record_unified(&args, &UnifiedRecord::single(record));
-        assert!(result.record.is_some());
         assert_eq!(result.stats.total_bases_read, 10);
-        let record2 = SingeRecordDto::with_attrs("read2", None, b"012345678", b"IIIIIIIII");
+        let record2 = UnifiedRead::new_fastq("read2", None, b"012345678", b"IIIIIIIII");
         let result2 = process_record_unified(&args, &UnifiedRecord::single(record2));
-        assert!(result2.record.is_none());
+        assert!(result2.record.reads[0].is_none());
+        assert!(result2.record.reads[1].is_none());
         assert_eq!(result2.stats.total_bases_read, 9);
     }
 
@@ -563,9 +592,8 @@ mod tests {
         let context = Context::empty();
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
-        let record = SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
         let res = worker.process_record(&UnifiedRecord::single(record), &mut state);
-        assert!(res.record.is_some());
         assert_eq!(res.stats.bases_pre_trim, 8);
         assert_eq!(res.stats.total_bases_read, 15);
     }
@@ -573,16 +601,16 @@ mod tests {
     #[test]
     fn test_post_trim_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--post-trim-length", "10", "--min-read-length", "0"]);
-        let record = SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let record = UnifiedRead::new_fastq("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
         let result = process_record_unified(&args, &UnifiedRecord::single(record));
-        let processed = match result.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq().len(), 10);
         assert_eq!(processed.seq(), b"0123456789");
         assert_eq!(result.stats.bases_post_trim, 5);
         assert_eq!(result.stats.total_bases_read, 15);
-        let record2 = SingeRecordDto::with_attrs("read2", None, b"01234567", b"IIIIIIII");
+        let record2 = UnifiedRead::new_fastq("read2", None, b"01234567", b"IIIIIIII");
         let result2 = process_record_unified(&args, &UnifiedRecord::single(record2));
-        let processed2 = match result2.record.expect("kept").reads { [Some(r), None] => r, _ => unreachable!() };
+        let processed2 = match result2.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed2.seq().len(), 8);
         assert_eq!(result2.stats.bases_post_trim, 0);
     }
@@ -626,13 +654,13 @@ mod tests {
 
     #[test]
     fn test_near_miss_with_adapter_trim_paired() {
-        let r1 = SingeRecordDto::with_attrs(
+        let r1 = UnifiedRead::new_fastq(
             "A00620:147:H225CDMXY:2:1101:17562:1031 1:N:0:TGCCGGTCAG+TTGTATCAGG",
             None,
             b"ATTGCGCAATGGTAGACTGGGGCTAGACTAGGCTGTCTTTGAATAACACTTAAAAATACATTAAAAGGAAAACCCAACTAATAACCTTGTTATTCTCTTCC",
             b"FFFFFFFF:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF",
         );
-        let r2 = SingeRecordDto::with_attrs(
+        let r2 = UnifiedRead::new_fastq(
             "A00620:147:H225CDMXY:2:1101:17562:1031 2:N:0:TGCCGGTCAG+TTGTATCAGG",
             None,
             b"GAATACAGAGATGTGGTCCCCACCATCAAGGGACCAGAAACTTATTGCACAGTAAGTTGAATGTTGTGGAACTTTGATAGGTATTTCCTGAAAAGCTGACA",
@@ -641,23 +669,24 @@ mod tests {
         let rec = UnifiedRecord::paired(r1, r2);
         let res = process_with_reference_setup(&rec);
         assert_eq!(res.output_tag, Some("barcode_SmartSeqUMI".to_string()));
-        if let Some(r) = res.record {
-            let reads = match r.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
-            assert_eq!(reads[0].seq(), b"GGGCTAGACTAGGCTGTCTTTGAATAACACTTAAAAATACATTAAAAGGAAAACCCAACTAATAACCTTGTTATTCTCTTCC");
-        } else { panic!("expected paired"); }
+        let reads = match res.record.reads {
+            [Some(x1), Some(x2)] => [x1, x2],
+            _ => panic!("expected paired")
+        };
+        assert_eq!(reads[0].seq(), b"GGGCTAGACTAGGCTGTCTTTGAATAACACTTAAAAATACATTAAAAGGAAAACCCAACTAATAACCTTGTTATTCTCTTCC");
         let stats = res.stats;
         assert_eq!(stats.total_adapters_removed, 0, "Expected no adapters to be found");
     }
 
     #[test]
     fn test_short_read_discard_paired() {
-        let r1 = SingeRecordDto::with_attrs(
+        let r1 = UnifiedRead::new_fastq(
             "A00620:147:H225CDMXY:2:1101:5936:2253 1:N:0:TGCCGGTCAG+GTGTATCAGG",
             None,
             b"ATTGCGCAATGGCTGTCTCTTATACACATCTCCGAGCCCACGAGACTGCCGGTCAGATCTCGTATGCCGGCTTCTGCTTGAAAAGGGGGGGGGGGGGGGGG",
             b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFF,FF::FF,FF,:,F,,F,::F,F,,,:,F:FFFFFFFFFFF!",
         );
-        let r2 = SingeRecordDto::with_attrs(
+        let r2 = UnifiedRead::new_fastq(
             "A00620:147:H225CDMXY:2:1101:5936:2253 2:N:0:TGCCGGTCAG+GTGTATCAGG",
             None,
             b"CCATTGCGCAATCTGTCTCTTATACACATCTGACGCTGCCGACGATTGTATCAGGGTGTAGATCTCGGTGGTCGCCGTATCATTAAAATGGGGGGGGGGGG",
@@ -665,18 +694,19 @@ mod tests {
         );
         let rec = UnifiedRecord::paired(r1, r2);
         let res = process_with_reference_setup(&rec);
-        assert!(res.record.is_none(), "Record should be discarded");
+        assert!(res.record.reads[0].is_none(), "Record should be discarded");
+        assert!(res.record.reads[1].is_none(), "Record should be discarded");
     }
 
     #[test]
     fn test_zero_length_after_adapter_removal_paired() {
-        let r1 = SingeRecordDto::with_attrs(
+        let r1 = UnifiedRead::new_fastq(
             "A00620:147:H225CDMXY:2:1101:16468:4993",
             Some("1:N:0:TGCCGGTCAG+TTGTATCAGG"),
             b"ATTGCGCAATGACAGGACCTGTCTCTTATACACATCTCCGAGCCCACGAGACTGCCGGTCAGATCTCGTATGCCGTCTTCTGCTTGAAAAGGGGGGGGGGG",
             b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:F,::,,F:,,,F,,:,,F,,F::,,,::F:FF:F",
         );
-        let r2 = SingeRecordDto::with_attrs(
+        let r2 = UnifiedRead::new_fastq(
             "A00620:147:H225CDMXY:2:1101:16468:4993",
             Some("2:N:0:TGCCGGTCAG+TTGTATCAGG"),
             b"GTCCTGTCATTGCGCAATCTGTCTCTTATACACATCTGACGCTGCCGACGATTGTATCAGGGTGTAGATCTCGGTGGTCGCCGTATCATTAAAAAGGGGGG",
@@ -684,20 +714,24 @@ mod tests {
         );
         let rec = UnifiedRecord::paired(r1, r2);
         let res = process_with_reference_setup(&rec);
-        assert!(res.record.is_none(), "Record should be discarded");
+        assert!(res.record.reads[0].is_none(), "Record should be discarded");
+        assert!(res.record.reads[1].is_none(), "Record should be discarded");
     }
 
     #[test]
     fn test_adapter_with_errors_single() {
-        let r = SingeRecordDto::with_attrs(
+        let r = UnifiedRead::new_fastq(
             "A00620:147:H225CDMXY:2:1221:21866:34444",
             Some("N:0:TGCCGGTCAG+TTGTATCAGG"),
             b"ATTGCGCAATGCTTGGAAAAAAAAAAAAAAAAAAAAAAAAAAAAATCGCTGTCTCTTATACACAACCCGAGCCCACGAGAATGCCGGTCAGATCTCGTATG",
             b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,,,,,,,,,,FFF:F,F,F,::F,F,FF:FF,F,F,F,FF:F:,:,FF,,,:,,F:",
         );
         let res = process_with_reference_setup(&UnifiedRecord::single(r));
-        assert!(res.record.is_some(), "Should keep read");
-        if let Some(r) = res.record { let reads = match r.reads { [Some(r1), None] => [r1], _ => panic!() }; assert_eq!(reads[0].seq(), b"AAAAAAAAAAAAAAAAAAAAAAAAAATCG"); } else { panic!(); }
+        let reads = match res.record.reads {
+            [Some(r1), None] => [r1],
+            _ => panic!()
+        };
+        assert_eq!(reads[0].seq(), b"AAAAAAAAAAAAAAAAAAAAAAAAAATCG");
     }
 
     // Included commented test from single worker

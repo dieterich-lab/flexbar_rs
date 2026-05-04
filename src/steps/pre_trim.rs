@@ -61,7 +61,7 @@ mod tests {
     use crate::types::RunType;
     use crate::records::unified::UnifiedRecord;
     use clap::Parser;
-    use crate::records::unified::SingeRecordDto;
+    use crate::records::unified::{UnifiedRead};
 
     #[test]
     fn test_pre_trim_apply_single() {
@@ -71,7 +71,7 @@ mod tests {
         let step = PreTrim::new(&args, &context);
         let mut state = step.create_state();
 
-        let record = UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII"));
+        let record = UnifiedRecord::single(UnifiedRead::new_fastq("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII"));
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range, 5..12);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().bases_pre_trim, 8);
@@ -85,8 +85,8 @@ mod tests {
         let step = PreTrim::new(&args, &context);
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("read1/1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("read1/2", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("read1/1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("read1/2", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
         let record = UnifiedRecord::paired(r1, r2);
         
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);

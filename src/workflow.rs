@@ -99,9 +99,7 @@ fn process_batch_orchestrator(
 
         for res in batch_out {
             stats += res.stats;
-            if let Some(r) = res.record {
-                records.push((r, res.output_tag));
-            }
+            records.push((res.record, res.output_tag));
         }
 
         if batch_out_tx.send(ProcessedBatch { records, stats }).is_err() {

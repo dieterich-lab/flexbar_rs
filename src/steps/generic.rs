@@ -2,7 +2,8 @@ use crate::statistics::WorkerStatistics;
 use crate::args::Args;
 use crate::context::Context;
 use std::ops::Range;
-use crate::records::unified::UnifiedRecord;
+use crate::records::unified::{GenericRawRead, UnifiedRecord};
+use crate::records::unified_read::UnifiedRead;
 
 #[derive(Default, Clone)]
 pub struct PerReadAlignmentResults {
@@ -87,10 +88,10 @@ impl RecordInTransformation {
     }
 
     pub fn get_qual(&self, read_index: usize) -> &[u8] {
-        if let Some(read) = &self.record.reads[read_index] {
+        if let Some(UnifiedRead::Fastq(read)) = &self.record.reads[read_index] {
             &read.qual()[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]
         } else {
-            panic!("Invalid read index {}", read_index);
+            panic!("Invalid read index {} or qaul() called on Fasta!", read_index);
         }
     }
 
@@ -144,7 +145,7 @@ pub trait GenericStep: Send + Sync {
 }
 
 pub struct FinalRecord {
-    pub record: Option<UnifiedRecord>,
+    pub record: UnifiedRecord,
     pub output_tag: Option<String>,
     pub stats: WorkerStatistics,
 }

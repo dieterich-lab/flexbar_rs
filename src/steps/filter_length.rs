@@ -1,8 +1,9 @@
-use bio::io::fastq::Record;
 use crate::args::Args;
 use log::trace;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
+use crate::records::generic_read::GenericRawRead;
+use crate::records::unified::UnifiedRead;
 
 pub struct FilterLength {
     pub min_read_length: usize,
@@ -52,7 +53,7 @@ impl GenericStep for FilterLength {
                     let start = rec.alignment_results.per_read[i].as_ref().unwrap().read_range.start;
                     rec.alignment_results.per_read[i].as_mut().unwrap().read_range.end = start + 1;
                     if let Some(old) = &rec.record.reads[i] {
-                        rec.record.reads[i] = Some(get_place_holder_record(old, start));
+                        rec.record.reads[i] = Some(get_place_holder_read(old, start));
                     }
                     rec.stats.total_single_reads_replaced += 1;
 
@@ -76,14 +77,17 @@ impl GenericStep for FilterLength {
     }
 }
 
-fn get_place_holder_record(record: &Record, start: usize) -> Record {
-    let seq = record.seq();
+fn get_place_holder_read(read: &UnifiedRead, start: usize) -> UnifiedRead {
+    let seq = read.seq();
     let len = seq.len();
     let mut new_sequence: Vec<u8> = Vec::with_capacity(len);
     new_sequence.extend_from_slice(&seq[..start]);
     new_sequence.push(b'N');
     new_sequence.extend_from_slice(&seq[start + 1..]);
-    Record::with_attrs(record.id(), record.desc(), &*new_sequence, record.qual())
+    match read {
+        UnifiedRead::Fasta(r) => UnifiedRead::new_fasta(r.id(), r.desc(), &*new_sequence),
+        UnifiedRead::Fastq(r) => UnifiedRead::new_fastq(r.id(), r.desc(), &*new_sequence, r.qual()),
+    }
 }
 
 #[cfg(test)]
@@ -91,7 +95,7 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
-    use crate::records::unified::{UnifiedRecord, SingeRecordDto};
+    use crate::records::unified::{UnifiedRecord, UnifiedRead};
     use crate::types::RunType;
 
     #[test]
@@ -102,7 +106,7 @@ mod tests {
         let filter = FilterLength::new(&args, &context);
         let mut state = filter.create_state();
         
-        let record = UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"0123456789", b"IIIIIIIIII"));
+        let record = UnifiedRecord::single(UnifiedRead::new_fastq("read1", None, b"0123456789", b"IIIIIIIIII"));
         let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_length, 0);
@@ -116,7 +120,7 @@ mod tests {
         let filter = FilterLength::new(&args, &context);
         let mut state = filter.create_state();
         
-        let record = UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"012345678", b"IIIIIIIII"));
+        let record = UnifiedRecord::single(UnifiedRead::new_fastq("read1", None, b"012345678", b"IIIIIIIII"));
         let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(res.alignment_results.per_read[0].as_ref().unwrap().dropped);
         assert_eq!(res.stats.total_discarded_length, 1);
@@ -130,7 +134,7 @@ mod tests {
         let filter = FilterLength::new(&args, &context);
         let mut state = filter.create_state();
         
-        let record = UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"A", b"I"));
+        let record = UnifiedRecord::single(UnifiedRead::new_fastq("read1", None, b"A", b"I"));
         let res = filter.apply(RecordInTransformation::from_dto(record), &mut state);
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
     }
@@ -144,8 +148,8 @@ mod tests {
         let step = FilterLength::new(&args, &context);
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("id", None, b"0123456789", b"IIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"0123456789", b"IIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"0123456789", b"IIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"0123456789", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
 
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
@@ -162,8 +166,8 @@ mod tests {
         let step = FilterLength::new(&args, &context);
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("id", None, b"012345678", b"IIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"012345678", b"IIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"012345678", b"IIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"012345678", b"IIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
 
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);

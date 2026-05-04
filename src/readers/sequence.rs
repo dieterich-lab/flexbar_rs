@@ -8,7 +8,7 @@ use crate::readers::backends::generic::GenericReaderBackend;
 use crate::readers::backends::ReaderBackend;
 use crate::readers::backends::fasta::FastaBackend;
 use crate::readers::backends::fastq::FastqBackend;
-use crate::records::unified::{UnifiedRecord, SingeRecordDto};
+use crate::records::unified::{UnifiedRecord, UnifiedRead, GenericRawRead};
 use crate::statistics::ReaderStatistics;
 use crate::utils::io::get_raw_reader;
 
@@ -109,7 +109,7 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
                 Some(UnifiedRecord::single(rec.unwrap()))
             }
         } else {
-            let mut records: [Option<SingeRecordDto>; 2] = [None, None];
+            let mut records: [Option<UnifiedRead>; 2] = [None, None];
             for i in 0..2 {
                 records[i] = self.backends[i].as_mut().unwrap().read_record();
             }
@@ -154,7 +154,7 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
         }
     }
 
-    pub fn count_read(&mut self, record: &SingeRecordDto, read_index: usize) {
+    pub fn count_read(&mut self, record: &UnifiedRead, read_index: usize) {
         self.statistics.total_records_read += 1;
         self.statistics.total_bases_read += record.seq().len();
         if self.trace {
@@ -165,9 +165,9 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
             };
             trace!("Reader processed record:\nID: {}\nDesc: {}\nSeq: {}\nQual: {}",
                 cooked_id,
-                record.desc().unwrap_or("None"),
+                record.desc_str().unwrap_or("None"),
                 String::from_utf8_lossy(record.seq()),
-                String::from_utf8_lossy(record.qual())
+                String::from_utf8_lossy(record.qual().unwrap_or(&[]))
             );
         }
     }

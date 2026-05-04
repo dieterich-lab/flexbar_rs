@@ -8,7 +8,8 @@ use crate::types::TrimEnd;
 use crate::context::SequenceWithId;
 use crate::multi_aligner::{AlignerConfig, MultiAligner, MultiAlignerSetup};
 use crate::multi_aligner::result::MultiAlignerResult;
-use crate::records::unified::SingeRecordDto;
+use crate::records::unified::{UnifiedRead, GenericRawRead};
+
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::PerReadAlignmentResults;
 
@@ -61,7 +62,7 @@ impl AdapterRemover {
     pub fn remove_adapters(
         &self,
         state: &mut MultiAlignerState,
-        read: &SingeRecordDto,
+        read: &UnifiedRead,
         read_index: Option<usize>,
         per_read: &mut PerReadAlignmentResults,
         stats: &mut WorkerStatistics,
@@ -110,7 +111,7 @@ impl AdapterRemover {
 
     fn handle_umi_tags(
         &self,
-        read: &SingeRecordDto,
+        read: &UnifiedRead,
         read_index: Option<usize>,
         per_read: &mut PerReadAlignmentResults,
         alignment: &MultiAlignerResult,
@@ -131,7 +132,7 @@ impl AdapterRemover {
 
     fn trim_record(
         &self,
-        _read: &SingeRecordDto,
+        _read: &UnifiedRead,
         _read_index: Option<usize>,
         per_read: &mut PerReadAlignmentResults,
         stats: &mut WorkerStatistics,
@@ -266,7 +267,8 @@ mod tests {
     use crate::context::{Context, SequenceWithId};
     use crate::steps::generic::GenericStep;
     use clap::Parser;
-    use crate::records::unified::{UnifiedRecord, SingeRecordDto};
+    use crate::records::unified::{UnifiedRecord, UnifiedRead};
+    
 
     #[test]
     fn test_adapter_removal_paired() {
@@ -285,8 +287,8 @@ mod tests {
         let step = AdapterRemoverStep::new(&args, &context);
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGCCCC", b"IIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGCCCC", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
 
         let rec_in = RecordInTransformation::from_dto(rec);
@@ -311,8 +313,8 @@ mod tests {
         let step = AdapterRemoverStep::new(&args, &context);
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGAAAA", b"IIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGAAAA", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
 
         let rec_in = RecordInTransformation::from_dto(rec);
@@ -337,7 +339,7 @@ mod tests {
         let step = AdapterRemoverStep::new(&args, &context);
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::single(r1);
 
         let rec_in = RecordInTransformation::from_dto(rec);

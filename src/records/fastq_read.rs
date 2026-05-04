@@ -2,6 +2,7 @@ use std::ops::Range;
 use bio::io::fastq::Record;
 use crate::records::generic_read::GenericRawRead;
 
+
 impl GenericRawRead for Record {
     fn seq(&self) -> &[u8] {
         self.seq()
@@ -15,8 +16,12 @@ impl GenericRawRead for Record {
         self.id()
     }
 
-    fn desc(&self) -> &[u8] {
-        self.desc().unwrap_or("").as_bytes()
+    fn desc(&self) -> Option<&str> {
+        self.desc()
+    }
+
+    fn desc_str(&self) -> Option<&str> {
+        self.desc()
     }
 
     fn transform(self, range: Range<usize>, extra_desc_parts: Vec<String>, replace_with_dummy: bool) -> Self {

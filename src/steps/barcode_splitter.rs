@@ -5,6 +5,7 @@ use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::{Context, SequenceWithId};
 use crate::multi_aligner::{AlignerConfig, MultiAligner, MultiAlignerSetup, MultiAlignerState};
 use crate::multi_aligner::result::MultiAlignerResult;
+use crate::records::unified::GenericRawRead;
 
 pub struct BarcodeSplitter {
     pub barcodes: [Vec<SequenceWithId>; 2],
@@ -276,7 +277,8 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
-    use crate::records::unified::{UnifiedRecord, SingeRecordDto};
+    use crate::records::unified::{UnifiedRecord, UnifiedRead};
+    
 
     fn process_record(record: UnifiedRecord, args: Args) -> RecordInTransformation
     {
@@ -308,7 +310,7 @@ mod tests {
     }
 
     fn get_record_not_matching_barcode_single() -> UnifiedRecord {
-        UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"AAAAACGT", b"IIIIIIII"))
+        UnifiedRecord::single(UnifiedRead::new_fastq("read1", None, b"AAAAACGT", b"IIIIIIII"))
     }
 
     #[test]
@@ -335,7 +337,7 @@ mod tests {
     }
 
     fn get_record_with_barcode_at_end_single() -> UnifiedRecord {
-        UnifiedRecord::single(SingeRecordDto::with_attrs(
+        UnifiedRecord::single(UnifiedRead::new_fastq(
             "read1",
             None,
             b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAAT",
@@ -362,7 +364,7 @@ mod tests {
     }
 
     fn get_record_with_barcode_at_start_single() -> UnifiedRecord {
-        UnifiedRecord::single(SingeRecordDto::with_attrs(
+        UnifiedRecord::single(UnifiedRead::new_fastq(
             "read1",
             None,
             b"AAAAAATAGCTCTGTAGGCACCATCAATCATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG",
@@ -458,7 +460,7 @@ mod tests {
 
     #[test]
     fn test_with_last_barcode_base_missing_in_sequence_single() {
-        let r = SingeRecordDto::with_attrs(
+        let r = UnifiedRead::new_fastq(
             "VH00748:119:AAGJ22MM5:1:1101:28608:1038",
             Some("1:N:0:TACGGTCT+GCAATGGA"),
             b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCTGTAGGCACCATCAA",
@@ -481,7 +483,7 @@ mod tests {
 
     #[test]
     fn test_record_with_with_13_bases_barcode_overlap_single() {
-        let r = SingeRecordDto::with_attrs(
+        let r = UnifiedRead::new_fastq(
             "generic",
             Some("1:N:0:TACGGTCT+GCAATGGA"),
             b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGGGTGCCCTAGCTCT",
@@ -504,7 +506,7 @@ mod tests {
 
     #[test]
     fn test_record_error_no_tolerance_single() {
-        let r = SingeRecordDto::with_attrs(
+        let r = UnifiedRead::new_fastq(
             "VH00748:119:AAGJ22MM5:1:1101:37924:1000",
             None,
             b"GACGATCACGGGGCGACGCCTGTCTGAGCGTCGCTCCCTGGTAGCTCTGAGGCACCATCAATAGATCGGAA",
@@ -525,7 +527,7 @@ mod tests {
 
     #[test]
     fn test_record_error_with_tolerance_single() {
-        let r = SingeRecordDto::with_attrs(
+        let r = UnifiedRead::new_fastq(
             "VH00748:119:AAGJ22MM5:1:1101:37924:1000",
             None,
             b"GACGATCACGGGGCGACGCCTGTCTGAGCGTCGCTCCCTGGTAGCTCTGAGGCACCATCAATAGATCGGAA",
@@ -549,7 +551,7 @@ mod tests {
 
     #[test]
     fn test_partial_overlap_record_no_tolerance_single() {
-        let r = SingeRecordDto::with_attrs(
+        let r = UnifiedRead::new_fastq(
             "VH00748:119:AAGJ22MM5:1:1101:39591:1000",
             Some("1:N:0:TACGGTCT+GCAATGGA"),
             b"GATAGCAACTCTAGCATCACCAGTATTAGAGGCTTTCTGTAGCTCTGTAGGCACATCAATAGATCGGAAGA",
@@ -589,7 +591,7 @@ mod tests {
         let step = BarcodeSplitter::new(&args, &context);
         let mut state = step.create_state();
         
-        let rec = UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"AAAAATTTTTAAATTT", b"IIIIIIIIIIIIIIII"));
+        let rec = UnifiedRecord::single(UnifiedRead::new_fastq("read1", None, b"AAAAATTTTTAAATTT", b"IIIIIIIIIIIIIIII"));
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
@@ -612,8 +614,8 @@ mod tests {
         let step = BarcodeSplitter::new(&args, &context);
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
 
         let rec_in = RecordInTransformation::from_dto(rec);
@@ -641,8 +643,8 @@ mod tests {
         let mut state = step.create_state();
 
         // Barcode in R1, should be detected
-        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
@@ -650,8 +652,8 @@ mod tests {
         assert_eq!(result.alignment_results.per_read[1].as_ref().unwrap().read_range, 0..12);
 
         // Barcode in R2, but not in R1. Should NOT be detected because context.barcodes2 is empty.
-        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         // It should NOT be bc1 because that's only for R1.
@@ -676,8 +678,8 @@ mod tests {
         let mut state = step.create_state();
 
         // Barcode in R2, should be detected
-        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc2".to_string()));
@@ -685,8 +687,8 @@ mod tests {
         assert_eq!(result.alignment_results.per_read[1].as_ref().unwrap().read_range, 0..8);
 
         // Barcode in R1, but context.barcodes is empty. Should NOT be detected.
-        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert!(result.alignment_results.barcode_tag.is_none());
@@ -715,8 +717,8 @@ mod tests {
 
         // bc1 in R1, bc2 in R2. Should detect both, but BarcodeSplitter picks the BEST one (they likely score same).
         // Let's make them clearly different.
-        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII"); // Score for AAAA in R1
-        let r2 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII"); // Score for CCCC in R2
+        let r1 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII"); // Score for AAAA in R1
+        let r2 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII"); // Score for CCCC in R2
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         
@@ -725,8 +727,8 @@ mod tests {
                 result.alignment_results.barcode_tag == Some("barcode_bc2".to_string()));
 
         // Case: bc1 in R2 (WRONG READ). Should NOT be detected because bc1 is in context.barcodes (for R1).
-        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTAAAA", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         // It will NOT find bc1 in R2 because bc1 is not in context.barcodes2.
@@ -734,8 +736,8 @@ mod tests {
         assert!(result.alignment_results.barcode_tag.is_none() || result.alignment_results.barcode_tag != Some("barcode_bc1".to_string()));
         
         // Case: bc2 in R1 (WRONG READ). Should NOT be detected.
-        let r1 = SingeRecordDto::with_attrs("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         assert!(result.alignment_results.barcode_tag.is_none() || result.alignment_results.barcode_tag != Some("barcode_bc2".to_string()));
@@ -757,8 +759,8 @@ mod tests {
         let mut state = step.create_state();
 
         // Barcode in separate barcode read
-        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
-        let bar = SingeRecordDto::with_attrs("id", None, b"AAAA", b"IIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let bar = UnifiedRead::new_fastq("id", None, b"AAAA", b"IIII");
         let rec = UnifiedRecord::single_barcoded(r1, bar);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
 
@@ -783,9 +785,9 @@ mod tests {
         let mut state = step.create_state();
 
         // Barcode in separate barcode read
-        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"HHHHHHHHHHHH", b"IIIIIIIIIIII");
-        let bar = SingeRecordDto::with_attrs("id", None, b"AAAA", b"IIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"HHHHHHHHHHHH", b"IIIIIIIIIIII");
+        let bar = UnifiedRead::new_fastq("id", None, b"AAAA", b"IIII");
         let rec = UnifiedRecord::paired_barcoded(r1, r2, bar);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
 
@@ -817,8 +819,8 @@ mod tests {
 
         // R1 contains bc1 at the end, but barcode read contains bc2.
         // It should detect bc2 and NOT trim bc1 from R1.
-        let r1 = SingeRecordDto::with_attrs("id", None, b"GGGGGGGGAAAA", b"IIIIIIIIIIII");
-        let bar = SingeRecordDto::with_attrs("id", None, b"CCCC", b"IIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGAAAA", b"IIIIIIIIIIII");
+        let bar = UnifiedRead::new_fastq("id", None, b"CCCC", b"IIII");
         let rec = UnifiedRecord::single_barcoded(r1, bar);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
 

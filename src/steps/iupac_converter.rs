@@ -1,6 +1,7 @@
 use crate::args::Args;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::context::Context;
+use crate::records::generic_read::GenericRawRead;
 
 pub struct IupacConverter {}
 
@@ -22,8 +23,10 @@ impl GenericStep for IupacConverter {
             if rec.record.reads[i].is_none() || rec.is_dropped_read(i) {
                 continue;
             }
-            if let Some(read) = &mut rec.record.reads[i] {
-                let (converted, count) = get_iupac_converted_read(read.seq());
+            if rec.record.reads[i].is_some() {
+                let (converted, count) = get_iupac_converted_read(
+                    rec.get_sequence(i)
+                );
                 if count != 0 {
                     rec.record.patch_read_sequence(i, &converted);
                 }
@@ -58,7 +61,7 @@ fn get_iupac_converted_read(raw: &[u8]) -> (Vec<u8>, usize) {
 
 #[cfg(test)]
 mod tests {
-    use crate::records::unified::{UnifiedRecord, SingeRecordDto};
+    use crate::records::unified::{UnifiedRecord, UnifiedRead, GenericRawRead};
     use super::*;
     #[test]
     fn test_iupac_conversion() {
@@ -70,7 +73,7 @@ mod tests {
 
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("read1", None, inp_seq, b"IIIIIIIIIIIIIIIIIIIIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("read1", None, inp_seq, b"IIIIIIIIIIIIIIIIIIIIIIIIIIIIII");
         let record = UnifiedRecord::single(r1);
         
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
@@ -90,8 +93,8 @@ mod tests {
 
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("read1", None, inp_seq1, b"IIIII");
-        let r2 = SingeRecordDto::with_attrs("read2", None, inp_seq2, b"IIIII");
+        let r1 = UnifiedRead::new_fastq("read1", None, inp_seq1, b"IIIII");
+        let r2 = UnifiedRead::new_fastq("read2", None, inp_seq2, b"IIIII");
         let record = UnifiedRecord::paired(r1, r2);
         
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
@@ -107,8 +110,8 @@ mod tests {
         
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("read1", None, b"ATCG", b"IIII");
-        let bc = SingeRecordDto::with_attrs("bc1", None, b"NRY", b"III");
+        let r1 = UnifiedRead::new_fastq("read1", None, b"ATCG", b"IIII");
+        let bc = UnifiedRead::new_fastq("bc1", None, b"NRY", b"III");
         let record = UnifiedRecord::single_barcoded(r1, bc);
         
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);

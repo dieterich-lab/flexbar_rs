@@ -3,7 +3,7 @@ use bio::io::fastq;
 use bio::io::fastq::FastqRead;
 use crate::logging::log_fatal;
 use crate::readers::backends::generic::GenericReaderBackend;
-use crate::records::unified::SingeRecordDto;
+use crate::records::unified::UnifiedRead;
 
 pub struct FastqBackend<READER: BufRead + Send> {
     reader: fastq::Reader<READER>,
@@ -20,14 +20,14 @@ impl<Reader: BufRead + Send> FastqBackend<Reader> {
 }
 
 impl<Reader: BufRead + Send> GenericReaderBackend<Reader> for FastqBackend<Reader> {
-    fn read_record(&mut self) -> Option<SingeRecordDto> {
-        let mut record = SingeRecordDto::new();
+    fn read_record(&mut self) -> Option<UnifiedRead> {
+        let mut record = fastq::Record::new();
         match self.reader.read(&mut record) {
             Ok(()) => {
                 if record.is_empty() {
                     None
                 } else {
-                    Some(record)
+                    Some(UnifiedRead::from_fastq(record))
                 }
             },
             Err(e) => {
@@ -41,6 +41,8 @@ impl<Reader: BufRead + Send> GenericReaderBackend<Reader> for FastqBackend<Reade
 mod tests {
     use super::*;
     use std::io::Cursor;
+    use crate::records::unified::GenericRawRead;
+
     #[test]
     fn test_fastq_reader() {
         let data = b"@id1\nACGT\n+\n!!!!\n";
@@ -50,7 +52,7 @@ mod tests {
         let r1 = reader.read_record().unwrap();
         assert_eq!(r1.id(), "id1");
         assert_eq!(r1.seq(), b"ACGT");
-        assert_eq!(r1.qual(), b"!!!!");
+        assert_eq!(r1.qual().unwrap(), b"!!!!");
         let r2 = reader.read_record();
         assert!(r2.is_none());
     }

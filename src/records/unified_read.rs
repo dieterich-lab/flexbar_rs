@@ -1,6 +1,8 @@
-use std::ops::Range;
+use serde::{Deserialize, Serialize};
 use crate::records::generic_read::GenericRawRead;
+use std::ops::Range;
 
+#[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum UnifiedRead {
     Fasta(bio::io::fasta::Record),
     Fastq(bio::io::fastq::Record),
@@ -50,10 +52,17 @@ impl GenericRawRead for UnifiedRead {
         }
     }
 
-    fn desc(&self) -> &[u8] {
+    fn desc(&self) -> Option<&str> {
         match self {
             UnifiedRead::Fasta(r) => GenericRawRead::desc(r),
             UnifiedRead::Fastq(r) => GenericRawRead::desc(r),
+        }
+    }
+
+    fn desc_str(&self) -> Option<&str> {
+        match self {
+            UnifiedRead::Fasta(r) => GenericRawRead::desc_str(r),
+            UnifiedRead::Fastq(r) => GenericRawRead::desc_str(r),
         }
     }
 

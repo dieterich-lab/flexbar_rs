@@ -40,7 +40,7 @@ mod tests {
     use super::*;
     use crate::args::Args;
     use clap::Parser;
-    use crate::records::unified::{UnifiedRecord, SingeRecordDto};
+    use crate::records::unified::{UnifiedRecord, UnifiedRead};
     use crate::types::RunType;
 
     #[test]
@@ -51,7 +51,7 @@ mod tests {
         let step = PostTrim::new(&args, &context);
         let mut state = step.create_state();
 
-        let record = UnifiedRecord::single(SingeRecordDto::with_attrs("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII"));
+        let record = UnifiedRecord::single(UnifiedRead::new_fastq("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII"));
         let res = step.apply(RecordInTransformation::from_dto(record), &mut state);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..10);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().bases_post_trim, 5);
@@ -66,8 +66,8 @@ mod tests {
         let step = PostTrim::new(&args, &context);
         let mut state = step.create_state();
 
-        let r1 = SingeRecordDto::with_attrs("id", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
-        let r2 = SingeRecordDto::with_attrs("id", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let r1 = UnifiedRead::new_fastq("id", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
+        let r2 = UnifiedRead::new_fastq("id", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
 
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
