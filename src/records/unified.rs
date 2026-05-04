@@ -57,9 +57,9 @@ impl UnifiedRecord {
     }
 
     implement_by_read_index!(id, &str);
-    implement_by_read_index!(seq, &[u8]);
-    implement_by_read_index!(desc, Option<&str>);
-    implement_by_read_index!(qual, Option<&[u8]>);
+    // implement_by_read_index!(seq, &[u8]);
+    // implement_by_read_index!(desc, Option<&str>);
+    // implement_by_read_index!(qual, Option<&[u8]>);
 
     #[inline(always)]
     pub fn record_id(&self) -> &str {
