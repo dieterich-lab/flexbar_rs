@@ -4,6 +4,7 @@ use crate::logging::log_fatal;
 use crate::readers::backends::generic::GenericReaderBackend;
 use crate::records::unified_read::UnifiedRead;
 use rust_htslib::bam::record::Record;
+use crate::records::header::SequenceHeader;
 use log::warn;
 use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -55,5 +56,9 @@ impl<READER: BufRead + Send> GenericReaderBackend<READER> for BamBackend<READER>
                 log_fatal(&format!("Failed to read from BAM {}: {:?}", self.source, e));
             }
         }
+    }
+
+    fn get_header(&self) -> SequenceHeader {
+        SequenceHeader::Bam(self.reader.header().clone())
     }
 }

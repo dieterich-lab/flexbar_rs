@@ -8,10 +8,13 @@ use crate::utils::io::{OutputType, WriterFactory};
 use crate::writers::generic::{GenericWriterBackend, DEFAULT_TAG};
 use crate::writers::fasta::FastaBackend;
 use crate::writers::fastq::FastqBackend;
+use crate::writers::bam::BamWriterBackend;
+use crate::records::header::SequenceHeader;
 
 pub enum WriterBackend<'a> {
     Fasta(FastaBackend<'a>),
     Fastq(FastqBackend<'a>),
+    Bam(BamWriterBackend),
 }
 
 impl<'a> WriterBackend<'a> {
@@ -19,14 +22,15 @@ impl<'a> WriterBackend<'a> {
         match self {
             WriterBackend::Fasta(b) => b.write_read(record),
             WriterBackend::Fastq(b) => b.write_read(record),
+            WriterBackend::Bam(b) => b.write_read(record),
         }
     }
 
-    fn new(format: FileFormat, writer: Box<dyn Write + Send + 'a>) -> Self {
+    fn new(format: FileFormat, writer: Box<dyn Write + Send + 'a>, description: &str, header: &SequenceHeader) -> io::Result<Self> {
         match format {
-            FileFormat::Fasta => WriterBackend::Fasta(FastaBackend::new(writer)),
-            FileFormat::Fastq => WriterBackend::Fastq(FastqBackend::new(writer)),
-            FileFormat::Bam => unimplemented!("BAM writer not implemented yet"),
+            FileFormat::Fasta => Ok(WriterBackend::Fasta(FastaBackend::new(writer))),
+            FileFormat::Fastq => Ok(WriterBackend::Fastq(FastqBackend::new(writer))),
+            FileFormat::Bam => Ok(WriterBackend::Bam(BamWriterBackend::new(description, header)?)),
         }
     }
 }
@@ -34,6 +38,7 @@ impl<'a> WriterBackend<'a> {
 pub struct SequenceWriter<'a> {
     format: FileFormat,
     factory: WriterFactory<'a>,
+    header: SequenceHeader,
     backends_by_tag: HashMap<(String, Option<usize>), WriterBackend<'a>>,
     statistics: crate::statistics::WriterStatistics,
     track_length_dist: bool,
@@ -41,10 +46,11 @@ pub struct SequenceWriter<'a> {
 }
 
 impl<'a> SequenceWriter<'a> {
-    pub fn new(format: FileFormat, factory: WriterFactory<'a>, track_length_dist: bool) -> Self {
+    pub fn new(format: FileFormat, factory: WriterFactory<'a>, track_length_dist: bool, header: SequenceHeader) -> Self {
         Self {
             format,
             factory,
+            header,
             backends_by_tag: HashMap::new(),
             statistics: crate::statistics::WriterStatistics::default(),
             track_length_dist,
@@ -58,7 +64,7 @@ impl<'a> SequenceWriter<'a> {
         if !self.backends_by_tag.contains_key(&key) {
             let actual_tag = if key.0 == DEFAULT_TAG { None } else { Some(key.0.as_str()) };
             let (writer, description) = (self.factory)(actual_tag, key.1, self.format, OutputType::Reads)?;
-            self.backends_by_tag.insert(key.clone(), WriterBackend::new(self.format, writer));
+            self.backends_by_tag.insert(key.clone(), WriterBackend::new(self.format, writer, &description, &self.header)?);
             self.backend_descriptions.insert(key.clone(), description);
         }
         Ok(self.backends_by_tag.get_mut(&key).unwrap())
@@ -182,7 +188,7 @@ mod tests {
             Ok((writer, format!("memory:{}", buffer_key)))
         });
 
-        SequenceWriter::new(format, factory, track_length_dist)
+        SequenceWriter::new(format, factory, track_length_dist, SequenceHeader::Default)
     }
 
     #[test]

@@ -10,6 +10,7 @@ use crate::readers::backends::fasta::FastaBackend;
 use crate::readers::backends::fastq::FastqBackend;
 use crate::readers::backends::bam::BamBackend;
 use crate::records::unified::{UnifiedRecord, UnifiedRead, GenericRawRead};
+use crate::records::header::SequenceHeader;
 use crate::statistics::ReaderStatistics;
 use crate::utils::io::get_raw_reader;
 
@@ -141,6 +142,10 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
 
     pub fn statistics(&self) -> crate::statistics::ReaderStatistics {
         self.statistics
+    }
+
+    pub fn get_header(&self) -> SequenceHeader {
+        self.backends[0].as_ref().unwrap().get_header()
     }
 
     fn try_get_record(&mut self) -> Option<UnifiedRecord> {

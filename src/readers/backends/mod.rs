@@ -4,6 +4,7 @@ use crate::readers::backends::fastq::FastqBackend;
 use crate::readers::backends::bam::BamBackend;
 use crate::readers::backends::generic::GenericReaderBackend;
 use crate::records::unified::UnifiedRead;
+use crate::records::header::SequenceHeader;
 
 pub mod fasta;
 pub mod fastq;
@@ -22,6 +23,14 @@ impl<Reader: BufRead + Send> GenericReaderBackend<Reader> for ReaderBackend<Read
             Self::Fasta(x) =>x.read_record(),
             Self::Fastq(x) => x.read_record(),
             Self::Bam(x) => x.read_record(),
+        }
+    }
+
+    fn get_header(&self) -> SequenceHeader {
+        match self {
+            Self::Fasta(x) => x.get_header(),
+            Self::Fastq(x) => x.get_header(),
+            Self::Bam(x) => x.get_header(),
         }
     }
 }

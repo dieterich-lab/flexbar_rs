@@ -4,6 +4,7 @@ use bio::io::fasta::FastaRead;
 use crate::logging::log_fatal;
 use crate::readers::backends::generic::GenericReaderBackend;
 use crate::records::unified::UnifiedRead;
+use crate::records::header::SequenceHeader;
 pub struct FastaBackend<READER: BufRead + Send> {
     reader: fasta::Reader<READER>,
     source: String,
@@ -34,6 +35,10 @@ impl<Reader: BufRead + Send> GenericReaderBackend<Reader> for FastaBackend<Reade
                 log_fatal(&format!("Failed to read from {}: {:?}", self.source, e));
             }
         }
+    }
+
+    fn get_header(&self) -> SequenceHeader {
+        SequenceHeader::Default
     }
 }
 

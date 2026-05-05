@@ -7,6 +7,7 @@ use crate::types::{CompressionType, FileFormat};
 use crate::statistics::{Statistics, WorkerStatistics};
 use log::debug;
 use crate::context;
+use crate::records::header::SequenceHeader;
 use crate::records::unified::FinalRecord;
 use crate::worker::{Worker, WorkerState};
 use crossbeam_channel::{bounded, Receiver, Sender};
@@ -22,9 +23,10 @@ pub fn do_it(args: Args) {
         .map(|p| p.to_string_lossy().into_owned())
         .unwrap_or_else(|| args.target.clone());
     let reader = SequenceReader::create_form_args(&args, &context);
+    let header = reader.get_header();
     let compression = get_compression(&reader, &args);
     let worker = Worker::new(&args, &context);
-    let writer = get_writer(&args, &output_prefix, compression);
+    let writer = get_writer(&args, &output_prefix, compression, header);
 
     let (batch_in_tx, batch_in_rx) = bounded::<Vec<UnifiedRecord>>(16);
     let (batch_out_tx, batch_out_rx) = bounded::<ProcessedBatch>(16);
@@ -125,7 +127,7 @@ fn get_compression<Reader: BufRead + Send>(reader: &SequenceReader<Reader>, args
 
 use crate::utils::io::get_writer_factory;
 
-fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType) -> SequenceWriter<'static> {
+fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType, header: SequenceHeader) -> SequenceWriter<'static> {
     let p = match args.single_reads {
         true => "-".to_string(),
         false => output_prefix.to_string(),
@@ -133,10 +135,12 @@ fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType) ->
     let factory = get_writer_factory(p, compression, args.write_buffer);
     let format = if args.fasta_output {
         FileFormat::Fasta
+    } else if args.bam_output {
+        FileFormat::Bam
     } else {
         FileFormat::Fastq
     };
-    SequenceWriter::new(format, factory, args.length_dist)
+    SequenceWriter::new(format, factory, args.length_dist, header)
 }
 
 thread_local! {

@@ -217,6 +217,10 @@ pub struct Args {
     #[arg(short = 'f', long)]
     pub fasta_output: bool,
 
+    /// Output to BAM format
+    #[arg(long)]
+    pub bam_output: bool,
+
     /// Direct compression of output files: Uncompressed, GZ, BZ2, ZSTD, KEEP (default,
     /// use same compression as input)
     #[arg(short = 'z', long, default_value = "KEEP")]
