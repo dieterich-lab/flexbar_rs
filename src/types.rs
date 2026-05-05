@@ -28,6 +28,7 @@ impl FromStr for TrimEnd {
 pub enum FileFormat {
     Fasta,
     Fastq,
+    Bam,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]

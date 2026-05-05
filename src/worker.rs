@@ -196,6 +196,7 @@ mod tests {
         let actual = match read {
             UnifiedRead::Fasta(r) => r.desc(),
             UnifiedRead::Fastq(r) => r.desc(),
+            UnifiedRead::Bam(_) => None, // Bam doesn't have Fasta/Fastq-style description
         };
         assert_eq!(actual, expected);
     }

@@ -1,10 +1,11 @@
-use serde::{Deserialize, Serialize};
 use crate::records::generic_read::GenericRawRead;
+use crate::records::bam_read::BamRecordWrapper;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub enum UnifiedRead {
     Fasta(bio::io::fasta::Record),
     Fastq(bio::io::fastq::Record),
+    Bam(BamRecordWrapper),
 }
 
 impl UnifiedRead {
@@ -14,6 +15,10 @@ impl UnifiedRead {
 
     pub fn from_fastq(r: bio::io::fastq::Record) -> Self {
         UnifiedRead::Fastq(r)
+    }
+
+    pub fn from_bam(r: rust_htslib::bam::record::Record) -> Self {
+        UnifiedRead::Bam(BamRecordWrapper::new(r))
     }
 
     pub fn new_fasta(id: &str, desc: Option<&str>, seq: &[u8]) -> Self {
@@ -37,6 +42,7 @@ impl GenericRawRead for UnifiedRead {
         match self {
             UnifiedRead::Fasta(r) => GenericRawRead::seq(r),
             UnifiedRead::Fastq(r) => GenericRawRead::seq(r),
+            UnifiedRead::Bam(r) => GenericRawRead::seq(r),
         }
     }
 
@@ -45,6 +51,7 @@ impl GenericRawRead for UnifiedRead {
         match self {
             UnifiedRead::Fasta(r) => GenericRawRead::qual(r),
             UnifiedRead::Fastq(r) => GenericRawRead::qual(r),
+            UnifiedRead::Bam(r) => GenericRawRead::qual(r),
         }
     }
 
@@ -53,6 +60,7 @@ impl GenericRawRead for UnifiedRead {
         match self {
             UnifiedRead::Fasta(r) => GenericRawRead::id(r),
             UnifiedRead::Fastq(r) => GenericRawRead::id(r),
+            UnifiedRead::Bam(r) => GenericRawRead::id(r),
         }
     }
 
@@ -61,6 +69,7 @@ impl GenericRawRead for UnifiedRead {
         match self {
             UnifiedRead::Fasta(r) => UnifiedRead::Fasta(r.set_seq(seq)),
             UnifiedRead::Fastq(r) => UnifiedRead::Fastq(r.set_seq(seq)),
+            UnifiedRead::Bam(r) => UnifiedRead::Bam(r.set_seq(seq)),
         }
     }
 
@@ -75,6 +84,7 @@ impl GenericRawRead for UnifiedRead {
         match self {
             UnifiedRead::Fasta(r) => UnifiedRead::Fasta(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
             UnifiedRead::Fastq(r) => UnifiedRead::Fastq(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
+            UnifiedRead::Bam(r) => UnifiedRead::Bam(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
         }
     }
 }

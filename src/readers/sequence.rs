@@ -8,6 +8,7 @@ use crate::readers::backends::generic::GenericReaderBackend;
 use crate::readers::backends::ReaderBackend;
 use crate::readers::backends::fasta::FastaBackend;
 use crate::readers::backends::fastq::FastqBackend;
+use crate::readers::backends::bam::BamBackend;
 use crate::records::unified::{UnifiedRecord, UnifiedRead, GenericRawRead};
 use crate::statistics::ReaderStatistics;
 use crate::utils::io::get_raw_reader;
@@ -58,6 +59,9 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
                 FileFormat::Fastq => Some(
                     ReaderBackend::Fastq(FastqBackend::new(reader, &sources[i]))
                 ),
+                FileFormat::Bam => Some(
+                    ReaderBackend::Bam(BamBackend::new(reader, &sources[i]))
+                ),
             };
         }
 
@@ -68,6 +72,9 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
                 ),
                 FileFormat::Fastq => Some(
                     ReaderBackend::Fastq(FastqBackend::new(reader, &source))
+                ),
+                FileFormat::Bam => Some(
+                    ReaderBackend::Bam(BamBackend::new(reader, &source))
                 ),
             }
         } else {

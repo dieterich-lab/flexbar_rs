@@ -1,11 +1,10 @@
-use serde::{Deserialize, Serialize};
 
 pub use crate::records::unified_read::UnifiedRead;
 pub use crate::records::generic_read::GenericRawRead;
 use crate::statistics::WorkerStatistics;
 use crate::steps::generic::AlignmentResults;
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Clone, Debug)]
 pub struct UnifiedRecord {
     pub reads: [Option<UnifiedRead>; 2],
     pub barcode_read: Option<UnifiedRead>

@@ -30,8 +30,11 @@ pub fn get_file_type(path: Option<&PathBuf>) -> FileFormat {
         }
         let ext = path.extension().and_then(|s| s.to_str()).map(|s| s.to_lowercase());
         if let Some(e) = ext {
-            if e == "fasta" || e == "fa" {
-                return FileFormat::Fasta;
+            match e.as_str() {
+                "fasta" => return FileFormat::Fasta,
+                "fa" => return FileFormat::Fasta,
+                "bam" => return FileFormat::Bam,
+                _ => {}
             }
         }
         FileFormat::Fastq
@@ -102,6 +105,7 @@ impl WriterFactoryBackend {
         let format_str = match file_format {
             FileFormat::Fasta => ".fasta",
             FileFormat::Fastq => ".fastq",
+            FileFormat::Bam => ".bam",
         };
         let compression_str = match self.compression {
             CompressionType::Gz => ".gz",

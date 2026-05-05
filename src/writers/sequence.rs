@@ -26,6 +26,7 @@ impl<'a> WriterBackend<'a> {
         match format {
             FileFormat::Fasta => WriterBackend::Fasta(FastaBackend::new(writer)),
             FileFormat::Fastq => WriterBackend::Fastq(FastqBackend::new(writer)),
+            FileFormat::Bam => unimplemented!("BAM writer not implemented yet"),
         }
     }
 }
