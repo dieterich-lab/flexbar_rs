@@ -286,6 +286,10 @@ pub struct Args {
     #[arg(long)]
     pub trace: bool,
 
+    /// Tag for BAM auxiliary data used for description (Default: XD)
+    #[arg(long = "bam-desc-tag", default_value = "XD")]
+    pub bam_desc_tag: String,
+
     /// Path to a parameter file in TOML format
     #[arg(long = "parameter-file")]
     pub parameter_file: Option<PathBuf>,
@@ -412,6 +416,7 @@ impl Args {
         if !is_present("output_log") { self.output_log = file_args.output_log; }
         if !is_present("removal_tags") { self.removal_tags = file_args.removal_tags; }
         if !is_present("umi_tags") { self.umi_tags = file_args.umi_tags; }
+        if !is_present("bam_desc_tag") { self.bam_desc_tag = file_args.bam_desc_tag; }
         if !is_present("debug") { self.debug = file_args.debug; }
     }
 

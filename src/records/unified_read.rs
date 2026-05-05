@@ -80,11 +80,12 @@ impl GenericRawRead for UnifiedRead {
         removal_tags: &Vec<String>,
         umi_tags: &Vec<String>,
         paired_read_dropped: bool,
+        bam_desc_tag: &str,
     ) -> Self {
         match self {
-            UnifiedRead::Fasta(r) => UnifiedRead::Fasta(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
-            UnifiedRead::Fastq(r) => UnifiedRead::Fastq(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
-            UnifiedRead::Bam(r) => UnifiedRead::Bam(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
+            UnifiedRead::Fasta(r) => UnifiedRead::Fasta(r.finalize(range, removal_tags, umi_tags, paired_read_dropped, bam_desc_tag)),
+            UnifiedRead::Fastq(r) => UnifiedRead::Fastq(r.finalize(range, removal_tags, umi_tags, paired_read_dropped, bam_desc_tag)),
+            UnifiedRead::Bam(r) => UnifiedRead::Bam(r.finalize(range, removal_tags, umi_tags, paired_read_dropped, bam_desc_tag)),
         }
     }
 }

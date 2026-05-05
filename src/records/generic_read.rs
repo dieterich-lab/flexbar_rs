@@ -13,5 +13,6 @@ pub trait GenericRawRead {
         removal_tags: &Vec<String>,
         umi_tags: &Vec<String>,
         paired_read_dropped: bool,
+        bam_desc_tag: &str,
     ) -> Self;
 }
