@@ -31,6 +31,18 @@ pub enum FileFormat {
     Bam,
 }
 
+impl FromStr for FileFormat {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_uppercase().as_str() {
+            "FASTA" => Ok(FileFormat::Fasta),
+            "FASTQ" => Ok(FileFormat::Fastq),
+            "BAM" => Ok(FileFormat::Bam),
+            _ => Err(format!("Unknown output format: {}", s)),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 pub enum QualityType {
     Sanger,

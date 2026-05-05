@@ -13,7 +13,8 @@ It is heavily based on Rust-bio and uses the rust-htslib library to handle BAM f
 ### Why should you use it?
 
 * It complies in 2026 on up-to-date operating systems with modern dependencies. 
-* It handles ZSTD compression out-of-the-box (see tuning hints below).
+* It handles ZSTD compression out-of-the-box (see tuning hints below!).
+* It supports BAM files.
 
 ### What changed?
 
@@ -23,6 +24,7 @@ Most options work as for Flexbar, but:
   with double-dash: `--qt`. You may now cluster single-letter options (e.g. `-df` instead of `-d -f`).
 * The gap scores have been split into two parameters, e.g. `--barcode-gap` was replaced by `--barcode-gap-open`
   and `--barcode-gap-extend`.
+* the `--fasta-output` was removed. Use `--output-format=FASTA` instead.
 
 Dropped features we will not implement at all:
 

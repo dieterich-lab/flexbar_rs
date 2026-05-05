@@ -26,7 +26,7 @@ pub fn do_it(args: Args) {
     let header = reader.get_header();
     let compression = get_compression(&reader, &args);
     let worker = Worker::new(&args, &context);
-    let writer = get_writer(&args, &output_prefix, compression, header);
+    let writer = get_writer(&args, &output_prefix, compression, header, &reader);
 
     let (batch_in_tx, batch_in_rx) = bounded::<Vec<UnifiedRecord>>(16);
     let (batch_out_tx, batch_out_rx) = bounded::<ProcessedBatch>(16);
@@ -127,18 +127,15 @@ fn get_compression<Reader: BufRead + Send>(reader: &SequenceReader<Reader>, args
 
 use crate::utils::io::get_writer_factory;
 
-fn get_writer(args: &Args, output_prefix: &str, compression: CompressionType, header: SequenceHeader) -> SequenceWriter<'static> {
+fn get_writer<Reader: BufRead + Send>(args: &Args, output_prefix: &str, compression: CompressionType, header: SequenceHeader, reader: &SequenceReader<Reader>) -> SequenceWriter<'static> {
     let p = match args.single_reads {
         true => "-".to_string(),
         false => output_prefix.to_string(),
     };
     let factory = get_writer_factory(p, compression, args.write_buffer);
-    let format = if args.fasta_output {
-        FileFormat::Fasta
-    } else if args.bam_output {
-        FileFormat::Bam
-    } else {
-        FileFormat::Fastq
+    let format = match args.output_format {
+        Some(x) => x,
+        None => if reader.format() == FileFormat::Fasta {FileFormat::Fastq} else {reader.format()},
     };
     SequenceWriter::new(format, factory, args.length_dist, header)
 }

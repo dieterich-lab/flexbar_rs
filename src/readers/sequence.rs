@@ -17,6 +17,7 @@ use crate::utils::io::get_raw_reader;
 pub struct SequenceReader<Reader: BufRead + Send> {
     backends: [Option<ReaderBackend<Reader>>; 2],
     barcode_backend: Option<ReaderBackend<Reader>>,
+    file_format: FileFormat,
     compression: CompressionType,
     last_id: String,
     statistics: ReaderStatistics,
@@ -85,6 +86,7 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
         Self {
             backends,
             barcode_backend,
+            file_format,
             compression,
             last_id: String::new(),
             statistics: crate::statistics::ReaderStatistics::default(),
@@ -138,6 +140,10 @@ impl<Reader: BufRead + Send> SequenceReader<Reader> {
 
     pub fn compression(&self) -> CompressionType {
         self.compression
+    }
+
+    pub fn format(&self) -> FileFormat {
+        self.file_format
     }
 
     pub fn statistics(&self) -> crate::statistics::ReaderStatistics {

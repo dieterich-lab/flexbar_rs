@@ -212,14 +212,9 @@ pub struct Args {
     #[arg(long = "qtrim-post-removal", alias = "qa")]
     pub qtrim_post_removal: bool,
 
-    // Output selection
-    /// Prefer non-quality format fasta for output
-    #[arg(short = 'f', long)]
-    pub fasta_output: bool,
-
-    /// Output to BAM format
-    #[arg(long)]
-    pub bam_output: bool,
+    /// Output format: FASTA, FASTQ, BAM. If not given, the format of the input is used, unless it is FASTA. In that case, FASTQ is used.
+    #[arg(long = "output-format")]
+    pub output_format: Option<FileFormat>,
 
     /// Direct compression of output files: Uncompressed, GZ, BZ2, ZSTD, KEEP (default,
     /// use same compression as input)
@@ -406,7 +401,7 @@ impl Args {
         if !is_present("qtrim_post_removal") { self.qtrim_post_removal = file_args.qtrim_post_removal; }
 
         // Output selection
-        if !is_present("fasta_output") { self.fasta_output = file_args.fasta_output; }
+        if !is_present("output_format") { self.output_format = file_args.output_format; }
         if !is_present("output_compression") { self.output_compression = file_args.output_compression; }
         if !is_present("stdout_reads") { self.stdout_reads = file_args.stdout_reads; }
         if !is_present("output_reads") { self.output_reads = file_args.output_reads; }
