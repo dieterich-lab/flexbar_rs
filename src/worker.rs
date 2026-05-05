@@ -1,7 +1,7 @@
 use log::debug;
 use crate::args::Args;
 use crate::context::Context;
-use crate::records::unified::{UnifiedRecord, FinalRecord, UnifiedRead};
+use crate::records::unified::{UnifiedRecord, FinalRecord};
 use crate::records::generic_read::GenericRawRead;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::{adapter_remover::AdapterRemoverStep, barcode_splitter::BarcodeSplitter, filter_length::FilterLength, iupac_converter::IupacConverter, post_trim::PostTrim, pre_trim::PreTrim, quality_trim::QualityTrim, uncalled_filter::UncalledFilter};
@@ -163,13 +163,6 @@ impl Worker {
 
         rec.record.finalize(rec.alignment_results, &umi_tags, rec.stats)
     }
-
-    pub fn desc_raw<'a>(&self, read: &'a UnifiedRead) -> Option<&'a str> {
-        match read {
-            UnifiedRead::Fasta(r) => r.desc(),
-            UnifiedRead::Fastq(r) => r.desc(),
-        }
-    }
 }
 
 
@@ -197,6 +190,14 @@ mod tests {
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
         worker.process_record(&record, &mut state)
+    }
+
+    pub fn assert_desc(read: &UnifiedRead, expected: Option<&str>) {
+        let actual = match read {
+            UnifiedRead::Fasta(r) => r.desc(),
+            UnifiedRead::Fastq(r) => r.desc(),
+        };
+        assert_eq!(actual, expected);
     }
 
     // Copied and adapted from src/workers/paired.rs
@@ -387,7 +388,7 @@ mod tests {
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(worker.desc_raw(&processed), Some("Flexbar_removal"));
+        assert_desc(&processed, Some("Flexbar_removal"));
     }
 
     #[test]
@@ -401,7 +402,7 @@ mod tests {
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(worker.desc_raw(&processed), Some("Flexbar_removal_ad1"));
+        assert_desc(&processed, Some("Flexbar_removal_ad1"));
     }
 
     #[test]
@@ -419,7 +420,7 @@ mod tests {
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(worker.desc_raw(&processed), Some("Flexbar_removal_Flexbar_removal_ad1"));
+        assert_desc(&processed, Some("Flexbar_removal_Flexbar_removal_ad1"));
     }
 
     #[test]
@@ -462,7 +463,7 @@ mod tests {
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(result.output_tag, Some("barcode_bc1".to_string()));
         assert_eq!(processed.id(), "read1");
-        assert_eq!(worker.desc_raw(&processed), Some("AA_TT"));
+        assert_desc(&processed, Some("AA_TT"));
         assert_eq!(processed.seq(), b"ACGT");
     }
 
@@ -477,7 +478,7 @@ mod tests {
         let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_eq!(worker.desc_raw(&processed), Some("CCCC"));
+        assert_desc(&processed, Some("CCCC"));
         assert_eq!(processed.seq(), b"ACTGT");
     }
 

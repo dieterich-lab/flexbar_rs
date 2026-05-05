@@ -84,10 +84,7 @@ fn get_place_holder_read(read: &UnifiedRead, start: usize) -> UnifiedRead {
     new_sequence.extend_from_slice(&seq[..start]);
     new_sequence.push(b'N');
     new_sequence.extend_from_slice(&seq[start + 1..]);
-    match read {
-        UnifiedRead::Fasta(r) => UnifiedRead::new_fasta(r.id(), r.desc(), &*new_sequence),
-        UnifiedRead::Fastq(r) => UnifiedRead::new_fastq(r.id(), r.desc(), &*new_sequence, r.qual()),
-    }
+    read.set_seq(&new_sequence)
 }
 
 #[cfg(test)]
