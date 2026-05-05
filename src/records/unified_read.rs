@@ -32,6 +32,7 @@ impl UnifiedRead {
 use std::ops::Range;
 
 impl GenericRawRead for UnifiedRead {
+    #[inline(always)]
     fn seq(&self) -> &[u8] {
         match self {
             UnifiedRead::Fasta(r) => GenericRawRead::seq(r),
@@ -39,6 +40,7 @@ impl GenericRawRead for UnifiedRead {
         }
     }
 
+    #[inline(always)]
     fn qual(&self) -> Option<&[u8]> {
         match self {
             UnifiedRead::Fasta(r) => GenericRawRead::qual(r),
@@ -46,6 +48,7 @@ impl GenericRawRead for UnifiedRead {
         }
     }
 
+    #[inline(always)]
     fn id(&self) -> &str {
         match self {
             UnifiedRead::Fasta(r) => GenericRawRead::id(r),
@@ -53,6 +56,15 @@ impl GenericRawRead for UnifiedRead {
         }
     }
 
+    #[inline(always)]
+    fn set_seq(&self, seq: &[u8]) -> Self {
+        match self {
+            UnifiedRead::Fasta(r) => UnifiedRead::Fasta(r.set_seq(seq)),
+            UnifiedRead::Fastq(r) => UnifiedRead::Fastq(r.set_seq(seq)),
+        }
+    }
+
+    #[inline(always)]
     fn finalize(
         &self,
         range: &Range<usize>,

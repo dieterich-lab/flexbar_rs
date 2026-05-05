@@ -74,46 +74,20 @@ impl UnifiedRecord {
         if let Some(read) = &self.reads[0] {
             read.id()
         } else {
-            panic!("RecordDto has no reads")
+            panic!("Record has no reads")
         }
     }
 
     #[inline(always)]
     pub fn patch_read_sequence(&mut self, read_index: usize, new_sequence: &[u8]) {
-        let old_read = self.reads[read_index].take().unwrap();
-        let new_read = match old_read {
-            UnifiedRead::Fasta(r) => UnifiedRead::new_fasta(
-                r.id(),
-                r.desc(),
-                new_sequence,
-            ),
-            UnifiedRead::Fastq(r) => UnifiedRead::new_fastq(
-                r.id(),
-                r.desc(),
-                new_sequence,
-                r.qual(),
-            ),
-        };
-        self.reads[read_index] = Some(new_read);
+        let old_read = self.reads[read_index].as_ref().unwrap();
+        self.reads[read_index] = Some(old_read.set_seq(new_sequence));
     }
 
     #[inline(always)]
     pub fn patch_barcode_read(&mut self, new_sequence: &[u8]) {
-        let old_barcode = self.barcode_read.take().unwrap();
-        let new_barcode = match old_barcode {
-            UnifiedRead::Fasta(r) => UnifiedRead::new_fasta(
-                r.id(),
-                r.desc(),
-                new_sequence,
-            ),
-            UnifiedRead::Fastq(r) => UnifiedRead::new_fastq(
-                r.id(),
-                r.desc(),
-                new_sequence,
-                r.qual(),
-            ),
-        };
-        self.barcode_read = Some(new_barcode);
+        let old_barcode = self.barcode_read.as_ref().unwrap();
+        self.barcode_read = Some(old_barcode.set_seq(new_sequence));
     }
 
     pub fn finalize(
