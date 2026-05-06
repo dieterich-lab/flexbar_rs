@@ -13,6 +13,9 @@ pub struct UnifiedRecord {
 pub struct AnnotatedRecord {
     pub record: UnifiedRecord,
     pub barcode_id: Option<String>,
+    pub removal_tags: [Vec<String>; 2],
+    pub umi_tags: Vec<String>,
+    pub paired_read_dropped: bool,
 }
 
 macro_rules! implement_by_read_index {
@@ -95,6 +98,7 @@ impl UnifiedRecord {
         mut stats: WorkerStatistics,
     ) -> (AnnotatedRecord, WorkerStatistics) {
         let mut reads: [Option<UnifiedRead>; 2] = [None, None];
+        let mut removal_tags: [Vec<String>; 2] = [vec![], vec![]];
 
         for i in 0..2 {
             if let Some(old_read) = &self.reads[i] {
@@ -112,21 +116,22 @@ impl UnifiedRecord {
                     stats.bases_pre_trim += results.bases_pre_trim;
                 }
 
-                let paired_read_dropped = self.reads[1 - i].is_some()
-                    && alignment_results.per_read[1 - i].as_ref().unwrap().dropped;
-
-                reads[i] = Some(old_read.finalize(
-                    &results.read_range,
-                    &results.removal_tags,
-                    umi_tags,
-                    paired_read_dropped,
-                ));
+                removal_tags[i] = results.removal_tags.clone();
+                reads[i] = Some(old_read.trim(&results.read_range));
             }
         }
+
+        let paired_read_dropped = self.is_paired() && (
+            alignment_results.per_read[0].as_ref().map_or(false, |r| r.dropped) ||
+            alignment_results.per_read[1].as_ref().map_or(false, |r| r.dropped)
+        );
         
         let result = AnnotatedRecord {
             record: UnifiedRecord { reads, barcode_read: None },
             barcode_id: alignment_results.barcode_tag,
+            removal_tags,
+            umi_tags: umi_tags.clone(),
+            paired_read_dropped,
         };
 
         (result, stats)

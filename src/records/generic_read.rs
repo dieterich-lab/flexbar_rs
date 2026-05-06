@@ -7,11 +7,5 @@ pub trait GenericRawRead {
     fn id(&self) -> &str;
     fn set_seq(&self, seq: &[u8]) -> Self;
 
-    fn finalize(
-        &self,
-        range: &Range<usize>,
-        removal_tags: &Vec<String>,
-        umi_tags: &Vec<String>,
-        paired_read_dropped: bool,
-    ) -> Self;
+    fn trim(&self, range: &Range<usize>) -> Self;
 }

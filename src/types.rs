@@ -249,26 +249,4 @@ impl FromStr for AdapterTrimmed {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
-pub struct BamTag {
-    pub bytes: [u8; 2],
-}
-
-impl BamTag {
-    pub fn new(tag: &str) -> Self {
-        let as_bytes = tag.as_bytes();
-        if as_bytes.len() != 2 {
-            panic!("Invalid BAM tag (2 chars required): {}", tag);
-        }
-        let inner: [u8; 2] = [as_bytes[0], as_bytes[1]];
-        BamTag { bytes: inner }
-    }
-}
-
-impl FromStr for BamTag {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        Ok(BamTag::new(s))
-    }
-}
 

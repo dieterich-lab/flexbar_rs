@@ -42,13 +42,7 @@ impl GenericRawRead for BamRecordWrapper {
         Self::new(new_record)
     }
 
-    fn finalize(
-        &self,
-        range: &Range<usize>,
-        removal_tags: &Vec<String>,
-        umi_tags: &Vec<String>,
-        paired_read_dropped: bool,
-    ) -> Self {
+    fn trim(&self, range: &Range<usize>) -> Self {
         let mut new_record = Record::new();
         let seq = self.record.seq().as_bytes();
         let qual = self.record.qual();
@@ -60,27 +54,6 @@ impl GenericRawRead for BamRecordWrapper {
 
         new_record.set(self.record.qname(), Some(&new_cigar), new_seq, new_qual);
         new_record.set_pos(new_pos);
-
-        // Copy other fields if necessary, or let adapt_cigar handle it.
-        // For now we set basic fields.
-
-        let mut _desc_parts: Vec<String> = Vec::new();
-        for tag in removal_tags {
-            _desc_parts.push(tag.clone());
-        }
-        for tag in umi_tags {
-            _desc_parts.push(tag.clone());
-        }
-        if paired_read_dropped {
-            _desc_parts.push("single".to_string());
-        }
-
-        // Description packing into BAM aux is now handled by the writer backend if needed.
-        // Previously this was:
-        // if !_desc_parts.is_empty() {
-        //     let desc = _desc_parts.join("_");
-        //     new_record.push_aux(bam_desc_tag.as_bytes().try_into().unwrap(), Aux::String(&desc)).unwrap();
-        // }
 
         Self::new(new_record)
     }

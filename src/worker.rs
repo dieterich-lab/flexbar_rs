@@ -195,15 +195,6 @@ mod tests {
         worker.process_record(&record, &mut state)
     }
 
-    pub fn assert_desc(read: &UnifiedRead, expected: Option<&str>) {
-        let actual = match read {
-            UnifiedRead::Fasta(r) => r.desc(),
-            UnifiedRead::Fastq(r) => r.desc(),
-            UnifiedRead::Bam(_) => None, // Bam doesn't have Fasta/Fastq-style description
-        };
-        assert_eq!(actual, expected);
-    }
-
     // Copied and adapted from src/workers/paired.rs
     #[test]
     fn test_barcode_splitting_better_match_first_paired() {
@@ -392,7 +383,7 @@ mod tests {
         let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_desc(&processed, Some("Flexbar_removal"));
+        assert_eq!(result.removal_tags[0].join("_"), "Flexbar_removal");
     }
 
     #[test]
@@ -406,7 +397,7 @@ mod tests {
         let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_desc(&processed, Some("Flexbar_removal_ad1"));
+        assert_eq!(result.removal_tags[0].join("_"), "Flexbar_removal_ad1");
     }
 
     #[test]
@@ -424,7 +415,7 @@ mod tests {
         let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_desc(&processed, Some("Flexbar_removal_Flexbar_removal_ad1"));
+        assert_eq!(result.removal_tags[0].join("_"), "Flexbar_removal_Flexbar_removal_ad1");
     }
 
     #[test]
@@ -467,7 +458,7 @@ mod tests {
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(result.barcode_id, Some("barcode_bc1".to_string()));
         assert_eq!(processed.id(), "read1");
-        assert_desc(&processed, Some("AA_TT"));
+        assert_eq!(result.umi_tags.join("_"), "AA_TT");
         assert_eq!(processed.seq(), b"ACGT");
     }
 
@@ -482,7 +473,7 @@ mod tests {
         let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
-        assert_desc(&processed, Some("CCCC"));
+        assert_eq!(result.umi_tags.join("_"), "CCCC");
         assert_eq!(processed.seq(), b"ACTGT");
     }
 

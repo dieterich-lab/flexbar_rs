@@ -2,8 +2,8 @@ use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use log::trace;
-use crate::records::unified::{UnifiedRecord, UnifiedRead, GenericRawRead};
-use crate::types::{BamTag, FileFormat};
+use crate::records::unified::{AnnotatedRecord, UnifiedRecord, UnifiedRead, GenericRawRead};
+use crate::types::FileFormat;
 use crate::utils::io::{OutputType, WriterFactory};
 use crate::writers::generic::{GenericWriterBackend, DEFAULT_TAG};
 use crate::writers::fasta::FastaBackend;
@@ -18,19 +18,19 @@ pub enum WriterBackend<'a> {
 }
 
 impl<'a> WriterBackend<'a> {
-    fn write_read(&mut self, record: &UnifiedRead) -> io::Result<()> {
+    fn write_read(&mut self, record: &AnnotatedRecord, read_index: usize) -> io::Result<()> {
         match self {
-            WriterBackend::Fasta(b) => b.write_read(record),
-            WriterBackend::Fastq(b) => b.write_read(record),
-            WriterBackend::Bam(b) => b.write_read(record),
+            WriterBackend::Fasta(b) => b.write_read(record, read_index),
+            WriterBackend::Fastq(b) => b.write_read(record, read_index),
+            WriterBackend::Bam(b) => b.write_read(record, read_index),
         }
     }
 
-    fn new(format: FileFormat, writer: Box<dyn Write + Send + 'a>, description: &str, header: &SequenceHeader, bam_desc_tag: BamTag) -> io::Result<Self> {
+    fn new(format: FileFormat, writer: Box<dyn Write + Send + 'a>, description: &str, header: &SequenceHeader) -> io::Result<Self> {
         match format {
-            FileFormat::Fasta => Ok(WriterBackend::Fasta(FastaBackend::new(writer, bam_desc_tag))),
-            FileFormat::Fastq => Ok(WriterBackend::Fastq(FastqBackend::new(writer, bam_desc_tag))),
-            FileFormat::Bam => Ok(WriterBackend::Bam(BamWriterBackend::new(description, header, bam_desc_tag)?)),
+            FileFormat::Fasta => Ok(WriterBackend::Fasta(FastaBackend::new(writer))),
+            FileFormat::Fastq => Ok(WriterBackend::Fastq(FastqBackend::new(writer))),
+            FileFormat::Bam => Ok(WriterBackend::Bam(BamWriterBackend::new(description, header)?)),
         }
     }
 }
@@ -43,11 +43,10 @@ pub struct SequenceWriter<'a> {
     statistics: crate::statistics::WriterStatistics,
     track_length_dist: bool,
     backend_descriptions: HashMap<(String, Option<usize>), String>,
-    bam_desc_tag: BamTag,
 }
 
 impl<'a> SequenceWriter<'a> {
-    pub fn new(format: FileFormat, factory: WriterFactory<'a>, track_length_dist: bool, header: SequenceHeader, bam_desc_tag: BamTag) -> Self {
+    pub fn new(format: FileFormat, factory: WriterFactory<'a>, track_length_dist: bool, header: SequenceHeader) -> Self {
         Self {
             format,
             factory,
@@ -56,7 +55,6 @@ impl<'a> SequenceWriter<'a> {
             statistics: crate::statistics::WriterStatistics::default(),
             track_length_dist,
             backend_descriptions: HashMap::new(),
-            bam_desc_tag,
         }
     }
 
@@ -66,20 +64,21 @@ impl<'a> SequenceWriter<'a> {
         if !self.backends_by_tag.contains_key(&key) {
             let actual_tag = if key.0 == DEFAULT_TAG { None } else { Some(key.0.as_str()) };
             let (writer, description) = (self.factory)(actual_tag, key.1, self.format, OutputType::Reads)?;
-            self.backends_by_tag.insert(key.clone(), WriterBackend::new(self.format, writer, &description, &self.header, self.bam_desc_tag.clone())?);
+            self.backends_by_tag.insert(key.clone(), WriterBackend::new(self.format, writer, &description, &self.header)?);
             self.backend_descriptions.insert(key.clone(), description);
         }
         Ok(self.backends_by_tag.get_mut(&key).unwrap())
     }
 
-    pub fn write(&mut self, record: &UnifiedRecord, tag: Option<&str>) -> io::Result<()> {
+    pub fn write(&mut self, annotated: &AnnotatedRecord, tag: Option<&str>) -> io::Result<()> {
+        let record = &annotated.record;
         let paired = record.is_paired();
         for i in 0..2 {
             if let Some(Some(read)) = record.reads.get(i) {
                 if read.seq().is_empty() { continue; }
                 let read_index = if paired { Some(i) } else { None };
                 let backend = self.get_backend(tag, read_index)?;
-                backend.write_read(&read)?;
+                backend.write_read(annotated, i)?;
                 self.update_statistics(read, tag, read_index);
             }
         }
@@ -190,7 +189,17 @@ mod tests {
             Ok((writer, format!("memory:{}", buffer_key)))
         });
 
-        SequenceWriter::new(format, factory, track_length_dist, SequenceHeader::Default, BamTag::new("XD"))
+        SequenceWriter::new(format, factory, track_length_dist, SequenceHeader::Default)
+    }
+
+    fn wrap(rec: UnifiedRecord) -> AnnotatedRecord {
+        AnnotatedRecord {
+            record: rec,
+            barcode_id: None,
+            removal_tags: [vec![], vec![]],
+            umi_tags: vec![],
+            paired_read_dropped: false,
+        }
     }
 
     #[test]
@@ -201,7 +210,7 @@ mod tests {
             let record = UnifiedRecord::single(
                 UnifiedRead::new_fastq("id1", None, b"ACGT", b"!!!!")
             );
-            writer.write(&record, None).unwrap();
+            writer.write(&wrap(record), None).unwrap();
             
             let stats = writer.statistics();
             assert_eq!(stats.total_records_written, 1);
@@ -218,19 +227,19 @@ mod tests {
                 "id1", None, b"ACGT", b"!!!!"
             ));
             
-            writer.write(&record, Some("barcode_bc1")).unwrap();
+            writer.write(&wrap(record.clone()), Some("barcode_bc1")).unwrap();
             
             let stats = writer.statistics();
             assert_eq!(stats.total_records_written, 1);
             assert_eq!(stats.barcode_counts.get("bc1"), Some(&1));
             
-            writer.write(&record, Some("barcode_bc1")).unwrap();
+            writer.write(&wrap(record.clone()), Some("barcode_bc1")).unwrap();
             assert_eq!(writer.statistics().barcode_counts.get("bc1"), Some(&2));
             
-            writer.write(&record, Some("barcode_bc2")).unwrap();
+            writer.write(&wrap(record.clone()), Some("barcode_bc2")).unwrap();
             assert_eq!(writer.statistics().barcode_counts.get("bc2"), Some(&1));
 
-            writer.write(&record, None).unwrap();
+            writer.write(&wrap(record.clone()), None).unwrap();
             assert_eq!(writer.statistics().total_records_written, 4);
             assert_eq!(writer.statistics().barcode_counts.len(), 2);
         }
@@ -244,7 +253,7 @@ mod tests {
             let record = UnifiedRecord::single(UnifiedRead::new_fasta(
                 "id1", Some("desc1"), b"ACGT"
             ));
-            writer.write(&record, None).expect("Failed to write record");
+            writer.write(&wrap(record), None).expect("Failed to write record");
         }
         
         let bufs = buffers.lock().unwrap();
@@ -262,7 +271,7 @@ mod tests {
             let record = UnifiedRecord::single(UnifiedRead::new_fasta(
                 "id1", Some("desc1"), b"ACGT"
             ));
-            writer.write(&record, None).unwrap();
+            writer.write(&wrap(record), None).unwrap();
         }
         
         let bufs = buffers.lock().unwrap();
@@ -273,7 +282,7 @@ mod tests {
     }
 
     #[test]
-    fn test_bam_to_fastq_description_extraction() {
+    fn test_bam_to_fastq_extraction() {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
         {
             let mut writer = get_test_writer(FileFormat::Fastq, buffers.clone(), false);
@@ -281,15 +290,14 @@ mod tests {
             use rust_htslib::bam::record::{Record, Aux};
             let mut bam_rec = Record::new();
             bam_rec.set(b"read1", None, b"ACGT", b"!!!!");
-            bam_rec.push_aux(b"XD", Aux::String("packed_desc")).unwrap();
+            bam_rec.push_aux(b"CO", Aux::String("packed_desc")).unwrap();
             
             let record = UnifiedRecord::single(UnifiedRead::from_bam(bam_rec));
-            writer.write(&record, None).unwrap();
+            writer.write(&wrap(record), None).unwrap();
         }
         
         let bufs = buffers.lock().unwrap();
         let result = String::from_utf8(bufs.get(DEFAULT_TAG).unwrap().clone()).expect("Not valid UTF-8");
-        assert!(result.contains("@read1 packed_desc"));
         assert!(result.contains("ACGT"));
         assert!(result.contains("!!!!"));
     }

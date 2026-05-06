@@ -1,7 +1,7 @@
 use std::io;
-use crate::records::unified::{UnifiedRead};
+use crate::records::unified::AnnotatedRecord;
 pub trait GenericWriterBackend<'a>: Send {
-    fn write_read(&mut self, record: &UnifiedRead) -> io::Result<()>;
+    fn write_read(&mut self, record: &AnnotatedRecord, read_index: usize) -> io::Result<()>;
 }
 
 

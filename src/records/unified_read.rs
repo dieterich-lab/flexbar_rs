@@ -74,17 +74,14 @@ impl GenericRawRead for UnifiedRead {
     }
 
     #[inline(always)]
-    fn finalize(
+    fn trim(
         &self,
         range: &Range<usize>,
-        removal_tags: &Vec<String>,
-        umi_tags: &Vec<String>,
-        paired_read_dropped: bool,
     ) -> Self {
         match self {
-            UnifiedRead::Fasta(r) => UnifiedRead::Fasta(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
-            UnifiedRead::Fastq(r) => UnifiedRead::Fastq(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
-            UnifiedRead::Bam(r) => UnifiedRead::Bam(r.finalize(range, removal_tags, umi_tags, paired_read_dropped)),
+            UnifiedRead::Fasta(r) => UnifiedRead::Fasta(r.trim(range)),
+            UnifiedRead::Fastq(r) => UnifiedRead::Fastq(r.trim(range)),
+            UnifiedRead::Bam(r) => UnifiedRead::Bam(r.trim(range)),
         }
     }
 }

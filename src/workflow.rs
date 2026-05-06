@@ -73,7 +73,8 @@ fn spawn_writer_thread(
         while let Ok(batch_out) = batch_out_rx.recv() {
             worker_stats += batch_out.stats;
             for rec in batch_out.records {
-                writer.write(&rec.0, rec.1.as_deref())
+                let tag = rec.barcode_id.as_deref();
+                writer.write(&rec, tag)
                     .expect("Failed to write record");
             }
         }
@@ -101,7 +102,7 @@ fn process_batch_orchestrator(
 
         for (r, s) in batch_out {
             stats += s;
-            records.push((r.record, r.barcode_id));
+            records.push(r);
         }
 
         if batch_out_tx.send(ProcessedBatch { records, stats }).is_err() {
@@ -111,7 +112,7 @@ fn process_batch_orchestrator(
 }
 
 struct ProcessedBatch {
-    records: Vec<(UnifiedRecord, Option<String>)>,
+    records: Vec<AnnotatedRecord>,
     stats: WorkerStatistics,
 }
 
@@ -137,7 +138,7 @@ fn get_writer<Reader: BufRead + Send>(args: &Args, output_prefix: &str, compress
         Some(x) => x,
         None => if reader.format() == FileFormat::Fasta {FileFormat::Fastq} else {reader.format()},
     };
-    SequenceWriter::new(format, factory, args.length_dist, header, args.bam_desc_tag.clone())
+    SequenceWriter::new(format, factory, args.length_dist, header)
 }
 
 thread_local! {
