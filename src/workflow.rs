@@ -8,7 +8,7 @@ use crate::statistics::{Statistics, WorkerStatistics};
 use log::debug;
 use crate::context;
 use crate::records::header::SequenceHeader;
-use crate::records::unified::FinalRecord;
+use crate::records::unified::AnnotatedRecord;
 use crate::worker::{Worker, WorkerState};
 use crossbeam_channel::{bounded, Receiver, Sender};
 use std::thread;
@@ -91,7 +91,7 @@ fn process_batch_orchestrator(
         batch_num += 1;
         debug!("Processing batch {}", batch_num);
 
-        let batch_out: Vec<FinalRecord> = batch_in
+        let batch_out: Vec<(AnnotatedRecord, WorkerStatistics)> = batch_in
             .into_par_iter()
             .map(|rec| process_record(&rec, worker))
             .collect();
@@ -99,9 +99,9 @@ fn process_batch_orchestrator(
         let mut stats = WorkerStatistics::default();
         let mut records = Vec::with_capacity(batch_out.len());
 
-        for res in batch_out {
-            stats += res.stats;
-            records.push((res.record, res.barcode_id));
+        for (r, s) in batch_out {
+            stats += s;
+            records.push((r.record, r.barcode_id));
         }
 
         if batch_out_tx.send(ProcessedBatch { records, stats }).is_err() {
@@ -146,7 +146,7 @@ thread_local! {
 
 fn process_record(
     record: &UnifiedRecord, worker: &Worker
-) -> FinalRecord {
+) -> (AnnotatedRecord, WorkerStatistics) {
     WORKER_STATE.with(|state| {
         let mut state = state.borrow_mut();
         if state.is_none() {

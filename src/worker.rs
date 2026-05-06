@@ -1,8 +1,9 @@
 use log::debug;
 use crate::args::Args;
 use crate::context::Context;
-use crate::records::unified::{UnifiedRecord, FinalRecord};
+use crate::records::unified::{UnifiedRecord, AnnotatedRecord};
 use crate::records::generic_read::GenericRawRead;
+use crate::statistics::WorkerStatistics;
 use crate::steps::generic::{GenericStep, RecordInTransformation};
 use crate::steps::{adapter_remover::AdapterRemoverStep, barcode_splitter::BarcodeSplitter, filter_length::FilterLength, iupac_converter::IupacConverter, post_trim::PostTrim, pre_trim::PreTrim, quality_trim::QualityTrim, uncalled_filter::UncalledFilter};
 use crate::steps::pre_trim::PreTrimState;
@@ -116,7 +117,9 @@ impl Worker {
         }
     }
 
-    pub fn process_record(&self, record: &UnifiedRecord, state: &mut WorkerState) -> FinalRecord {
+    pub fn process_record(&self, record: &UnifiedRecord, state: &mut WorkerState)
+        -> (AnnotatedRecord, WorkerStatistics)
+    {
         let mut rec_in = RecordInTransformation::from_dto(record.clone());
         let mut total_bases = 0;
         for read in &record.reads {
@@ -152,7 +155,7 @@ impl Worker {
         self.finalize(rec_in)
     }
 
-    fn finalize(&self, rec: RecordInTransformation) -> FinalRecord {
+    fn finalize(&self, rec: RecordInTransformation) -> (AnnotatedRecord, WorkerStatistics) {
         let umi_tags = if rec.alignment_results.per_read[0].is_some() && !rec.alignment_results.per_read[0].as_ref().unwrap().umi_tags.is_empty() {
             rec.alignment_results.per_read[0].as_ref().unwrap().umi_tags.clone()
         } else if rec.alignment_results.per_read[1].is_some() {
@@ -175,14 +178,14 @@ mod tests {
     use crate::records::generic_read::GenericRawRead;
     use crate::types::{FileFormat, TrimEnd};
 
-    fn process_record_unified(args: &Args, record: &UnifiedRecord) -> FinalRecord {
+    fn process_record_unified(args: &Args, record: &UnifiedRecord) -> (AnnotatedRecord, WorkerStatistics) {
         let context = Context::new(args);
         let worker = Worker::new(args, &context);
         let mut state = worker.create_state();
         worker.process_record(record, &mut state)
     }
 
-    fn process_record_paired_helper(args: Args, record: &UnifiedRecord, barcodes: Vec<SequenceWithId>, barcodes2: Vec<SequenceWithId>) -> FinalRecord {
+    fn process_record_paired_helper(args: Args, record: &UnifiedRecord, barcodes: Vec<SequenceWithId>, barcodes2: Vec<SequenceWithId>) -> (AnnotatedRecord, WorkerStatistics) {
         let mut context = Context::empty();
         context.barcodes = barcodes;
         context.barcodes2 = barcodes2;
@@ -210,7 +213,7 @@ mod tests {
         let r1 = UnifiedRead::new_fastq("R1", None, b"AAAAAGGGGG", b"IIIIIIIIII");
         let r2 = UnifiedRead::new_fastq("R1", None, b"TTTTTGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
-        let res = process_record_paired_helper(args, &rec, barcodes, barcodes2);
+        let (res, _) = process_record_paired_helper(args, &rec, barcodes, barcodes2);
         assert_eq!(res.barcode_id, Some("barcode_B1".to_string()));
         let records = match res.record.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
         assert_eq!(records[0].seq(), b"GGGGG");
@@ -225,7 +228,7 @@ mod tests {
         let r1 = UnifiedRead::new_fastq("R1", None, b"TTTTTGGGGG", b"IIIIIIIIII");
         let r2 = UnifiedRead::new_fastq("R1", None, b"CCCCCGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
-        let res = process_record_paired_helper(args, &rec, barcodes, barcodes2);
+        let (res, _) = process_record_paired_helper(args, &rec, barcodes, barcodes2);
         assert_eq!(res.barcode_id, Some("barcode_B2".to_string()));
         let records = match res.record.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
         assert_eq!(records[0].seq(), b"TTTTTGGGGG");
@@ -240,7 +243,7 @@ mod tests {
         let r1 = UnifiedRead::new_fastq("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
         let r2 = UnifiedRead::new_fastq("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
-        let res = process_record_paired_helper(args, &rec, barcodes, barcodes2);
+        let (res, _) = process_record_paired_helper(args, &rec, barcodes, barcodes2);
         assert_eq!(res.barcode_id, Some("barcode_unassigned".to_string()));
         assert!(res.record.reads[0].is_some());
         assert!(res.record.reads[1].is_some());
@@ -254,7 +257,7 @@ mod tests {
         let r1 = UnifiedRead::new_fastq("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
         let r2 = UnifiedRead::new_fastq("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
-        let res = process_record_paired_helper(args, &rec, barcodes, barcodes2);
+        let (res, _) = process_record_paired_helper(args, &rec, barcodes, barcodes2);
         assert_eq!(res.barcode_id, None);
         assert!(res.record.reads[0].is_none());
         assert!(res.record.reads[1].is_none());
@@ -270,7 +273,7 @@ mod tests {
         let r1 = UnifiedRead::new_fastq("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII");
         let r2 = UnifiedRead::new_fastq("R1", None, b"0123456789", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
-        let res = process_record_paired_helper(args, &rec, barcodes, vec![]);
+        let (res, _) = process_record_paired_helper(args, &rec, barcodes, vec![]);
         assert!(res.record.reads[0].is_none());
         assert!(res.record.reads[1].is_none());
     }
@@ -286,7 +289,7 @@ mod tests {
         let r1 = UnifiedRead::new_fastq("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII");
         let r2 = UnifiedRead::new_fastq("R1", None, b"0123456789", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
-        let res = process_record_paired_helper(args, &rec, barcodes, vec![]);
+        let (res, _) = process_record_paired_helper(args, &rec, barcodes, vec![]);
         assert!(res.record.reads[0].is_none());
         if let Some(r2) = res.record.reads[1].as_ref() {
             assert_eq!(r2.seq(), b"0123456789");
@@ -306,7 +309,7 @@ mod tests {
         let r1 = UnifiedRead::new_fastq("R1", None, b"AAAAA987654321", b"IIIIIIIIIIIIII");
         let r2 = UnifiedRead::new_fastq("R1", None, b"0123456789", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
-        let res = process_record_paired_helper(args, &rec, barcodes, vec![]);
+        let (res, _) = process_record_paired_helper(args, &rec, barcodes, vec![]);
         let records = match res.record.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
         assert_eq!(records[0].seq(), b"N");
         assert_eq!(records[1].seq(), b"0123456789");
@@ -326,7 +329,7 @@ mod tests {
         context.run_type = crate::types::RunType::Paired;
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
-        let res = worker.process_record(&rec, &mut state);
+        let (res, _) = worker.process_record(&rec, &mut state);
         let records = match res.record.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
         assert_eq!(records[0].seq(), b"5555544444");
         assert_eq!(records[1].seq(), b"55555");
@@ -337,7 +340,7 @@ mod tests {
     fn test_process_right_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "RIGHT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
         let record = UnifiedRead::new_fastq("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let result = process_record_unified(&args, &UnifiedRecord::single(record));
+        let (result, _) = process_record_unified(&args, &UnifiedRecord::single(record));
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), Some(&b"IIIII"[..]));
@@ -347,7 +350,7 @@ mod tests {
     fn test_process_left_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--adapter-seq", "AGATCGGAAGAG", "--adapter-trim-end", "LEFT", "--adapter-min-overlap", "5", "--min-read-length", "0"]);
         let record = UnifiedRead::new_fastq("read1", None, b"AGATCGGAAGAGACTGT", b"IIIIIIIIIIIIIIIII");
-        let result = process_record_unified(&args, &UnifiedRecord::single(record));
+        let (result, _) = process_record_unified(&args, &UnifiedRecord::single(record));
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), Some(&b"IIIII"[..]));
@@ -361,7 +364,7 @@ mod tests {
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
         let record = UnifiedRead::new_fastq("read1", None, b"GGGGACGT", b"IIIIIIII");
-        let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
+        let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(result.barcode_id, Some("barcode_bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
@@ -371,11 +374,11 @@ mod tests {
     fn test_max_uncalled_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--max-uncalled", "2"]);
         let record = UnifiedRead::new_fastq("read1", None, b"ACNNGT", b"IIIIII");
-        let result = process_record_unified(&args, &UnifiedRecord::single(record));
-        assert_eq!(result.stats.total_discarded_uncalled, 0);
+        let (_, stats) = process_record_unified(&args, &UnifiedRecord::single(record));
+        assert_eq!(stats.total_discarded_uncalled, 0);
         let record2 = UnifiedRead::new_fastq("read2", None, b"ACNNGN", b"IIIIII");
-        let result2 = process_record_unified(&args, &UnifiedRecord::single(record2));
-        assert_eq!(result2.stats.total_discarded_uncalled, 1);
+        let (_, stats2) = process_record_unified(&args, &UnifiedRecord::single(record2));
+        assert_eq!(stats2.total_discarded_uncalled, 1);
     }
 
     #[test]
@@ -386,7 +389,7 @@ mod tests {
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
         let record = UnifiedRead::new_fastq("read1", None, b"GGGGACGT", b"IIIIIIII");
-        let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
+        let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
         assert_desc(&processed, Some("Flexbar_removal"));
@@ -400,7 +403,7 @@ mod tests {
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
         let record = UnifiedRead::new_fastq("read1", None, b"ACTGTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIII");
-        let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
+        let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
         assert_desc(&processed, Some("Flexbar_removal_ad1"));
@@ -418,7 +421,7 @@ mod tests {
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
         let record = UnifiedRead::new_fastq("read1", None, b"GGGGACGTCTAGATCGGAAGAG", b"IIIIIIIIIIIIIIIIIIIIII");
-        let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
+        let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
         assert_desc(&processed, Some("Flexbar_removal_Flexbar_removal_ad1"));
@@ -428,7 +431,7 @@ mod tests {
     fn test_quality_trim_tail_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "TAIL", "--qtrim-threshold", "20", "--min-read-length", "0"]);
         let record = UnifiedRead::new_fastq("read1", None, b"ACTGTACGT", b"IIIII4444");
-        let result = process_record_unified(&args, &UnifiedRecord::single(record));
+        let (result, _) = process_record_unified(&args, &UnifiedRecord::single(record));
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq(), b"ACTGT");
         assert_eq!(processed.qual(), Some(&b"IIIII"[..]));
@@ -438,7 +441,7 @@ mod tests {
     fn test_quality_trim_win_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "WIN", "--qtrim-threshold", "20", "--qtrim-win-size", "5", "--min-read-length", "0"]);
         let record = UnifiedRead::new_fastq("read1", None, b"ACTGTACGTACGT", b"IIIII44444III");
-        let result = process_record_unified(&args, &UnifiedRecord::single(record));
+        let (result, _) = process_record_unified(&args, &UnifiedRecord::single(record));
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq(), b"ACTGT");
     }
@@ -447,7 +450,7 @@ mod tests {
     fn test_quality_trim_bwa_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--qtrim", "BWA", "--qtrim-threshold", "20", "--min-read-length", "0"]);
         let record = UnifiedRead::new_fastq("read1", None, b"ACTGTACGT", b"IIIII4444");
-        let result = process_record_unified(&args, &UnifiedRecord::single(record));
+        let (result, _) = process_record_unified(&args, &UnifiedRecord::single(record));
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq(), b"ACTGT");
     }
@@ -460,7 +463,7 @@ mod tests {
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
         let record = UnifiedRead::new_fastq("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
-        let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
+        let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(result.barcode_id, Some("barcode_bc1".to_string()));
         assert_eq!(processed.id(), "read1");
@@ -476,7 +479,7 @@ mod tests {
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
         let record = UnifiedRead::new_fastq("read1", None, b"ACTGTAGATCCCC", b"IIIIIIIIIIIII");
-        let result = worker.process_record(&UnifiedRecord::single(record), &mut state);
+        let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.id(), "read1");
         assert_desc(&processed, Some("CCCC"));
@@ -487,13 +490,13 @@ mod tests {
     fn test_min_read_length_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--min-read-length", "10"]);
         let record = UnifiedRead::new_fastq("read1", None, b"0123456789", b"IIIIIIIIII");
-        let result = process_record_unified(&args, &UnifiedRecord::single(record));
-        assert_eq!(result.stats.total_bases_read, 10);
+        let (_, stats) = process_record_unified(&args, &UnifiedRecord::single(record));
+        assert_eq!(stats.total_bases_read, 10);
         let record2 = UnifiedRead::new_fastq("read2", None, b"012345678", b"IIIIIIIII");
-        let result2 = process_record_unified(&args, &UnifiedRecord::single(record2));
+        let (result2, stats2) = process_record_unified(&args, &UnifiedRecord::single(record2));
         assert!(result2.record.reads[0].is_none());
         assert!(result2.record.reads[1].is_none());
-        assert_eq!(result2.stats.total_bases_read, 9);
+        assert_eq!(stats2.total_bases_read, 9);
     }
 
     #[test]
@@ -503,29 +506,29 @@ mod tests {
         let worker = Worker::new(&args, &context);
         let mut state = worker.create_state();
         let record = UnifiedRead::new_fastq("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
-        let res = worker.process_record(&UnifiedRecord::single(record), &mut state);
-        assert_eq!(res.stats.bases_pre_trim, 8);
-        assert_eq!(res.stats.total_bases_read, 15);
+        let (_, stats) = worker.process_record(&UnifiedRecord::single(record), &mut state);
+        assert_eq!(stats.bases_pre_trim, 8);
+        assert_eq!(stats.total_bases_read, 15);
     }
 
     #[test]
     fn test_post_trim_single() {
         let args = Args::parse_from(&["flexbar_rs", "--reads", "test.fq", "--post-trim-length", "10", "--min-read-length", "0"]);
         let record = UnifiedRead::new_fastq("read1", None, b"0123456789ABCDE", b"IIIIIIIIIIIIIII");
-        let result = process_record_unified(&args, &UnifiedRecord::single(record));
+        let (result, stats) = process_record_unified(&args, &UnifiedRecord::single(record));
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed.seq().len(), 10);
         assert_eq!(processed.seq(), b"0123456789");
-        assert_eq!(result.stats.bases_post_trim, 5);
-        assert_eq!(result.stats.total_bases_read, 15);
+        assert_eq!(stats.bases_post_trim, 5);
+        assert_eq!(stats.total_bases_read, 15);
         let record2 = UnifiedRead::new_fastq("read2", None, b"01234567", b"IIIIIIII");
-        let result2 = process_record_unified(&args, &UnifiedRecord::single(record2));
+        let (result2, stats2) = process_record_unified(&args, &UnifiedRecord::single(record2));
         let processed2 = match result2.record.reads { [Some(r), None] => r, _ => unreachable!() };
         assert_eq!(processed2.seq().len(), 8);
-        assert_eq!(result2.stats.bases_post_trim, 0);
+        assert_eq!(stats2.bases_post_trim, 0);
     }
 
-    fn process_with_reference_setup(record: &UnifiedRecord) -> FinalRecord {
+    fn process_with_reference_setup(record: &UnifiedRecord) -> (AnnotatedRecord, WorkerStatistics) {
         let args = Args::parse_from(&[
             "flexbar_rs",
             "--removal-tags",
@@ -577,14 +580,13 @@ mod tests {
             b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFF:FFFFFFFF,FFFFFFFFFF",
         );
         let rec = UnifiedRecord::paired(r1, r2);
-        let res = process_with_reference_setup(&rec);
+        let (res, stats) = process_with_reference_setup(&rec);
         assert_eq!(res.barcode_id, Some("barcode_SmartSeqUMI".to_string()));
         let reads = match res.record.reads {
             [Some(x1), Some(x2)] => [x1, x2],
             _ => panic!("expected paired")
         };
         assert_eq!(reads[0].seq(), b"GGGCTAGACTAGGCTGTCTTTGAATAACACTTAAAAATACATTAAAAGGAAAACCCAACTAATAACCTTGTTATTCTCTTCC");
-        let stats = res.stats;
         assert_eq!(stats.total_adapters_removed, 0, "Expected no adapters to be found");
     }
 
@@ -603,7 +605,7 @@ mod tests {
             b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FF:FFFFF::,,,FFFFFFFFFF!",
         );
         let rec = UnifiedRecord::paired(r1, r2);
-        let res = process_with_reference_setup(&rec);
+        let (res, _) = process_with_reference_setup(&rec);
         assert!(res.record.reads[0].is_none(), "Record should be discarded");
         assert!(res.record.reads[1].is_none(), "Record should be discarded");
     }
@@ -623,7 +625,7 @@ mod tests {
             b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF:,FFFFFFFF,:,,,FF:",
         );
         let rec = UnifiedRecord::paired(r1, r2);
-        let res = process_with_reference_setup(&rec);
+        let (res, _) = process_with_reference_setup(&rec);
         assert!(res.record.reads[0].is_none(), "Record should be discarded");
         assert!(res.record.reads[1].is_none(), "Record should be discarded");
     }
@@ -636,7 +638,7 @@ mod tests {
             b"ATTGCGCAATGCTTGGAAAAAAAAAAAAAAAAAAAAAAAAAAAAATCGCTGTCTCTTATACACAACCCGAGCCCACGAGAATGCCGGTCAGATCTCGTATG",
             b"FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF,,,,,,,,,,FFF:F,F,F,::F,F,FF:FF,F,F,F,FF:F:,:,FF,,,:,,F:",
         );
-        let res = process_with_reference_setup(&UnifiedRecord::single(r));
+        let (res, _) = process_with_reference_setup(&UnifiedRecord::single(r));
         let reads = match res.record.reads {
             [Some(r1), None] => [r1],
             _ => panic!()

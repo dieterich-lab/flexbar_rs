@@ -10,10 +10,9 @@ pub struct UnifiedRecord {
     pub barcode_read: Option<UnifiedRead>
 }
 
-pub struct FinalRecord {
+pub struct AnnotatedRecord {
     pub record: UnifiedRecord,
     pub barcode_id: Option<String>,
-    pub stats: WorkerStatistics,
 }
 
 macro_rules! implement_by_read_index {
@@ -94,7 +93,7 @@ impl UnifiedRecord {
         alignment_results: AlignmentResults,
         umi_tags: &Vec<String>,
         mut stats: WorkerStatistics,
-    ) -> FinalRecord {
+    ) -> (AnnotatedRecord, WorkerStatistics) {
         let mut reads: [Option<UnifiedRead>; 2] = [None, None];
 
         for i in 0..2 {
@@ -124,11 +123,12 @@ impl UnifiedRecord {
                 ));
             }
         }
-
-        FinalRecord {
+        
+        let result = AnnotatedRecord {
             record: UnifiedRecord { reads, barcode_read: None },
             barcode_id: alignment_results.barcode_tag,
-            stats,
-        }
+        };
+
+        (result, stats)
     }
 }
