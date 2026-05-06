@@ -94,7 +94,6 @@ impl UnifiedRecord {
         alignment_results: AlignmentResults,
         umi_tags: &Vec<String>,
         mut stats: WorkerStatistics,
-        bam_desc_tag: &str,
     ) -> FinalRecord {
         let mut reads: [Option<UnifiedRead>; 2] = [None, None];
 
@@ -122,7 +121,6 @@ impl UnifiedRecord {
                     &results.removal_tags,
                     umi_tags,
                     paired_read_dropped,
-                    bam_desc_tag,
                 ));
             }
         }

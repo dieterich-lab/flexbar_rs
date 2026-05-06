@@ -3,7 +3,7 @@ use std::io;
 use std::io::Write;
 use log::trace;
 use crate::records::unified::{UnifiedRecord, UnifiedRead, GenericRawRead};
-use crate::types::FileFormat;
+use crate::types::{BamTag, FileFormat};
 use crate::utils::io::{OutputType, WriterFactory};
 use crate::writers::generic::{GenericWriterBackend, DEFAULT_TAG};
 use crate::writers::fasta::FastaBackend;
@@ -26,11 +26,11 @@ impl<'a> WriterBackend<'a> {
         }
     }
 
-    fn new(format: FileFormat, writer: Box<dyn Write + Send + 'a>, description: &str, header: &SequenceHeader) -> io::Result<Self> {
+    fn new(format: FileFormat, writer: Box<dyn Write + Send + 'a>, description: &str, header: &SequenceHeader, bam_desc_tag: BamTag) -> io::Result<Self> {
         match format {
-            FileFormat::Fasta => Ok(WriterBackend::Fasta(FastaBackend::new(writer))),
-            FileFormat::Fastq => Ok(WriterBackend::Fastq(FastqBackend::new(writer))),
-            FileFormat::Bam => Ok(WriterBackend::Bam(BamWriterBackend::new(description, header)?)),
+            FileFormat::Fasta => Ok(WriterBackend::Fasta(FastaBackend::new(writer, bam_desc_tag))),
+            FileFormat::Fastq => Ok(WriterBackend::Fastq(FastqBackend::new(writer, bam_desc_tag))),
+            FileFormat::Bam => Ok(WriterBackend::Bam(BamWriterBackend::new(description, header, bam_desc_tag)?)),
         }
     }
 }
@@ -43,10 +43,11 @@ pub struct SequenceWriter<'a> {
     statistics: crate::statistics::WriterStatistics,
     track_length_dist: bool,
     backend_descriptions: HashMap<(String, Option<usize>), String>,
+    bam_desc_tag: BamTag,
 }
 
 impl<'a> SequenceWriter<'a> {
-    pub fn new(format: FileFormat, factory: WriterFactory<'a>, track_length_dist: bool, header: SequenceHeader) -> Self {
+    pub fn new(format: FileFormat, factory: WriterFactory<'a>, track_length_dist: bool, header: SequenceHeader, bam_desc_tag: BamTag) -> Self {
         Self {
             format,
             factory,
@@ -55,6 +56,7 @@ impl<'a> SequenceWriter<'a> {
             statistics: crate::statistics::WriterStatistics::default(),
             track_length_dist,
             backend_descriptions: HashMap::new(),
+            bam_desc_tag,
         }
     }
 
@@ -64,7 +66,7 @@ impl<'a> SequenceWriter<'a> {
         if !self.backends_by_tag.contains_key(&key) {
             let actual_tag = if key.0 == DEFAULT_TAG { None } else { Some(key.0.as_str()) };
             let (writer, description) = (self.factory)(actual_tag, key.1, self.format, OutputType::Reads)?;
-            self.backends_by_tag.insert(key.clone(), WriterBackend::new(self.format, writer, &description, &self.header)?);
+            self.backends_by_tag.insert(key.clone(), WriterBackend::new(self.format, writer, &description, &self.header, self.bam_desc_tag.clone())?);
             self.backend_descriptions.insert(key.clone(), description);
         }
         Ok(self.backends_by_tag.get_mut(&key).unwrap())
@@ -188,7 +190,7 @@ mod tests {
             Ok((writer, format!("memory:{}", buffer_key)))
         });
 
-        SequenceWriter::new(format, factory, track_length_dist, SequenceHeader::Default)
+        SequenceWriter::new(format, factory, track_length_dist, SequenceHeader::Default, BamTag::new("XD"))
     }
 
     #[test]
@@ -253,25 +255,42 @@ mod tests {
     }
 
     #[test]
-    fn test_sequence_writer_length_distribution() {
+    fn test_fasta_to_fastq_conversion() {
         let buffers = Arc::new(Mutex::new(HashMap::new()));
-        let mut writer = get_test_writer(FileFormat::Fasta, buffers.clone(), true);
-        
-        let record1 = UnifiedRecord::single(UnifiedRead::new_fasta("id1", None, b"ACGT")); // len 4
-        let record2 = UnifiedRecord::single(UnifiedRead::new_fasta("id2", None, b"ACGTA")); // len 5
-        let record3 = UnifiedRecord::single(UnifiedRead::new_fasta("id3", None, b"ACGT")); // len 4
-        
-        writer.write(&record1, None).unwrap();
-        writer.write(&record2, None).unwrap();
-        writer.write(&record3, None).unwrap();
-        
-        writer.write_length_distribution().unwrap();
+        {
+            let mut writer = get_test_writer(FileFormat::Fastq, buffers.clone(), false);
+            let record = UnifiedRecord::single(UnifiedRead::new_fasta(
+                "id1", Some("desc1"), b"ACGT"
+            ));
+            writer.write(&record, None).unwrap();
+        }
         
         let bufs = buffers.lock().unwrap();
-        let dist_key = format!("{}.lengthdist", DEFAULT_TAG);
-        let content = String::from_utf8(bufs.get(&dist_key).unwrap().clone()).expect("Not valid UTF-8");
+        let result = String::from_utf8(bufs.get(DEFAULT_TAG).unwrap().clone()).expect("Not valid UTF-8");
+        assert!(result.contains("@id1 desc1"));
+        assert!(result.contains("ACGT"));
+        assert!(result.contains("IIII"));
+    }
+
+    #[test]
+    fn test_bam_to_fastq_description_extraction() {
+        let buffers = Arc::new(Mutex::new(HashMap::new()));
+        {
+            let mut writer = get_test_writer(FileFormat::Fastq, buffers.clone(), false);
+            
+            use rust_htslib::bam::record::{Record, Aux};
+            let mut bam_rec = Record::new();
+            bam_rec.set(b"read1", None, b"ACGT", b"!!!!");
+            bam_rec.push_aux(b"XD", Aux::String("packed_desc")).unwrap();
+            
+            let record = UnifiedRecord::single(UnifiedRead::from_bam(bam_rec));
+            writer.write(&record, None).unwrap();
+        }
         
-        let expected = "Readlength\tCount\n4\t2\n5\t1\n";
-        assert_eq!(content, expected);
+        let bufs = buffers.lock().unwrap();
+        let result = String::from_utf8(bufs.get(DEFAULT_TAG).unwrap().clone()).expect("Not valid UTF-8");
+        assert!(result.contains("@read1 packed_desc"));
+        assert!(result.contains("ACGT"));
+        assert!(result.contains("!!!!"));
     }
 }

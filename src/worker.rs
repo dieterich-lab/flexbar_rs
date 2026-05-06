@@ -23,7 +23,6 @@ pub struct Worker {
     pub post_trim: PostTrim,
     pub uncalled_filter: Option<UncalledFilter>,
     pub qtrim_post_removal: bool,
-    pub bam_desc_tag: String,
 }
 
 pub struct WorkerState {
@@ -101,7 +100,6 @@ impl Worker {
         Self {
             iupac_converter, pre_trim, barcode_splitter, adapter_remover, quality_trim,
             filter_length, post_trim, uncalled_filter, qtrim_post_removal,
-            bam_desc_tag: args.bam_desc_tag.clone(),
         }
     }
 
@@ -163,7 +161,7 @@ impl Worker {
             vec![]
         };
 
-        rec.record.finalize(rec.alignment_results, &umi_tags, rec.stats, &self.bam_desc_tag)
+        rec.record.finalize(rec.alignment_results, &umi_tags, rec.stats)
     }
 }
 

@@ -287,7 +287,7 @@ pub struct Args {
 
     /// Tag for BAM auxiliary data used for description (Default: XD)
     #[arg(long = "bam-desc-tag", default_value = "XD")]
-    pub bam_desc_tag: String,
+    pub bam_desc_tag: BamTag,
 
     /// Path to a parameter file in TOML format
     #[arg(long = "parameter-file")]

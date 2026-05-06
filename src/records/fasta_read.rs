@@ -31,7 +31,6 @@ impl GenericRawRead for Record {
         removal_tags: &Vec<String>,
         umi_tags: &Vec<String>,
         paired_read_dropped: bool,
-        _bam_desc_tag: &str,
     ) -> Self {
         let mut desc_parts: Vec<String> = Vec::new();
         if let Some(x) = self.desc() {

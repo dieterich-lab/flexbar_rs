@@ -1,4 +1,4 @@
-use rust_htslib::bam::record::{Record, Aux, CigarString, Cigar};
+use rust_htslib::bam::record::{Record, CigarString, Cigar};
 use crate::records::generic_read::GenericRawRead;
 use std::ops::Range;
 use std::cell::OnceCell;
@@ -48,7 +48,6 @@ impl GenericRawRead for BamRecordWrapper {
         removal_tags: &Vec<String>,
         umi_tags: &Vec<String>,
         paired_read_dropped: bool,
-        bam_desc_tag: &str,
     ) -> Self {
         let mut new_record = Record::new();
         let seq = self.record.seq().as_bytes();
@@ -65,21 +64,23 @@ impl GenericRawRead for BamRecordWrapper {
         // Copy other fields if necessary, or let adapt_cigar handle it.
         // For now we set basic fields.
 
-        let mut desc_parts: Vec<String> = Vec::new();
+        let mut _desc_parts: Vec<String> = Vec::new();
         for tag in removal_tags {
-            desc_parts.push(tag.clone());
+            _desc_parts.push(tag.clone());
         }
         for tag in umi_tags {
-            desc_parts.push(tag.clone());
+            _desc_parts.push(tag.clone());
         }
         if paired_read_dropped {
-            desc_parts.push("single".to_string());
+            _desc_parts.push("single".to_string());
         }
 
-        if !desc_parts.is_empty() {
-            let desc = desc_parts.join("_");
-            new_record.push_aux(bam_desc_tag.as_bytes().try_into().unwrap(), Aux::String(&desc)).unwrap();
-        }
+        // Description packing into BAM aux is now handled by the writer backend if needed.
+        // Previously this was:
+        // if !_desc_parts.is_empty() {
+        //     let desc = _desc_parts.join("_");
+        //     new_record.push_aux(bam_desc_tag.as_bytes().try_into().unwrap(), Aux::String(&desc)).unwrap();
+        // }
 
         Self::new(new_record)
     }
