@@ -12,7 +12,7 @@ pub struct UnifiedRecord {
 
 pub struct FinalRecord {
     pub record: UnifiedRecord,
-    pub output_tag: Option<String>,
+    pub barcode_id: Option<String>,
     pub stats: WorkerStatistics,
 }
 
@@ -127,7 +127,7 @@ impl UnifiedRecord {
 
         FinalRecord {
             record: UnifiedRecord { reads, barcode_read: None },
-            output_tag: alignment_results.barcode_tag,
+            barcode_id: alignment_results.barcode_tag,
             stats,
         }
     }
