@@ -39,6 +39,6 @@ echo '###'
 
 pgo_profile_dir=$(dirname "$script_dir")/target/pgo-profiles
 pref_data="$(echo $pgo_profile_dir/merged-*.profdata)"
-RUSTFLAGS="-Cprofile-use=$pref_data" cargo +nightly multivers
+RUSTFLAGS="-Cprofile-use=$pref_data -Ctarget-feature=+crt-static" cargo +nightly multivers
 
 
