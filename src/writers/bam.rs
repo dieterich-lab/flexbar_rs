@@ -63,6 +63,9 @@ impl<'a> GenericWriterBackend<'a> for BamWriterBackend {
             let co_str = co_parts.join("_");
             bam_record.push_aux(b"CO", Aux::String(&co_str)).unwrap();
         }
+        if let Some(barcode_id) = &record.barcode_id {
+            bam_record.push_aux(b"BC", Aux::String(barcode_id)).unwrap();
+        }
         self.writer.write(&bam_record).map_err(|e| io::Error::new(io::ErrorKind::Other, e))
     }
 }
