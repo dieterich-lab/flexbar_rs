@@ -84,6 +84,14 @@ pub struct Args {
     #[arg(long = "barcode-gap-extend", alias = "ba", default_value_t = -1)]
     pub barcode_gap_extend: i32,
 
+    /// Don't create separate files per barcode
+    #[arg(long = "barcode-no-split")]
+    pub barcode_no_split: bool,
+
+    /// Add a marker for the detected barcode to the desc field
+    #[arg(long = "barcode-mark")]
+    pub barcode_mark: bool,
+
     /// Override k-mer size for barcode banded aligner. 0 to disable.
     #[arg(long = "barcode-kmer")]
     pub barcode_kmer: Option<usize>,

@@ -138,7 +138,7 @@ fn get_writer<Reader: BufRead + Send>(args: &Args, output_prefix: &str, compress
         Some(x) => x,
         None => if reader.format() == FileFormat::Fasta {FileFormat::Fastq} else {reader.format()},
     };
-    SequenceWriter::new(format, factory, args.length_dist, header)
+    SequenceWriter::new(format, factory, args.length_dist, header, args.barcode_no_split, args.barcode_mark)
 }
 
 thread_local! {

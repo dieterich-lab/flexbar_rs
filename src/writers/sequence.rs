@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::io;
 use std::io::Write;
 use log::trace;
-use crate::records::unified::{AnnotatedRecord, UnifiedRecord, UnifiedRead, GenericRawRead};
+use crate::records::unified::{AnnotatedRecord, UnifiedRead, GenericRawRead};
 use crate::types::FileFormat;
 use crate::utils::io::{OutputType, WriterFactory};
 use crate::writers::generic::{GenericWriterBackend, DEFAULT_TAG};
@@ -26,10 +26,10 @@ impl<'a> WriterBackend<'a> {
         }
     }
 
-    fn new(format: FileFormat, writer: Box<dyn Write + Send + 'a>, description: &str, header: &SequenceHeader) -> io::Result<Self> {
+    fn new(format: FileFormat, writer: Box<dyn Write + Send + 'a>, description: &str, header: &SequenceHeader, barcode_mark: bool) -> io::Result<Self> {
         match format {
-            FileFormat::Fasta => Ok(WriterBackend::Fasta(FastaBackend::new(writer))),
-            FileFormat::Fastq => Ok(WriterBackend::Fastq(FastqBackend::new(writer))),
+            FileFormat::Fasta => Ok(WriterBackend::Fasta(FastaBackend::new(writer, barcode_mark))),
+            FileFormat::Fastq => Ok(WriterBackend::Fastq(FastqBackend::new(writer, barcode_mark))),
             FileFormat::Bam => Ok(WriterBackend::Bam(BamWriterBackend::new(description, header)?)),
         }
     }
@@ -43,10 +43,12 @@ pub struct SequenceWriter<'a> {
     statistics: crate::statistics::WriterStatistics,
     track_length_dist: bool,
     backend_descriptions: HashMap<(String, Option<usize>), String>,
+    barcode_no_split: bool,
+    barcode_mark: bool,
 }
 
 impl<'a> SequenceWriter<'a> {
-    pub fn new(format: FileFormat, factory: WriterFactory<'a>, track_length_dist: bool, header: SequenceHeader) -> Self {
+    pub fn new(format: FileFormat, factory: WriterFactory<'a>, track_length_dist: bool, header: SequenceHeader, barcode_no_split: bool, barcode_mark: bool) -> Self {
         Self {
             format,
             factory,
@@ -55,16 +57,22 @@ impl<'a> SequenceWriter<'a> {
             statistics: crate::statistics::WriterStatistics::default(),
             track_length_dist,
             backend_descriptions: HashMap::new(),
+            barcode_no_split,
+            barcode_mark,
         }
     }
 
     fn get_backend(&mut self, tag: Option<&str>, read_index: Option<usize>) -> io::Result<&mut WriterBackend<'a>> {
-        let t = tag.unwrap_or(DEFAULT_TAG).to_string();
+        let t = if self.barcode_no_split {
+            DEFAULT_TAG.to_string()
+        } else {
+            tag.unwrap_or(DEFAULT_TAG).to_string()
+        };
         let key = (t, read_index);
         if !self.backends_by_tag.contains_key(&key) {
             let actual_tag = if key.0 == DEFAULT_TAG { None } else { Some(key.0.as_str()) };
             let (writer, description) = (self.factory)(actual_tag, key.1, self.format, OutputType::Reads)?;
-            self.backends_by_tag.insert(key.clone(), WriterBackend::new(self.format, writer, &description, &self.header)?);
+            self.backends_by_tag.insert(key.clone(), WriterBackend::new(self.format, writer, &description, &self.header, self.barcode_mark)?);
             self.backend_descriptions.insert(key.clone(), description);
         }
         Ok(self.backends_by_tag.get_mut(&key).unwrap())
@@ -144,7 +152,7 @@ impl<'a> SequenceWriter<'a> {
 mod tests {
     use super::*;
     use std::sync::{Arc, Mutex};
-    use crate::records::unified::{UnifiedRead};
+    use crate::records::unified::{UnifiedRead, UnifiedRecord};
 
     pub fn get_test_writer<'a>(
         format: FileFormat,
@@ -189,7 +197,7 @@ mod tests {
             Ok((writer, format!("memory:{}", buffer_key)))
         });
 
-        SequenceWriter::new(format, factory, track_length_dist, SequenceHeader::Default)
+        SequenceWriter::new(format, factory, track_length_dist, SequenceHeader::Default, false, false)
     }
 
     fn wrap(rec: UnifiedRecord) -> AnnotatedRecord {
@@ -300,5 +308,104 @@ mod tests {
         let result = String::from_utf8(bufs.get(DEFAULT_TAG).unwrap().clone()).expect("Not valid UTF-8");
         assert!(result.contains("ACGT"));
         assert!(result.contains("!!!!"));
+    }
+
+    #[test]
+    fn test_barcode_no_split() {
+        let buffers = Arc::new(Mutex::new(HashMap::new()));
+        {
+            // Set barcode_no_split = true
+            let mut writer = SequenceWriter::new(
+                FileFormat::Fastq,
+                get_test_factory(buffers.clone()),
+                false,
+                SequenceHeader::Default,
+                true,
+                false
+            );
+            
+            let record = UnifiedRecord::single(UnifiedRead::new_fastq(
+                "id1", None, b"ACGT", b"!!!!"
+            ));
+            
+            writer.write(&wrap(record), Some("barcode_bc1")).unwrap();
+            drop(writer); // Flush everything
+            
+            let bufs = buffers.lock().unwrap();
+            // Should be in DEFAULT_TAG, not in "barcode_bc1"
+            assert!(bufs.contains_key(DEFAULT_TAG));
+            assert!(!bufs.contains_key("barcode_bc1"));
+            
+            let result = String::from_utf8(bufs.get(DEFAULT_TAG).unwrap().clone()).unwrap();
+            println!("DEBUG: result: {:?}", result);
+            assert!(result.contains("id1"));
+        }
+    }
+
+    #[test]
+    fn test_barcode_mark() {
+        let buffers = Arc::new(Mutex::new(HashMap::new()));
+        {
+            // Set barcode_mark = true
+            let mut writer = SequenceWriter::new(
+                FileFormat::Fastq,
+                get_test_factory(buffers.clone()),
+                false,
+                SequenceHeader::Default,
+                false,
+                true
+            );
+            
+            let mut record = wrap(UnifiedRecord::single(UnifiedRead::new_fastq(
+                "id1", None, b"ACGT", b"!!!!"
+            )));
+            record.barcode_id = Some("bc1".to_string());
+            
+            writer.write(&record, Some("barcode_bc1")).unwrap();
+            drop(writer); // Flush everything
+            
+            let bufs = buffers.lock().unwrap();
+            let result = String::from_utf8(bufs.get("barcode_bc1").unwrap().clone()).unwrap();
+            // Should contain BC:bc1
+            assert!(result.contains("@id1 BC:bc1"));
+        }
+    }
+
+    fn get_test_factory<'a>(buffers: Arc<Mutex<HashMap<String, Vec<u8>>>>) -> WriterFactory<'a> {
+        Box::new(move |tag: Option<&str>, read_index: Option<usize>, _format: FileFormat, output_type: OutputType| {
+            let t = tag.unwrap_or(DEFAULT_TAG).to_string();
+            let base_key = match read_index {
+                Some(idx) => format!("{}_R{}", t, idx + 1),
+                None => t.clone(),
+            };
+            
+            let buffer_key = match output_type {
+                OutputType::LengthDistribution => format!("{}.lengthdist", base_key),
+                _ => base_key,
+            };
+
+            let mut bufs = buffers.lock().unwrap();
+            bufs.entry(buffer_key.clone()).or_insert_with(Vec::new);
+            
+            struct SharedWriter {
+                storage: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+                tag: String,
+            }
+            impl Write for SharedWriter {
+                fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+                    let mut bufs = self.storage.lock().unwrap();
+                    bufs.get_mut(&self.tag).unwrap().write(buf)
+                }
+                fn flush(&mut self) -> io::Result<()> {
+                    Ok(())
+                }
+            }
+            let writer = Box::new(SharedWriter {
+                storage: buffers.clone(),
+                tag: buffer_key.clone(),
+            });
+            
+            Ok((writer, format!("memory:{}", buffer_key)))
+        })
     }
 }

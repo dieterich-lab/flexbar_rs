@@ -21,12 +21,14 @@ impl UnifiedRead {
         UnifiedRead::Bam(BamRecordWrapper::new(r))
     }
 
+    #[cfg(test)]
     pub fn new_fasta(id: &str, desc: Option<&str>, seq: &[u8]) -> Self {
         UnifiedRead::Fasta(
             bio::io::fasta::Record::with_attrs(id, desc, seq)
         )
     }
 
+    #[cfg(test)]
     pub fn new_fastq(id: &str, desc: Option<&str>, seq: &[u8], qual: &[u8]) -> Self {
         UnifiedRead::Fastq(
             bio::io::fastq::Record::with_attrs(id, desc, seq, qual)
