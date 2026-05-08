@@ -1,5 +1,4 @@
 use crate::records::unified::{GenericRawRead, UnifiedRecord};
-use crate::records::unified_read::UnifiedRead;
 use std::ops::Range;
 use crate::statistics::WorkerStatistics;
 use crate::args::Args;
@@ -87,11 +86,14 @@ impl RecordInTransformation {
         }
     }
 
-    pub fn get_qual(&self, read_index: usize) -> &[u8] {
-        if let Some(UnifiedRead::Fastq(read)) = &self.record.reads[read_index] {
-            &read.qual()[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]
+    pub fn get_qual(&self, read_index: usize) -> Option<&[u8]> {
+        if let Some(read) = &self.record.reads[read_index] {
+            match &read.qual() {
+                Some(q) => Some(&q[self.alignment_results.per_read[read_index].as_ref().unwrap().read_range.clone()]),
+                None => None
+            }
         } else {
-            panic!("Invalid read index {} or qaul() called on Fasta!", read_index);
+            panic!("Invalid read index {}", read_index);
         }
     }
 

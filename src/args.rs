@@ -56,10 +56,6 @@ pub struct Args {
     #[arg(long = "barcode-trim-end", alias = "bt", default_value = "LTAIL")]
     pub barcode_trim_end: TrimEnd,
 
-    /// Region size in tail trim-end modes
-    #[arg(long = "barcode-tail-length", alias = "bn", default_value_t = 0)]
-    pub barcode_tail_length: usize,
-
     /// Keep barcodes within reads instead of removal
     #[arg(long = "barcode-keep", alias = "bk")]
     pub barcode_keep: bool,
@@ -124,10 +120,6 @@ pub struct Args {
     /// Type of removal: ANY, LEFT, RIGHT, LTAIL, RTAIL
     #[arg(long = "adapter-trim-end", alias = "at", default_value = "RIGHT")]
     pub adapter_trim_end: TrimEnd,
-
-    /// Region size for tail trim-end modes
-    #[arg(long = "adapter-tail-length", alias = "an", default_value_t = 0)]
-    pub adapter_tail_length: usize,
 
     /// Batch size for record processing
     #[arg(long = "batch-size", default_value_t = 4096)]
@@ -362,7 +354,6 @@ impl Args {
         if !is_present("barcode_min_overlap") { self.barcode_min_overlap = file_args.barcode_min_overlap; }
         if !is_present("barcode_error_rate") { self.barcode_error_rate = file_args.barcode_error_rate; }
         if !is_present("barcode_trim_end") { self.barcode_trim_end = file_args.barcode_trim_end; }
-        if !is_present("barcode_tail_length") { self.barcode_tail_length = file_args.barcode_tail_length; }
         if !is_present("barcode_keep") { self.barcode_keep = file_args.barcode_keep; }
         if !is_present("barcode_unassigned") { self.barcode_unassigned = file_args.barcode_unassigned; }
         if !is_present("barcode_match") { self.barcode_match = file_args.barcode_match; }
@@ -378,7 +369,6 @@ impl Args {
         if !is_present("adapter_min_overlap") { self.adapter_min_overlap = file_args.adapter_min_overlap; }
         if !is_present("adapter_error_rate") { self.adapter_error_rate = file_args.adapter_error_rate; }
         if !is_present("adapter_trim_end") { self.adapter_trim_end = file_args.adapter_trim_end; }
-        if !is_present("adapter_tail_length") { self.adapter_tail_length = file_args.adapter_tail_length; }
         if !is_present("adapter_revcomp") { self.adapter_revcomp = file_args.adapter_revcomp; }
         if !is_present("adapter_add_barcode") { self.adapter_add_barcode = file_args.adapter_add_barcode; }
         if !is_present("adapter_read_set") { self.adapter_read_set = file_args.adapter_read_set; }

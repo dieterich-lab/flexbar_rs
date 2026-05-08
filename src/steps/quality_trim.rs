@@ -48,7 +48,8 @@ impl GenericStep for QualityTrim {
 
 impl QualityTrim {
     fn trim_read(&self, rec: &mut RecordInTransformation, read_index: usize) {
-        let current_qual = rec.get_qual(read_index);
+        let current_qual = rec.get_qual(read_index)
+            .unwrap_or_else(|| panic!("Quality trim can't be done on reads without quality information."));
         let trim_pos = self.get_trim_pos(current_qual);
         let current_length = current_qual.len();
         if trim_pos < current_length {

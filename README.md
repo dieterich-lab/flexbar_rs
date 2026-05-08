@@ -36,6 +36,8 @@ Dropped features we will not implement at all:
   * --adapter-pair-overlap
   * --adapter-min-poverlap
   * --adapter-trimmed-out
+  * --adapter-tail-length
+* --barcode-tail-length
 * --number-tags
 
 ### Are there known differences in the output?
