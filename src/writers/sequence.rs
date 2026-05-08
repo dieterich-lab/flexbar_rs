@@ -156,6 +156,22 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use crate::records::unified::{UnifiedRead, UnifiedRecord};
 
+    struct SharedWriter {
+        storage: Arc<Mutex<HashMap<String, Vec<u8>>>>,
+        tag: String,
+    }
+    impl Write for SharedWriter {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            let mut storage = self.storage.lock().unwrap();
+            storage.get_mut(&self.tag).unwrap().write(buf)
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            let mut storage = self.storage.lock().unwrap();
+            storage.get_mut(&self.tag).unwrap().flush()
+        }
+    }
+
+
     pub fn get_test_writer<'a>(
         format: FileFormat,
         buffers: Arc<Mutex<HashMap<String, Vec<u8>>>>,
@@ -175,21 +191,6 @@ mod tests {
 
             let mut bufs = buffers.lock().unwrap();
             bufs.entry(buffer_key.clone()).or_insert_with(Vec::new);
-            
-            struct SharedWriter {
-                storage: Arc<Mutex<HashMap<String, Vec<u8>>>>,
-                tag: String,
-            }
-            impl Write for SharedWriter {
-                fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                    let mut storage = self.storage.lock().unwrap();
-                    storage.get_mut(&self.tag).unwrap().write(buf)
-                }
-                fn flush(&mut self) -> io::Result<()> {
-                    let mut storage = self.storage.lock().unwrap();
-                    storage.get_mut(&self.tag).unwrap().flush()
-                }
-            }
 
             let writer: Box<dyn Write + Send + 'a> = Box::new(SharedWriter {
                 storage: buffers.clone(),
@@ -388,20 +389,7 @@ mod tests {
 
             let mut bufs = buffers.lock().unwrap();
             bufs.entry(buffer_key.clone()).or_insert_with(Vec::new);
-            
-            struct SharedWriter {
-                storage: Arc<Mutex<HashMap<String, Vec<u8>>>>,
-                tag: String,
-            }
-            impl Write for SharedWriter {
-                fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-                    let mut bufs = self.storage.lock().unwrap();
-                    bufs.get_mut(&self.tag).unwrap().write(buf)
-                }
-                fn flush(&mut self) -> io::Result<()> {
-                    Ok(())
-                }
-            }
+
             let writer = Box::new(SharedWriter {
                 storage: buffers.clone(),
                 tag: buffer_key.clone(),
