@@ -73,8 +73,7 @@ fn spawn_writer_thread(
         while let Ok(batch_out) = batch_out_rx.recv() {
             worker_stats += batch_out.stats;
             for rec in batch_out.records {
-                let tag = rec.barcode_id.as_deref();
-                writer.write(&rec, tag)
+                writer.write(&rec)
                     .expect("Failed to write record");
             }
         }

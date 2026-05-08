@@ -62,13 +62,11 @@ impl<'a> SequenceWriter<'a> {
         }
     }
 
-    fn get_backend(&mut self, tag: Option<&str>, read_index: Option<usize>) -> io::Result<&mut WriterBackend<'a>> {
-        let t = if self.barcode_no_split {
-            DEFAULT_TAG.to_string()
-        } else {
-            tag.unwrap_or(DEFAULT_TAG).to_string()
+    fn get_backend(&mut self, output_tag: &Option<String>, read_index: Option<usize>) -> io::Result<&mut WriterBackend<'a>> {
+        let key = match output_tag {
+            None => (DEFAULT_TAG.to_string(), read_index),
+            Some(tag) => (tag.clone(), read_index),
         };
-        let key = (t, read_index);
         if !self.backends_by_tag.contains_key(&key) {
             let actual_tag = if key.0 == DEFAULT_TAG { None } else { Some(key.0.as_str()) };
             let (writer, description) = (self.factory)(actual_tag, key.1, self.format, OutputType::Reads)?;
@@ -78,38 +76,42 @@ impl<'a> SequenceWriter<'a> {
         Ok(self.backends_by_tag.get_mut(&key).unwrap())
     }
 
-    pub fn write(&mut self, annotated: &AnnotatedRecord, tag: Option<&str>) -> io::Result<()> {
+    pub fn write(&mut self, annotated: &AnnotatedRecord) -> io::Result<()> {
         let record = &annotated.record;
         let paired = record.is_paired();
+        let output_tag = if self.barcode_no_split {
+            None
+        } else {
+            annotated.barcode_id.clone()
+        };
+
         for i in 0..2 {
             if let Some(Some(read)) = record.reads.get(i) {
                 if read.seq().is_empty() { continue; }
                 let read_index = if paired { Some(i) } else { None };
-                let backend = self.get_backend(tag, read_index)?;
+                let backend = self.get_backend(&output_tag, read_index)?;
                 backend.write_read(annotated, i)?;
-                self.update_statistics(read, tag, read_index);
+                self.update_statistics(read, &annotated.barcode_id, read_index);
             }
         }
 
-        if let Some(t) = tag {
-            if t.starts_with("barcode_") && t != DEFAULT_TAG {
-                let bc_id = &t["barcode_".len()..];
-                if !bc_id.is_empty() {
-                    *self.statistics.barcode_counts.entry(bc_id.to_string()).or_insert(0) += 1;
-                }
-            }
+        if let Some(bc) = &annotated.barcode_id {
+            *self.statistics.barcode_counts.entry(bc.to_string()).or_insert(0) += 1;
         }
-        trace!("Writer processed record: {} with tag: {:?}", record.record_id(), tag);
+        trace!("Writer processed record: {} with barcode: {:?}", record.record_id(), annotated.barcode_id);
         Ok(())
     }
 
-    fn update_statistics(&mut self, read: &UnifiedRead, tag: Option<&str>, read_index: Option<usize>) {
+    fn update_statistics(&mut self, read: &UnifiedRead, barcode_id: &Option<String>, read_index: Option<usize>) {
         self.statistics.total_records_written += 1;
         let seq_len = read.seq().len();
         self.statistics.total_bases_written += seq_len;
         if self.track_length_dist {
-            let t_str = tag.unwrap_or(DEFAULT_TAG).to_string();
-            let key = (t_str.clone(), read_index);
+            let t_str = match barcode_id {
+                Some(bc) => bc,
+                None => DEFAULT_TAG,
+            };
+            let key = (t_str.to_string(), read_index);
             let dist = self.statistics.length_distribution.entry(key).or_insert_with(HashMap::new);
             *dist.entry(seq_len).or_insert(0) += 1;
         }
@@ -200,10 +202,10 @@ mod tests {
         SequenceWriter::new(format, factory, track_length_dist, SequenceHeader::Default, false, false)
     }
 
-    fn wrap(rec: UnifiedRecord) -> AnnotatedRecord {
+    fn wrap(rec: UnifiedRecord, barcode_id: Option<&str>) -> AnnotatedRecord {
         AnnotatedRecord {
             record: rec,
-            barcode_id: None,
+            barcode_id: barcode_id.map(|s| s.to_string()),
             removal_tags: [vec![], vec![]],
             umi_tags: vec![],
             paired_read_dropped: false,
@@ -218,7 +220,7 @@ mod tests {
             let record = UnifiedRecord::single(
                 UnifiedRead::new_fastq("id1", None, b"ACGT", b"!!!!")
             );
-            writer.write(&wrap(record), None).unwrap();
+            writer.write(&wrap(record, None)).unwrap();
             
             let stats = writer.statistics();
             assert_eq!(stats.total_records_written, 1);
@@ -235,19 +237,19 @@ mod tests {
                 "id1", None, b"ACGT", b"!!!!"
             ));
             
-            writer.write(&wrap(record.clone()), Some("barcode_bc1")).unwrap();
+            writer.write(&wrap(record.clone(), Some("bc1"))).unwrap();
             
             let stats = writer.statistics();
             assert_eq!(stats.total_records_written, 1);
             assert_eq!(stats.barcode_counts.get("bc1"), Some(&1));
             
-            writer.write(&wrap(record.clone()), Some("barcode_bc1")).unwrap();
+            writer.write(&wrap(record.clone(), Some("bc1"))).unwrap();
             assert_eq!(writer.statistics().barcode_counts.get("bc1"), Some(&2));
             
-            writer.write(&wrap(record.clone()), Some("barcode_bc2")).unwrap();
+            writer.write(&wrap(record.clone(), Some("bc2"))).unwrap();
             assert_eq!(writer.statistics().barcode_counts.get("bc2"), Some(&1));
 
-            writer.write(&wrap(record.clone()), None).unwrap();
+            writer.write(&wrap(record.clone(), None)).unwrap();
             assert_eq!(writer.statistics().total_records_written, 4);
             assert_eq!(writer.statistics().barcode_counts.len(), 2);
         }
@@ -261,7 +263,7 @@ mod tests {
             let record = UnifiedRecord::single(UnifiedRead::new_fasta(
                 "id1", Some("desc1"), b"ACGT"
             ));
-            writer.write(&wrap(record), None).expect("Failed to write record");
+            writer.write(&wrap(record, None)).expect("Failed to write record");
         }
         
         let bufs = buffers.lock().unwrap();
@@ -279,7 +281,7 @@ mod tests {
             let record = UnifiedRecord::single(UnifiedRead::new_fasta(
                 "id1", Some("desc1"), b"ACGT"
             ));
-            writer.write(&wrap(record), None).unwrap();
+            writer.write(&wrap(record, None)).unwrap();
         }
         
         let bufs = buffers.lock().unwrap();
@@ -301,7 +303,7 @@ mod tests {
             bam_rec.push_aux(b"CO", Aux::String("packed_desc")).unwrap();
             
             let record = UnifiedRecord::single(UnifiedRead::from_bam(bam_rec));
-            writer.write(&wrap(record), None).unwrap();
+            writer.write(&wrap(record, None)).unwrap();
         }
         
         let bufs = buffers.lock().unwrap();
@@ -328,7 +330,7 @@ mod tests {
                 "id1", None, b"ACGT", b"!!!!"
             ));
             
-            writer.write(&wrap(record), Some("barcode_bc1")).unwrap();
+            writer.write(&wrap(record, Some("bc1"))).unwrap();
             drop(writer); // Flush everything
             
             let bufs = buffers.lock().unwrap();
@@ -358,16 +360,16 @@ mod tests {
             
             let mut record = wrap(UnifiedRecord::single(UnifiedRead::new_fastq(
                 "id1", None, b"ACGT", b"!!!!"
-            )));
+            )), None);
             record.barcode_id = Some("bc1".to_string());
             
-            writer.write(&record, Some("barcode_bc1")).unwrap();
+            writer.write(&record).unwrap();
             drop(writer); // Flush everything
             
             let bufs = buffers.lock().unwrap();
-            let result = String::from_utf8(bufs.get("barcode_bc1").unwrap().clone()).unwrap();
+            let result = String::from_utf8(bufs.get("bc1").unwrap().clone()).unwrap();
             // Should contain BC:bc1
-            assert!(result.contains("@id1 BC:bc1"));
+            assert!(result.contains("@id1 barcode_bc1"));
         }
     }
 

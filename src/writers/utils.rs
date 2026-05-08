@@ -1,7 +1,7 @@
 use crate::records::unified::{UnifiedRead, AnnotatedRecord};
 use crate::records::generic_read::GenericRawRead;
 
-pub fn get_desc(record: &AnnotatedRecord, read_index: usize) -> Option<String> {
+pub fn get_desc(record: &AnnotatedRecord, read_index: usize, barcode_mark: bool) -> Option<String> {
     let read = record.record.reads[read_index].as_ref().expect("Read missing");
 
     let mut parts: Vec<String> = Vec::new();
@@ -25,6 +25,9 @@ pub fn get_desc(record: &AnnotatedRecord, read_index: usize) -> Option<String> {
     }
     if record.paired_read_dropped {
         parts.push("single".to_string());
+    }
+    if barcode_mark && let Some(id) = &record.barcode_id {
+        parts.push(format!("barcode_{}", id));
     }
 
     if parts.is_empty() {

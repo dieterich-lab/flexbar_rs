@@ -20,13 +20,13 @@ pub struct PerReadAlignmentResults {
 
 #[derive(Default, Clone)]
 pub struct AlignmentResults {
-    pub barcode_tag: Option<String>,
+    pub barcode_id: Option<String>,
     pub per_read: [Option<PerReadAlignmentResults>; 2],
 }
 
 impl AlignmentResults {
-    pub fn set_barcode_tag(&mut self, tag: Option<String>) {
-        self.barcode_tag = tag;
+    pub fn set_barcode_id(&mut self, id: Option<String>) {
+        self.barcode_id = id;
     }
 }
 
@@ -57,7 +57,7 @@ impl RecordInTransformation {
         RecordInTransformation {
             record,
             alignment_results: AlignmentResults {
-                barcode_tag: None,
+                barcode_id: None,
                 per_read,
             },
             stats: WorkerStatistics::default(),

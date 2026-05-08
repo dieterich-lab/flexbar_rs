@@ -55,15 +55,15 @@ fn get_barcode_aligner_config(args: &Args) -> AlignerConfig {
     }
 }
 
-pub fn assign_barcode_tag(
+pub fn assign_barcode_id(
     rec: &mut RecordInTransformation,
-    tag: String,
+    id: String,
     trace: bool
 ) {
     if trace {
-        trace!("Barcode splitter on {}: Assigned tag {}", rec.record_id(), tag);
+        trace!("Barcode splitter on {}: Assigned barcode {}", rec.record_id(), id);
     }
-    rec.alignment_results.set_barcode_tag(Some(tag));
+    rec.alignment_results.set_barcode_id(Some(id));
 }
 
 impl GenericStep for BarcodeSplitter {
@@ -130,12 +130,12 @@ impl GenericStep for BarcodeSplitter {
             // Use separate barcode read for detection
             if let Some(setup) = &self.multi_aligner_setups[0] {
                 let aligner = self.multi_aligners[0].as_ref().unwrap();
-                let (tag, bar_seq) = {
+                let (barcode_id, bar_seq) = {
                     let seq = barcode_read.seq();
                     let inner_state = state.multi_aligner_states[0].as_mut().unwrap();
                     if let Some(best) = aligner.align(inner_state, &setup, seq) {
                         let barcode = &self.barcodes[0][best.reference_index];
-                        let tag = format!("barcode_{}", barcode.id);
+                        let tag = barcode.id.to_string();
                         let bar_seq = if self.trace { Some((barcode.sequence.as_bytes().to_vec(), best.format(seq, barcode.sequence.as_bytes()))) } else { None };
                         (Some(tag), bar_seq)
                     } else {
@@ -143,9 +143,9 @@ impl GenericStep for BarcodeSplitter {
                     }
                 };
 
-                if let Some(tag) = tag {
-                    assign_barcode_tag(&mut rec, tag, self.trace);
-                    if let Some((_, formatted)) = bar_seq {
+                if let Some(id) = barcode_id {
+                    assign_barcode_id(&mut rec, id, self.trace);
+                    if let Some((_, formatted)) = bar_seq && self.trace {
                         trace!(
                             "Barcode splitter on {} selected the following alignment from Barcode Read:",
                             rec.record_id()
@@ -182,8 +182,8 @@ impl GenericStep for BarcodeSplitter {
         match best_overall {
             Some((read_idx, best)) => {
                 let barcode = &self.barcodes[read_idx][best.reference_index];
-                let tag = format!("barcode_{}", barcode.id);
-                assign_barcode_tag(&mut rec, tag, self.trace);
+                let tag = barcode.id.to_string();
+                assign_barcode_id(&mut rec, tag, self.trace);
                 if self.trace {
                     let bar_seq = barcode.sequence.as_bytes();
                     let sequence: &[u8] = rec.get_sequence(read_idx);
@@ -256,7 +256,7 @@ impl BarcodeSplitter {
 
     fn handle_unassigned(&self, rec: &mut RecordInTransformation) {
         if self.barcode_unassigned {
-            assign_barcode_tag(rec, "barcode_unassigned".to_string(), self.trace);
+            assign_barcode_id(rec, "unassigned".to_string(), self.trace);
         } else {
             let num_reads = if rec.record.reads[1].is_some() { 2 } else { 1 };
             for read_idx in 0..num_reads {
@@ -332,7 +332,7 @@ mod tests {
         );
         
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_unassigned".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("unassigned".to_string()));
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.end - res.alignment_results.per_read[0].as_ref().unwrap().read_range.start, 8);
     }
 
@@ -357,7 +357,7 @@ mod tests {
             ])
         );
         
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.start, 0);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.end, 44);
         assert_eq!(res.get_sequence(0), b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
@@ -384,7 +384,7 @@ mod tests {
             ])
         );
         
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.start, 28);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.end, 72);
         assert_eq!(res.get_sequence(0), b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
@@ -402,7 +402,7 @@ mod tests {
             ])
         );
         
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.start, 0);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.end, 44);
     }
@@ -419,7 +419,7 @@ mod tests {
             ])
         );
         
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.start, 28);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.end, 72);
     }
@@ -436,7 +436,7 @@ mod tests {
             ])
         );
         
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.start, 28);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.end, 72);
     }
@@ -453,7 +453,7 @@ mod tests {
             ])
         );
         
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.start, 0);
         assert_eq!(res.alignment_results.per_read[0].as_ref().unwrap().read_range.end, 44);
     }
@@ -477,7 +477,7 @@ mod tests {
             ])
         );
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(res.get_sequence(0), b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
     }
 
@@ -500,7 +500,7 @@ mod tests {
             ])
         );
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(res.get_sequence(0), b"CATCAGTGCGCCCCGGGCGGGTCGCGCCGTGTGGGGGGGCCGGG");
     }
 
@@ -545,7 +545,7 @@ mod tests {
             ])
         );
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(res.get_sequence(0), b"GACGATCACGGGGCGACGCCTGTCTGAGCGTCGCT");
     }
 
@@ -595,7 +595,7 @@ mod tests {
         let res = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         
         assert!(!res.alignment_results.per_read[0].as_ref().unwrap().dropped);
-        assert_eq!(res.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(res.alignment_results.barcode_id, Some("bc1".to_string()));
     }
 
     #[test]
@@ -621,7 +621,7 @@ mod tests {
         let rec_in = RecordInTransformation::from_dto(rec);
         let result = step.apply(rec_in, &mut state);
 
-        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(result.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..8);
         assert_eq!(result.alignment_results.per_read[1].as_ref().unwrap().read_range, 0..12);
     }
@@ -647,7 +647,7 @@ mod tests {
         let r2 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
-        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(result.alignment_results.barcode_id, Some("bc1".to_string()));
         assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..8);
         assert_eq!(result.alignment_results.per_read[1].as_ref().unwrap().read_range, 0..12);
 
@@ -657,7 +657,7 @@ mod tests {
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         // It should NOT be bc1 because that's only for R1.
-        assert!(result.alignment_results.barcode_tag.is_none());
+        assert!(result.alignment_results.barcode_id.is_none());
         assert!(result.alignment_results.per_read[0].as_ref().unwrap().dropped);
     }
 
@@ -682,7 +682,7 @@ mod tests {
         let r2 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
-        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc2".to_string()));
+        assert_eq!(result.alignment_results.barcode_id, Some("bc2".to_string()));
         assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..12);
         assert_eq!(result.alignment_results.per_read[1].as_ref().unwrap().read_range, 0..8);
 
@@ -691,7 +691,7 @@ mod tests {
         let r2 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
-        assert!(result.alignment_results.barcode_tag.is_none());
+        assert!(result.alignment_results.barcode_id.is_none());
         assert!(result.alignment_results.per_read[1].as_ref().unwrap().dropped);
     }
 
@@ -723,8 +723,8 @@ mod tests {
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         
         // It will pick one of them.
-        assert!(result.alignment_results.barcode_tag == Some("barcode_bc1".to_string()) || 
-                result.alignment_results.barcode_tag == Some("barcode_bc2".to_string()));
+        assert!(result.alignment_results.barcode_id == Some("bc1".to_string()) ||
+                result.alignment_results.barcode_id == Some("bc2".to_string()));
 
         // Case: bc1 in R2 (WRONG READ). Should NOT be detected because bc1 is in context.barcodes (for R1).
         let r1 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
@@ -733,14 +733,14 @@ mod tests {
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
         // It will NOT find bc1 in R2 because bc1 is not in context.barcodes2.
         // It will NOT find anything in R1.
-        assert!(result.alignment_results.barcode_tag.is_none() || result.alignment_results.barcode_tag != Some("barcode_bc1".to_string()));
+        assert!(result.alignment_results.barcode_id.is_none() || result.alignment_results.barcode_id != Some("bc1".to_string()));
         
         // Case: bc2 in R1 (WRONG READ). Should NOT be detected.
         let r1 = UnifiedRead::new_fastq("id", None, b"TTTTTTTTCCCC", b"IIIIIIIIIIII");
         let r2 = UnifiedRead::new_fastq("id", None, b"GGGGGGGGGGGG", b"IIIIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
-        assert!(result.alignment_results.barcode_tag.is_none() || result.alignment_results.barcode_tag != Some("barcode_bc2".to_string()));
+        assert!(result.alignment_results.barcode_id.is_none() || result.alignment_results.barcode_id != Some("bc2".to_string()));
     }
 
     #[test]
@@ -764,7 +764,7 @@ mod tests {
         let rec = UnifiedRecord::single_barcoded(r1, bar);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
 
-        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(result.alignment_results.barcode_id, Some("bc1".to_string()));
         // No removal for separate barcode read
         assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..12);
     }
@@ -791,7 +791,7 @@ mod tests {
         let rec = UnifiedRecord::paired_barcoded(r1, r2, bar);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
 
-        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc1".to_string()));
+        assert_eq!(result.alignment_results.barcode_id, Some("bc1".to_string()));
         // No removal
         assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..12);
         assert_eq!(result.alignment_results.per_read[1].as_ref().unwrap().read_range, 0..12);
@@ -824,7 +824,7 @@ mod tests {
         let rec = UnifiedRecord::single_barcoded(r1, bar);
         let result = step.apply(RecordInTransformation::from_dto(rec), &mut state);
 
-        assert_eq!(result.alignment_results.barcode_tag, Some("barcode_bc2".to_string()));
+        assert_eq!(result.alignment_results.barcode_id, Some("bc2".to_string()));
         // No removal because separate barcode read was used
         assert_eq!(result.alignment_results.per_read[0].as_ref().unwrap().read_range, 0..12);
         assert_eq!(result.get_sequence(0), b"GGGGGGGGAAAA");

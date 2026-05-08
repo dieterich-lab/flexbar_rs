@@ -86,7 +86,7 @@ impl WriterFactoryBackend {
 
     fn get_writer_path(
         &self,
-        tag: Option<&str>,
+        barcode_id: Option<&str>,
         read_index: Option<usize>,
         file_format: FileFormat,
         output_type: &OutputType
@@ -94,8 +94,8 @@ impl WriterFactoryBackend {
         if self.prefix == "-" {
             return None;
         }
-        let cleaned_tag = match tag {
-            Some(t) => format!("_{}", t.replace(['/', '\\'], "")),
+        let cleaned_tag = match barcode_id {
+            Some(t) => format!("_barcode_{}", t.replace(['/', '\\'], "")),
             None => "".to_string(),
         };
         let read_index_str = match read_index {
@@ -168,8 +168,8 @@ pub fn get_writer_factory<'a>(
     buffer_size: usize,
 ) -> WriterFactory<'a> {
     let backend = WriterFactoryBackend::new(prefix.clone(), compression, buffer_size);
-    Box::new(move |tag, read_index, file_format, output_type| {
-        let path = backend.get_writer_path(tag, read_index, file_format, &output_type);
+    Box::new(move |barcode_id, read_index, file_format, output_type| {
+        let path = backend.get_writer_path(barcode_id, read_index, file_format, &output_type);
         let description = match &path {
             Some(p) => p.to_string_lossy().into_owned(),
             None => "STDOUT".to_string(),
@@ -215,7 +215,7 @@ mod tests {
         let backend = WriterFactoryBackend::new(prefix, compression, 4096);
         let tag = Some("tag/with\\slashes");
         let path = backend.get_writer_path(tag, None, FileFormat::Fastq, &OutputType::Reads).unwrap();
-        assert_eq!(path, PathBuf::from("output/test_tagwithslashes.fastq"));
+        assert_eq!(path, PathBuf::from("output/test_barcode_tagwithslashes.fastq"));
     }
 
     #[test]
@@ -225,7 +225,7 @@ mod tests {
         let backend = WriterFactoryBackend::new(prefix, compression, 4096);
         let tag = Some("tag1");
         let path = backend.get_writer_path(tag, None, FileFormat::Fastq, &OutputType::Reads).unwrap();
-        assert_eq!(path, PathBuf::from("output/test_tag1.fastq"));
+        assert_eq!(path, PathBuf::from("output/test_barcode_tag1.fastq"));
     }
 
     #[test]
@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(path2, PathBuf::from("output/test_2.fastq"));
         
         let path3 = backend.get_writer_path(Some("tag1"), Some(0), FileFormat::Fastq, &OutputType::Reads).unwrap();
-        assert_eq!(path3, PathBuf::from("output/test_tag1_1.fastq"));
+        assert_eq!(path3, PathBuf::from("output/test_barcode_tag1_1.fastq"));
     }
 
     fn test_compression_roundtrip(compression: CompressionType) {

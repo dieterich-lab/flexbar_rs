@@ -205,7 +205,7 @@ mod tests {
         let r2 = UnifiedRead::new_fastq("R1", None, b"TTTTTGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let (res, _) = process_record_paired_helper(args, &rec, barcodes, barcodes2);
-        assert_eq!(res.barcode_id, Some("barcode_B1".to_string()));
+        assert_eq!(res.barcode_id, Some("B1".to_string()));
         let records = match res.record.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
         assert_eq!(records[0].seq(), b"GGGGG");
         assert_eq!(records[1].seq(), b"TTTTTGGGGG");
@@ -220,7 +220,7 @@ mod tests {
         let r2 = UnifiedRead::new_fastq("R1", None, b"CCCCCGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let (res, _) = process_record_paired_helper(args, &rec, barcodes, barcodes2);
-        assert_eq!(res.barcode_id, Some("barcode_B2".to_string()));
+        assert_eq!(res.barcode_id, Some("B2".to_string()));
         let records = match res.record.reads { [Some(r1), Some(r2)] => [r1, r2], _ => panic!("expected paired") };
         assert_eq!(records[0].seq(), b"TTTTTGGGGG");
         assert_eq!(records[1].seq(), b"GGGGG");
@@ -235,7 +235,7 @@ mod tests {
         let r2 = UnifiedRead::new_fastq("R1", None, b"GGGGGGGGGG", b"IIIIIIIIII");
         let rec = UnifiedRecord::paired(r1, r2);
         let (res, _) = process_record_paired_helper(args, &rec, barcodes, barcodes2);
-        assert_eq!(res.barcode_id, Some("barcode_unassigned".to_string()));
+        assert_eq!(res.barcode_id, Some("unassigned".to_string()));
         assert!(res.record.reads[0].is_some());
         assert!(res.record.reads[1].is_some());
     }
@@ -357,7 +357,7 @@ mod tests {
         let record = UnifiedRead::new_fastq("read1", None, b"GGGGACGT", b"IIIIIIII");
         let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
-        assert_eq!(result.barcode_id, Some("barcode_bc1".to_string()));
+        assert_eq!(result.barcode_id, Some("bc1".to_string()));
         assert_eq!(processed.seq(), b"ACGT");
     }
 
@@ -456,7 +456,7 @@ mod tests {
         let record = UnifiedRead::new_fastq("read1", None, b"AAGGGGTTACGT", b"IIIIIIIIIIII");
         let (result, _) = worker.process_record(&UnifiedRecord::single(record), &mut state);
         let processed = match result.record.reads { [Some(r), None] => r, _ => unreachable!() };
-        assert_eq!(result.barcode_id, Some("barcode_bc1".to_string()));
+        assert_eq!(result.barcode_id, Some("bc1".to_string()));
         assert_eq!(processed.id(), "read1");
         assert_eq!(result.umi_tags.join("_"), "AA_TT");
         assert_eq!(processed.seq(), b"ACGT");
@@ -572,7 +572,7 @@ mod tests {
         );
         let rec = UnifiedRecord::paired(r1, r2);
         let (res, stats) = process_with_reference_setup(&rec);
-        assert_eq!(res.barcode_id, Some("barcode_SmartSeqUMI".to_string()));
+        assert_eq!(res.barcode_id, Some("SmartSeqUMI".to_string()));
         let reads = match res.record.reads {
             [Some(x1), Some(x2)] => [x1, x2],
             _ => panic!("expected paired")

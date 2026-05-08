@@ -24,21 +24,9 @@ impl<'a> GenericWriterBackend<'a> for FastqBackend<'a> {
         let read = record.record.reads[read_index].as_ref().expect("Read missing");
         let id = read.id();
         let seq = read.seq();
-        let qual_vec = get_qual(record, read_index);
-
-        let mut final_desc = get_desc(record, read_index);
-
-        if self.barcode_mark {
-            if let Some(barcode_id) = &record.barcode_id {
-                let bc_mark = format!("BC:{}", barcode_id);
-                final_desc = match final_desc {
-                    Some(d) => Some(format!("{}_{}", d, bc_mark)),
-                    None => Some(bc_mark),
-                };
-            }
-        }
-
-        let fastq_rec = fastq::Record::with_attrs(id, final_desc.as_deref(), seq, &qual_vec);
+        let qual = get_qual(record, read_index);
+        let desc = get_desc(record, read_index, self.barcode_mark);
+        let fastq_rec = fastq::Record::with_attrs(id, desc.as_deref(), seq, &qual);
         self.writer.write_record(&fastq_rec)
     }
 }

@@ -128,7 +128,7 @@ impl UnifiedRecord {
         
         let result = AnnotatedRecord {
             record: UnifiedRecord { reads, barcode_read: None },
-            barcode_id: alignment_results.barcode_tag,
+            barcode_id: alignment_results.barcode_id,
             removal_tags,
             umi_tags: umi_tags.clone(),
             paired_read_dropped,
