@@ -8,6 +8,10 @@ This tool is a rewrite of Flexbar in Rust. The original Fexbar can be found here
 
 It is heavily based on Rust-bio and uses the rust-htslib library to handle BAM files.
 
+## Code Maturity
+
+This code is BETA. It is working and feature complete, but lacks extensive use in the field.
+
 ## Quickstart for Flexbar Veterans
 
 ### Why should you use it?
@@ -64,8 +68,8 @@ a wrong alignment.
 
 ### Optimizing for Execution Time
 
-**Stop using gzip - use ZSTD compression.** In typical HPC setups (>10 vCPUs)
-it is essential to use compression - not only to save disk space but also
+**Stop using gzip – use ZSTD compression.** In typical HPC setups (>10 vCores)
+it is essential to use compression – not only to save disk space but also
 to reduce the I/O load. With typical flexbar workloads the time needed to
 decompress and compress the data will dominate the overall runtime. When
 using ZSTD compression, expect the wall-clock time to be cut by 50% with
@@ -77,7 +81,7 @@ about 20 threads.
 
 ### Optimizing for Energy Consumption
 
-While more threads may reduce the wall-clock time, expect that to get
+While more threads may reduce the wall-clock time, expect to get
 better results per Watt with thread counts below 20. 
 
 ### Optimizing for Memory Usage
@@ -90,12 +94,12 @@ output file.
 
 ## Building
 
-Before building make sure that you have checkout the version
+Before building make sure that you have checked out the version
 you want, including the submodule. So don't forget `--recursive`
 option with clone command:
 
 ```bash
-git clone --recursive https://github.com/seqan/flexbar_rs.git
+git clone --recursive https://github.com/dieterich-lab/flexbar_rs.git
 ```
 
 To build the htslib submodule a bunch of compile time depedenicies are
