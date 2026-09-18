@@ -18,8 +18,9 @@ This code is BETA. It is working and feature complete, but lacks extensive use i
 
 * It complies in 2026 on up-to-date operating systems with modern dependencies. 
 * It handles ZSTD compression out-of-the-box (see tuning hints below!).
-* It supports BAM files. With the `--barcode-no-split` option it is possible
-  to populate the BC auxilary tag with the barcode ID without splitting the file.
+* It supports BAM files as input (-r/--reads option) and as output. With
+  the `--barcode-no-split` option it is possible  to populate the BC auxiliary
+  tag with the barcode ID without splitting the file.
 
 ### What changed?
 

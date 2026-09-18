@@ -17,7 +17,7 @@ pub struct Args {
     #[arg(short = 't', long, default_value = "flexbarOut")]
     pub target: String,
 
-    /// Fasta/q file or stdin (-) with reads that may contain barcodes
+    /// Fasta/q or unaligned BAM file or stdin (-) with reads that may contain barcodes
     /// Files compressed with Gzip (.gz), bzip2 (.bz2), or zstd (.zst) are supported
     /// and will be piped through a suitable decompression tool automatically.
     #[arg(short = 'r', long)]
