@@ -130,6 +130,12 @@ To create binary run:
 
 The binary will be created in `target/cargo-multivers/x86_64-unknown-linux-gnu/release/flexbar_rs`.
 
+## Version History
+
+* 0.1.1 2026-10-19:
+  * Bugfix: Corrected quality string when converting file format to or from BAM. 
+* 0.1.0 first public release
+
 ## References
 
 ### Flexbar

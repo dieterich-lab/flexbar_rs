@@ -300,7 +300,7 @@ mod tests {
             
             use rust_htslib::bam::record::{Record, Aux};
             let mut bam_rec = Record::new();
-            bam_rec.set(b"read1", None, b"ACGT", b"!!!!");
+            bam_rec.set(b"read1", None, b"ACGT", &[0, 0, 0, 0]);
             bam_rec.push_aux(b"CO", Aux::String("packed_desc")).unwrap();
             
             let record = UnifiedRecord::single(UnifiedRead::from_bam(bam_rec));

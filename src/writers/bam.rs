@@ -1,6 +1,7 @@
 use std::io;
 use rust_htslib::bam::{self, Header, Writer};
-use crate::records::unified::{UnifiedRead, AnnotatedRecord};
+use crate::records::unified::AnnotatedRecord;
+use crate::records::unified_read::RawRead;
 use crate::writers::generic::{GenericWriterBackend};
 use crate::records::generic_read::GenericRawRead;
 use crate::records::header::SequenceHeader;
@@ -33,10 +34,13 @@ impl BamWriterBackend {
 impl<'a> GenericWriterBackend<'a> for BamWriterBackend {
     fn write_read(&mut self, record: &AnnotatedRecord, read_index: usize) -> io::Result<()> {
         let read = record.record.reads[read_index].as_ref().expect("Read missing");
-        let mut bam_record = match read {
-            UnifiedRead::Bam(wrapper) => wrapper.record.clone(),
+        let mut bam_record = match &read.raw {
+            RawRead::Bam(wrapper) => wrapper.record.clone(),
             _ => {
-                let qual = get_qual(record, read_index);
+                let qual: Vec<u8> = get_qual(record, read_index)
+                    .into_iter()
+                    .map(|q| q.saturating_sub(33))
+                    .collect();
                 let mut bam_rec = Record::new();
                 bam_rec.set(read.id().as_bytes(), None, read.seq(), &qual);
                 bam_rec.set_unmapped();

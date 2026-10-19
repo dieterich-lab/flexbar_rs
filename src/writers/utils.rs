@@ -1,4 +1,5 @@
-use crate::records::unified::{UnifiedRead, AnnotatedRecord};
+use crate::records::unified::AnnotatedRecord;
+use crate::records::unified_read::RawRead;
 use crate::records::generic_read::GenericRawRead;
 
 pub fn get_desc(record: &AnnotatedRecord, read_index: usize, barcode_mark: bool) -> Option<String> {
@@ -6,12 +7,12 @@ pub fn get_desc(record: &AnnotatedRecord, read_index: usize, barcode_mark: bool)
 
     let mut parts: Vec<String> = Vec::new();
     
-    match read {
-        UnifiedRead::Fasta(r) => match r.desc() {
+    match &read.raw {
+        RawRead::Fasta(r) => match r.desc() {
             Some(d) => parts.push(d.to_string()),
             _ => {}
         },
-        UnifiedRead::Fastq(r) => match r.desc() {
+        RawRead::Fastq(r) => match r.desc() {
             Some(d) => parts.push(d.to_string()),
             _ => {}
         },
@@ -39,12 +40,8 @@ pub fn get_desc(record: &AnnotatedRecord, read_index: usize, barcode_mark: bool)
 
 pub fn get_qual(record: &AnnotatedRecord, read_index: usize) -> Vec<u8> {
     let read = record.record.reads[read_index].as_ref().expect("Read missing");
-    match read {
-        UnifiedRead::Fastq(r) => r.qual().to_vec(),
-        UnifiedRead::Fasta(r) => vec![b'I'; r.seq().len()],
-        UnifiedRead::Bam(r) => match r.qual() {
-            Some(q) => q.to_vec(),
-            None => vec![b'I'; r.seq().len()],
-        },
+    match read.qual() {
+        Some(q) => q.to_vec(),
+        None => vec![b'I'; read.seq().len()],
     }
 }
